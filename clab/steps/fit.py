@@ -42,7 +42,10 @@ def fit(engine: Engine, plan: Plan, name: str, step: Fit, state: ChainMap, batch
     body_ops = [n for n, s in step.steps.items() if isinstance(s, OpStep)]
     # What each body forward reads, once for every run of the body: a body step is one point, which serves itself.
     values_read = {n: values_read_by([s]) for n, s in step.steps.items() if isinstance(s, Forward)}
-    n = len(held_rows(plan, datasets(step)[0]))
+    # The rows of the first of the body's datasets, which have as many as each other; a body holds no fit (compile
+    # refuses one).
+    n = len(held_rows(plan, min(s.dataset for s in cast("dict[str, Forward | OpStep]", step.steps).values()
+                                if s.dataset is not None)))
     scalars = [(f, sc) for f, inst in trained.items() for sc in inst.scalars]
     history: dict = {**{o: [] for o in body_ops}, **{f"{f}.{sc}": [] for f, sc in scalars}}
     best, since, kept = None, 0, None
@@ -114,12 +117,6 @@ def run_body(engine: Engine, name: str, step: Fit, state: ChainMap, trained: dic
             KINDS[cast(Step, s).kind](engine, plan, n, s, body, step.batch_size, findings, cost,
                                       *([[s], values_read[n]] if n in values_read else []))
     return body
-
-
-def datasets(step: Fit) -> list[str]:
-    """The datasets a fit's body runs over, which have as many rows as each other."""
-    body = cast("dict[str, Forward | OpStep]", step.steps)          # a fit's body holds no fit (compile refuses one)
-    return sorted({s.dataset for s in body.values() if s.dataset is not None})
 
 
 def term(body: ChainMap, trained: dict[str, Kind], name: str, at: dict) -> Tensor:

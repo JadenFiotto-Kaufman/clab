@@ -1,10 +1,6 @@
-"""Transforms: ops that turn each example's value into another, of a different layout or of the same one, or a
-gradient. The model's own readout, `encode`, which turns a value into a featurizer's coordinates, `grad`, a gradient
-in the value's place, the ranks along an axis (`top_k`, `argmax`, by default over logits), `detokenize`, which turns
-generated ids into text, and the elementwise ops, which keep the layout: arithmetic on each entry in float32 (`abs`
-to `pow`, an id's hole, -1, missing as NaN is: `reductions.floated`) and the comparisons (`eq` to `le`), 0 or 1 in the
-value's dtype (float32 on ids) and missing where either side is. Unlike an edit, none of them writes back: inside an entry a transform before its last edit acts on the live
-value that edit writes, and one after it, or in an entry with no edit, on the value off the model."""
+"""Transforms: ops that turn each example's value into another, of a different layout or of the same one (the
+elementwise ops, `abs` to `le`), or into its gradient (`grad`). Unlike an edit, none of them writes back
+(`ops.ABOUT`)."""
 
 import json
 import math
@@ -85,8 +81,8 @@ def detokenize(of: Tensor, engine: "Engine", eos: list[int], tokens: bool = Fals
                after: Text | None = None) -> list[str] | list[list[str]]:
     """Each row's generated ids as text, stopped before the row's first EOS (the id its generation stops on);
     with `tokens`, as its token strings. `after` (a column, each row's own text, or a literal, `{"text":
-    "</think>"}`) keeps each row's text after its first occurrence there (`following`), the whole text where it
-    does not occur, so `contains` scores what follows it alone."""
+    "</think>"}`) keeps each row's text after its first occurrence there, the whole text where it does not occur,
+    so `contains` scores what follows it alone."""
     tokenizer, stops = engine.tokenizer, set(eos)
     out = []
     for r, ids in enumerate(of.tolist()):
@@ -95,18 +91,16 @@ def detokenize(of: Tensor, engine: "Engine", eos: list[int], tokens: bool = Fals
             out.append(tokenizer.convert_ids_to_tokens(ids))
             continue
         text = tokenizer.decode(ids)
-        out.append(text if after is None else following(text, *after[r]))
+        if after is not None:
+            # Of the row's texts (a set's members), each compared as its flags say and the text lowercased too under
+            # `lower`, as `contains` compares, so an occurrence may cut a word: the occurrence that ends first, as a
+            # scope orders them; the text cut keeps its own characters.
+            texts, strip, lower = after[r]
+            words = data.compared(text, False, lower)
+            ends = [words.find(t) + len(t) for t in (data.compared(x, strip, lower) for x in texts) if t in words]
+            text = text[min(ends):] if ends else text
+        out.append(text)
     return out
-
-
-def following(text: str, texts: list[str], strip: bool, lower: bool) -> str:
-    """`text` after the first occurrence in it of any of `texts` (a set's members, each compared as the flags say,
-    `data.compared`, `text` lowercased too under `lower`, its characters its own): the occurrence that ends first,
-    as a scope orders them; all of `text` where none occurs. Text on text, as `contains` compares, so an occurrence
-    may cut a word."""
-    words = data.compared(text, False, lower)
-    ends = [words.find(t) + len(t) for t in (data.compared(x, strip, lower) for x in texts) if t in words]
-    return text[min(ends):] if ends else text
 
 
 @op("transforms")
@@ -142,7 +136,7 @@ def ranking(dims: list[str], args: dict, kind: str | None = None) -> list[str]:
     return [a for a in dims if a != over]
 
 
-def ranking_k(dims: list[str], args: dict, kind: str | None = None) -> list[str]:
+def ranking_k(dims: list[str], args: dict, kind: str | None) -> list[str]:
     """removes the axis `over` names, which it ranks (by default `vocab_size`), and adds `k`"""
     return ranking(dims, args) + ["k"]
 
@@ -182,13 +176,6 @@ def argmax(of: Tensor, dims: list[str], over: str = RANKED) -> Tensor:
 
 
 # -- elementwise: each entry on its own, the layout kept -------------------------------------------------------------
-
-
-def operand(x: Value, like: Tensor) -> Tensor:
-    """An operand (a number, or a named value laid out as the value is) on `like`'s device, in float32 where it is
-    floating."""
-    x = torch.as_tensor(x, device=like.device)
-    return x.float() if x.is_floating_point() else x
 
 
 @op("transforms", positionwise=True)
@@ -236,24 +223,23 @@ def neg(of: Tensor) -> Tensor:
 
 @op("transforms", positionwise=True)
 def mul(of: Tensor, with_: Value) -> Tensor:
-    """`of * with`, in float32, `with` a number or a named value broadcast as `scale`'s `factor` is: a read's product,
-    where `scale` by the same value is an edit and would write it back (by a comparison's value, a read's mask)."""
+    """`of * with`, in float32: a read's product, where `scale` by the same value is an edit and would write it back
+    (by a comparison's value, a read's mask)."""
     return floated(of) * floated(with_, of)
 
 
 @op("transforms", positionwise=True)
 def div(of: Tensor, with_: Value) -> Tensor:
-    """`of / with`, in float32, `with` a number or a named value broadcast as `scale`'s `factor` is; NaN wherever
-    `with` is 0, so a division by zero is a missing entry, never an infinite one."""
+    """`of / with`, in float32; NaN wherever `with` is 0, so a division by zero is a missing entry, never an infinite
+    one."""
     by = floated(with_, of)
     return torch.where(by == 0, math.nan, floated(of) / by)
 
 
 @op("transforms")
 def pow(of: Tensor, exponent: Value) -> Tensor:
-    """`of ** exponent`, in float32, `exponent` a number or a named value broadcast as `scale`'s `factor` is: NaN
-    where a negative entry meets a fractional exponent, `inf` where 0 meets a negative one, and NaN where either side
-    is missing, where torch gives `NaN ** 0` and `1 ** NaN` as 1."""
+    """`of ** exponent`, in float32: NaN where a negative entry meets a fractional exponent, `inf` where 0 meets a
+    negative one, and NaN where either side is missing, where torch gives `NaN ** 0` and `1 ** NaN` as 1."""
     x = floated(of)
     if isinstance(exponent, Tensor):
         e = floated(exponent, of)
@@ -270,54 +256,43 @@ def compared(of: Tensor, with_: Value, holds: Callable[[Tensor, Tensor], Tensor]
     """1 where `holds(of, with)`, else 0: a floating value's in its dtype, each side compared in float32, and ids' in
     float32, compared as they are; NaN where either side is missing (`missing`; a number `with` only where it is
     NaN), so a comparison of a hole is a hole, never a 0 or 1 a `mean` takes."""
-    a, b = (of.float() if of.is_floating_point() else of), operand(with_, of)
+    a, b = (x.float() if x.is_floating_point() else x for x in (of, torch.as_tensor(with_, device=of.device)))
     gone = missing(a) | (missing(b) if isinstance(with_, Tensor) else b.isnan())
     return holds(a, b).to(of.dtype if of.is_floating_point() else torch.float32).masked_fill(gone, math.nan)
 
 
 @op("transforms", positionwise=True)
 def eq(of: Tensor, with_: Value) -> Tensor:
-    """1 where `of == with`, else 0, `with` a number or a named value broadcast as `scale`'s `factor` is: compared in
-    float32 (ids as they are) and given in the value's dtype (float32 on ids), NaN where either side is missing (NaN, or
-    a hole, -1, in ids)."""
+    """1 where `of == with`, else 0: compared in float32 (ids as they are) and given in the value's dtype (float32 on
+    ids), NaN where either side is missing (NaN, or a hole, -1, in ids)."""
     return compared(of, with_, torch.eq)
 
 
 @op("transforms", positionwise=True)
 def ne(of: Tensor, with_: Value) -> Tensor:
-    """1 where `of != with`, else 0, `with` a number or a named value broadcast as `scale`'s `factor` is: compared in
-    float32 (ids as they are) and given in the value's dtype (float32 on ids), NaN where either side is missing (NaN, or
-    a hole, -1, in ids), so `eq` and `ne` sum to 1 wherever both are there."""
+    """1 where `of != with`, else 0, as `eq` compares, so `eq` and `ne` sum to 1 wherever both are there."""
     return compared(of, with_, torch.ne)
 
 
 @op("transforms", positionwise=True)
 def gt(of: Tensor, with_: Value) -> Tensor:
-    """1 where `of > with`, else 0, `with` a number or a named value broadcast as `scale`'s `factor` is: compared in
-    float32 (ids as they are) and given in the value's dtype (float32 on ids), NaN where either side is missing (NaN, or
-    a hole, -1, in ids)."""
+    """1 where `of > with`, else 0, as `eq` compares."""
     return compared(of, with_, torch.gt)
 
 
 @op("transforms", positionwise=True)
 def ge(of: Tensor, with_: Value) -> Tensor:
-    """1 where `of >= with`, else 0, `with` a number or a named value broadcast as `scale`'s `factor` is: compared in
-    float32 (ids as they are) and given in the value's dtype (float32 on ids), NaN where either side is missing (NaN, or
-    a hole, -1, in ids)."""
+    """1 where `of >= with`, else 0, as `eq` compares."""
     return compared(of, with_, torch.ge)
 
 
 @op("transforms", positionwise=True)
 def lt(of: Tensor, with_: Value) -> Tensor:
-    """1 where `of < with`, else 0, `with` a number or a named value broadcast as `scale`'s `factor` is: compared in
-    float32 (ids as they are) and given in the value's dtype (float32 on ids), NaN where either side is missing (NaN, or
-    a hole, -1, in ids)."""
+    """1 where `of < with`, else 0, as `eq` compares."""
     return compared(of, with_, torch.lt)
 
 
 @op("transforms", positionwise=True)
 def le(of: Tensor, with_: Value) -> Tensor:
-    """1 where `of <= with`, else 0, `with` a number or a named value broadcast as `scale`'s `factor` is: compared in
-    float32 (ids as they are) and given in the value's dtype (float32 on ids), NaN where either side is missing (NaN, or
-    a hole, -1, in ids)."""
+    """1 where `of <= with`, else 0, as `eq` compares."""
     return compared(of, with_, torch.le)

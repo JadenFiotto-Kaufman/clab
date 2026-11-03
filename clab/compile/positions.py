@@ -26,10 +26,6 @@ HEAD = ("lm_head_output", "logits")      # what a generation's prefill computes 
 EMPTY_PROMPT = {"ids": [], "offsets": [], "text": "", "turns": []}    # an encoded empty prompt
 
 
-class UnreachedRow(ValueError):
-    """A row the record does not reach, and why: `alignment_missing` beyond the prefill, a refusal in it."""
-
-
 def parse(pos: Swept[int | Pos]) -> dict:
     """A `pos` (an int, or a `Pos`) as `{"frame", "scope", "index"}`."""
     assert not isinstance(pos, Sweep), "a point's pos is one value"
@@ -128,19 +124,14 @@ def prompt_positions(prompt: int, head_only: bool = False) -> list[int]:
     return [prompt - 1] if head_only else list(range(prompt))
 
 
-def call_positions(called: list[int], prompt: int, head_only: bool) -> list[int]:
-    """The positions the calls hold, in a row whose prompt is `prompt` tokens: the prefill's (`prompt_positions`), and
-    each decode call's input."""
-    return [p for call in called for p in (prompt_positions(prompt, head_only) if call == 0 else [prompt + call - 1])]
-
-
 def call_of(position: int, prompt: int) -> int:
-    """The call that holds a position, the inverse of `call_positions`."""
+    """The call that holds a position, in a row whose prompt is `prompt` tokens: the prefill holds the prompt's,
+    decode call `k` its input, position `prompt + k - 1`."""
     return 0 if position < prompt else position - prompt + 1
 
 
-def scope_tokens(scope: dict | None, tokens: list[int], occurrences: list[set[int]], texts: Sequence[tuple] = (),
-                 encoded: dict = EMPTY_PROMPT) -> list[int]:
+def scope_tokens(scope: dict | None, tokens: list[int], occurrences: list[set[int]], texts: Sequence[tuple],
+                 encoded: dict) -> list[int]:
     """Stage two: the tokens of the occurrences `occurrence` picks among those of the scope's text (or its
     role's messages) among `tokens`, in order; under `until`, every token of `tokens` up to the last of theirs,
     and every one where the row has fewer occurrences than it picks. Under `before` an occurrence beginning the row
@@ -160,24 +151,24 @@ def scope_tokens(scope: dict | None, tokens: list[int], occurrences: list[set[in
         short = not picked or fixed(which) is not None and len(picked) != fixed(which)
         through = tokens if short else [t for t in tokens if t <= max(max(matches[i]) for i in picked)]
         if scope.get("before") and 0 in through:
-            raise UnreachedRow(f"{what} with until runs from the frame's first token, position 0, which no position "
-                               "comes before")
+            raise ValueError(f"{what} with until runs from the frame's first token, position 0, which no position "
+                             "comes before")
         return through
     if not matches and "turn" in scope:
         first = min((a for _, a, _ in encoded["turns"]), default=len(encoded["text"]))
         header = re.search(rf"\b{re.escape(scope['turn'])}\b", encoded["text"][:first]) is not None
-        raise UnreachedRow(f"the row has no {scope['turn']!r} message" + (
+        raise ValueError(f"the row has no {scope['turn']!r} message" + (
             f"; the template wrote a {scope['turn']!r} header of its own, whose tokens are positions, not a message: "
             "locate its words with a {'text': ...} scope" if header else ""))
     if not matches:
         cut = cut_word(texts, encoded["text"])
-        raise UnreachedRow(f"{what} is not in its input" + (
+        raise ValueError(f"{what} is not in its input" + (
             f"; it occurs only inside {cut!r}, cutting a word, and an occurrence lies on word boundaries" if cut else ""))
     if not picked or fixed(which) is not None and len(picked) != fixed(which):
-        raise UnreachedRow(f"{what} occurs {len(matches)} time{'s' * (len(matches) != 1)} in the row's input; it has "
-                           f"no occurrence {which}")
+        raise ValueError(f"{what} occurs {len(matches)} time{'s' * (len(matches) != 1)} in the row's input; it has "
+                         f"no occurrence {which}")
     if scope.get("before") and any(0 in matches[i] for i in picked):
-        raise UnreachedRow(f"{what} begins the row, at position 0, which no position comes before")
+        raise ValueError(f"{what} begins the row, at position 0, which no position comes before")
     return [t for t in tokens if any(t in matches[i] for i in picked)]
 
 
@@ -199,15 +190,6 @@ def cut_word(texts: Sequence[tuple], words: str) -> str | None:
     return None
 
 
-def index_picks(index: Selector, tokens: list[int], width: int | None) -> list[int]:
-    """Stage three: the positions `index` picks among the scope's tokens; a record with a static width must
-    hold all of them."""
-    picks = [tokens[i] for i in select(index, len(tokens))]
-    if width is not None and len(picks) != width:
-        raise UnreachedRow(f"tokens {index} do not fit its {len(tokens)} scope tokens")
-    return picks
-
-
 def resolve(pos: dict, prompt: int, said: list[int], occurrences: list[set[int]], head_only: bool = False,
             texts: Sequence[tuple] = (), encoded: dict = EMPTY_PROMPT) -> list[int] | str:
     """The positions a record names in one row, given its prompt's length, what it generated up to its first
@@ -220,11 +202,13 @@ def resolve(pos: dict, prompt: int, said: list[int], occurrences: list[set[int]]
     before = bool((pos["scope"] or {}).get("before"))
     try:
         calls = select(pos["frame"], max(len(said), 1))     # stage one: -1 is the row's last call, EOS or not
-        tokens = call_positions(calls, prompt, head_only)
+        tokens = [p for call in calls for p in (prompt_positions(prompt, head_only) if call == 0 else [prompt + call - 1])]
         if before and said and len(said) - 1 in calls:     # the token the last call chose, which no call holds
             tokens.append(prompt + len(said) - 1)
-        positions = index_picks(pos["index"], scope_tokens(pos["scope"], tokens, occurrences, texts, encoded),
-                                width(pos))
+        tokens = scope_tokens(pos["scope"], tokens, occurrences, texts, encoded)
+        positions = [tokens[i] for i in select(pos["index"], len(tokens))]         # stage three
+        if (static := width(pos)) is not None and len(positions) != static:         # a static width holds all of them
+            raise ValueError(f"tokens {pos['index']} do not fit its {len(tokens)} scope tokens")
         positions = [t - 1 for t in positions] if before else positions
     except ValueError as e:
         if prefill_only(pos):
@@ -257,7 +241,7 @@ def occurrences(scope: dict | None, row: dict, said: list[int], tokenizer: PreTr
     occurrence_tokens = [{t for t, (x, y) in enumerate(row["offsets"]) if x < b and y > a} for a, b in spans]
     if "turn" not in scope and inputs:
         words, chars = char_spans(tokenizer, inputs)
-        occurrence_tokens += [covering_tokens(chars, a, b, prompt)
+        occurrence_tokens += [{prompt + j for j, (x, y) in enumerate(chars) if x < b and max(y, x + 1) > a}
                               for a, b in occurrence_spans(texts, words, chars, not online)]
     return occurrence_tokens
 
@@ -316,12 +300,6 @@ def bounds(words: str, tokens: list[tuple[int, int]]) -> tuple[dict[int, int], d
     return starts, ends
 
 
-def covering_tokens(chars: list[tuple[int, int]], a: int, b: int, offset: int) -> set[int]:
-    """The tokens (`offset` + their index) whose spans overlap characters `a` to `b`; a token with an empty
-    span covers the character it begins."""
-    return {offset + j for j, (x, y) in enumerate(chars) if x < b and max(y, x + 1) > a}
-
-
 def lands_at_call(pos: dict, texts: list[tuple], inputs: list[int], eos: set[int], tokenizer: PreTrainedTokenizerBase
                   ) -> bool:
     """Whether a write with a text scope lands at the call fed `inputs[-1]`, given every input the row was fed
@@ -358,8 +336,7 @@ def char_spans(tokenizer: PreTrainedTokenizerBase, ids: list[int]) -> tuple[str,
 
 
 def prefill_positions(where: str, record: Intervention, step: Forward | Generate, rows: list[dict], encoded: list[dict],
-                      tokenizer: PreTrainedTokenizerBase,
-                      alike: dict[tuple, list] | None = None) -> list[list[int] | str]:
+                      tokenizer: PreTrainedTokenizerBase, alike: dict[tuple, list]) -> list[list[int] | str]:
     """A prefill record's positions in each row, which the data alone decides: a scope text that is absent or
     doubled, or a static index that does not fit, is refused by name, and so is a write whose positions
     hold no token of a row; a read that holds none of a row's (an index that picks none of them, a `before`
@@ -372,7 +349,7 @@ def prefill_positions(where: str, record: Intervention, step: Forward | Generate
     why = f"; a generation's prefill computes {record.site.component} at its last position only, so " \
         "that is all call 0 holds of it" if head_only else ""
     key = (step.dataset, data.input_name(step.input), repr(record.pos), head_only)
-    known = (alike or {}).get(key)
+    known = alike.get(key)
     row_positions: list[list[int] | str] = []
     for i, (row, enc) in enumerate(zip(rows, encoded)):
         try:
@@ -383,11 +360,7 @@ def prefill_positions(where: str, record: Intervention, step: Forward | Generate
             raise ValueError(f"{where}: row {i}: the write's positions hold no token of this row; a write needs "
                              f"one to write{why}")
         row_positions.append(positions if isinstance(positions, str) else list(positions))
-    if known is not None:
-        return known
-    if alike is not None:
-        alike[key] = row_positions
-    return row_positions
+    return alike.setdefault(key, row_positions)
 
 
 def resolve_row(pos: dict, row: dict, encoded: dict, said: list[int], tokenizer: PreTrainedTokenizerBase,

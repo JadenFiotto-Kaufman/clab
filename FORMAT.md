@@ -58,7 +58,7 @@ one order: `{"shuffle": true, "skip": 20000, "take": 10000}` is the third of 10,
 for one run is made in shards); and `columns` renames them, `{"<name>": "<column as the source has it>"}`,
 each name that column and no longer under its own, every other column as it is (so one file serves a fit's
 `eval` substitution under the body's column names), or derives one, `{"<name>": {"from": "<column as the
-source has it>", "after"?: ..., "before"?: ..., "strip"?: bool}}`, text cut from another column's (`Derived`),
+source has it>", ...}}`, text cut from another column's (`Derived`),
 which joins the rows and their digest as a column the source has does. `template` is passed to the checkpoint's
 `apply_chat_template` wherever a chat column of the dataset renders (`{"add_generation_prompt": true,
 "enable_thinking": false}`), so a chat can end in the generation prompt and keep its `turn` scopes; a
@@ -70,8 +70,8 @@ JSON. Refused by name: a second source, an `hf` that is not `<owner>/<name>`, `h
 than the one its cache holds (offline, a branch reads as the cache holds it), a split it does not have (or, of
 several, none named), and a column of it whose values are not JSON (images, audio, bytes); a `skip` that
 leaves no row, `take` beyond the rows `skip` leaves, a `columns` source the rows lack or a name that is a
-column they keep (a swap, `{"a": "b", "b": "a"}`, keeps neither), a derived column's source that is not text
-on a row or that lacks its text there, a `template` on a dataset no step reads a chat column of, and, before
+column they keep (a swap, `{"a": "b", "b": "a"}`, keeps neither), a `template` on a dataset no step reads a
+chat column of, and, before
 any forward, a chat of a clock-reading template without `date_string`. `sha256` and `n_rows` describe the rows
 these leave.
 
@@ -85,8 +85,8 @@ these leave.
 `{"from": "<column as the source has it>", "after"?: {"text": ...}, "before"?: {"text": ...}, "strip"?:
 bool}`: a column whose text on each row is cut from another's, text on text, decided at compile, never a
 computation on its values: the text of column `from` after the first occurrence of `after`'s text, then
-before the first occurrence of `before`'s in what is left (each optional, and each a text, `{"text": ...}`,
-one string alone, compared exactly), then, under `strip`, without its surrounding whitespace. `{"from":
+before the first occurrence of `before`'s in what is left (each compared exactly), then, under `strip`,
+without its surrounding whitespace. `{"from":
 "answer", "after": {"text": "#### "}, "strip": true}` is a GSM8K answer's number. `from` stays under its own
 name. Refused by name: a row whose `from` is not text, and one on which `after`'s or `before`'s text does not
 occur, naming the row.
@@ -129,11 +129,7 @@ lowercased, and `strip` makes its surrounding whitespace optional.
 Where an op takes `Tokens` or `Text` (a metric's answer, `contains`'s text), a literal may stand in place of the
 column: `{"text": "</think>", "strip"?: bool, "lower"?: bool}`, its text a string or a list of them (a set), the
 same on every row of whatever value it goes with, and read exactly as a column holding it on every row is
-(tokenized as written, the flags as here). It takes the flags and a set, where a text (`{"text": ...}` in a
-list `input` or a derived column) is one string alone; a scope names its text in its own `text` field.
-
-A scope searches the input for the text as the flags compare it, under `strip` without its surrounding
-whitespace, its positions the original's.
+(tokenized as written, the flags as here). A scope names its text in its own `text` field.
 
 An answer scored against logits is tokenized as written, and each of its tokens stands for its class: every
 token of the vocabulary whose text (what it adds after another token, so a leading space is its own) compares
@@ -380,8 +376,8 @@ gives. With a `column` or `text` scope, decode calls only, index -1 and an occur
 first. A scoped write is found
 online, decoding the inputs fed so far at each call: it lands at the call fed the last token of each
 occurrence it picks, as that occurrence appears (its earlier tokens were fed before the text was there
-to find), and a row with fewer occurrences than it picks is `alignment_missing`. No write takes a frame
-counted from a row's last call. A row's calls are what the engine actually generated, up to the
+to find), and a row with fewer occurrences than it picks is `alignment_missing`. A row's calls are what
+the engine actually generated, up to the
 one that chose the row's first EOS: the step's own `eos_token_id` when it gives one, else the id the
 engine's generation stops on (its generation config's). The step's own value is the
 new token ids, `[rows, new]`; `detokenize` makes them text. Options that would change the rows, the value or
@@ -678,7 +674,7 @@ stays missing: NaN.
 | `std` | `over: list of str or null = null` | Removes the axes `over` names, by default the rows and positions: a `layers` axis stays unless `over` names it. One that would remove no axis of the value is refused. | The sample standard deviation over the axes `over` names, as `mean` takes them, of the n values that are there: `sqrt(sum((x - mean)^2) / (n - 1))`; NaN where fewer than two are. |
 | `count` | `over: list of str or null = null` | Removes the axes `over` names, by default `pos`, and with them every axis but `layers`, `rows` and `pos`: one count per position of those it keeps (a read's count over `pos` is one number per row). | How many positions along the axes `over` names (by default `pos`) hold the value, in float32: a position is held where any of its entries is there (not NaN; in ids, not -1), its vector counted once, so a read's count is each row's own number of positions (a generation's read at `{"frame": "1:"}`, the decode calls the row made) and 0 where it has none. |
 | `norm` | `over: list of str or null = null`, `p: float = 2.0` | Removes the axes `over` names, by default `hidden_size`, which a value without one names in `over`. | The Lp norm over the axes `over` names, by default `hidden_size`: `sum(|x|^p)^(1/p)` of the entries that are there, as `sum` takes them (at `p` 2, `sqrt` of the `sum` of the `square`, to the bit); NaN where none is. |
-| `dot` | `with: Value`, `over: list of str or null = null` | Removes the axes `over` names, by default `hidden_size`, which a value without one names in `over`. | The dot product with `with` over the axes `over` names, by default `hidden_size`: the `sum` of `of * with` (`with` a number or a named value broadcast as `scale`'s `factor` is) over the entries both have, as `sum` takes them (`mul` then `sum`, to the bit); NaN where none is. |
+| `dot` | `with: Value`, `over: list of str or null = null` | Removes the axes `over` names, by default `hidden_size`, which a value without one names in `over`. | The dot product with `with` over the axes `over` names, by default `hidden_size`: the `sum` of `of * with` over the entries both have, as `sum` takes them (`mul` then `sum`, to the bit); NaN where none is. |
 | `entropy` | `over: list of str or null = null` | Removes the axes `over` names, by default `vocab_size` where the value has it, else `num_experts`; a value with neither names them in `over`. | The entropy in nats of the softmax over the axes `over` names, by default `vocab_size` where the value has it, else `num_experts`: `-sum(p log p)`, `p` the float32 softmax of the entries that are there (a missing one has no share, and a vector with none is NaN), a `p` of 0 adding 0; routing entropy is `entropy` of `router_logits` on a softmax router, ln of the experts' count where it routes evenly. |
 | `pca` | `k: int` | needs hidden_size; removes layers, rows, pos; adds k | The top-`k` principal directions (`basis`, `[hidden_size, k]`, orthonormal columns, the largest variance first) and the `mean` they are centred on, float32 whatever the value's dtype, as a fit's trained featurizers are: the bundle a `pca` featurizer loads. |
 
@@ -689,13 +685,13 @@ stays missing: NaN.
 | `swap` | `with: Value` | keeps the layout | Replace the value with `with`, broadcast over its rows and positions. |
 | `add` | `with: Value`, `scale: float = 1.0` | keeps the layout | `of + scale * with`. |
 | `sub` | `with: Value` | keeps the layout | `of - with`. |
-| `scale` | `factor: Value` | keeps the layout | `of * factor`, broadcast as `add`'s `with` is: a number, or a named value (a dose measured by a step; a `[rows, pos]` factor scales each position's vector by its own number, over `hidden_size`). |
+| `scale` | `factor: Value` | keeps the layout | `of * factor`: a number, or a named value (a dose measured by a step; a `[rows, pos]` factor scales each position's vector by its own number, over `hidden_size`). |
 | `renormalize` | `norm: one of "l2", "sum" = "l2"` | keeps the layout | Each vector rescaled to `original`'s: under `norm` `l2`, to its L2 norm; under `sum`, to its sum, so a row of an attention pattern a write knocked keys out of is a distribution again. `original` is, inside an entry, the value at the site before the step's writes (inside an `encode`, its coordinates). Norms and sums take the entries that are there (`present`), and a vector whose norm or sum is zero is left as it is (a row whose every key was knocked out stays zero). |
 | `normalize` | — | keeps the layout | Each vector divided by its norm, of the entries that are there (`present`); a vector whose norm is zero is left as it is, as `renormalize` leaves one. |
 | `project_out` | `direction: Value` | keeps the layout | Each vector less its component along `direction`, which is normalised first (its length does not matter), over the entries both have (`present`); a zero `direction` has no component to remove, and leaves each vector as it is. |
 | `decode` | `featurizer: Featurizer` | the layout its `encode` had | Closes the entry's most recent `encode` not yet closed, which is of `featurizer`: the value from before that `encode`, the change of its coordinates written back as a delta (`replace`), so an op between them that changes no coordinate changes nothing and a sparse autoencoder's error term survives. The pair runs as one, the ops between on the coordinates (`batches.apply_bound_ops`). |
 | `apply` | `featurizer: Featurizer`, `with: Value = null` | keeps the layout | `featurizer`'s own version of the value, in its layout: a subspace's projection, a dictionary's reconstruction without its error term, a gate's masked value, an adapter's adapted value. `with` is an adapter's input where that is read at another site of the same forward (a lora's), or the value a gate interpolates toward, `h·m + with·(1−m)` (an operand as `swap`'s is, exact where a unit is on and where it is off); a kind whose `apply` takes none refuses it. |
-| `noise` | `scale: Value`, `seed: int = 0` | keeps the layout | `of + scale * noise`, `scale` a number or a named value broadcast as `add`'s `with` is, the noise standard normal and drawn per example: the noise at a row's position is one draw of the value's other axes from a CPU generator seeded by `seed`, the row's place in its dataset and the token's position alone (in a step over a value that holds no positions, its index along `pos`), then moved to the value's device. So batch size, sweep point and forward call never change it, no two rows or positions share one, a write across layers draws the same bits at each of them (as one entry per layer with one seed does), and a document draws the same bits on any device. A value with no rows is one draw from `seed`. |
+| `noise` | `scale: Value`, `seed: int = 0` | keeps the layout | `of + scale * noise`, the noise standard normal and drawn per example: the noise at a row's position is one draw of the value's other axes from a CPU generator seeded by `seed`, the row's place in its dataset and the token's position alone (in a step over a value that holds no positions, its index along `pos`), then moved to the value's device. So batch size, sweep point and forward call never change it, no two rows or positions share one, a write across layers draws the same bits at each of them (as one entry per layer with one seed does), and a document draws the same bits on any device. A value with no rows is one draw from `seed`. |
 | `clamp` | `min: float or null = null`, `max: float or null = null` | keeps the layout | Each element clamped to `[min, max]`; at least one of them given. |
 
 ### Transforms
@@ -707,7 +703,7 @@ stays missing: NaN.
 | `grad` | `of: str` | keeps the layout | The gradient, at the entry's selection, of the sum of `of`'s value over every axis it has (a missing row adds nothing) with respect to the value at this entry's site as the forward goes on with it there, after the writes listed before this entry at that site: `of` names, bare, an entry of the same forward at a site the forward reaches after this one, whose ops a gradient passes through. The first op of an entry of a `forward` (see above); what it meets is that gradient already, which it gives back as it is. |
 | `top_k` | `k: int`, `over: str = "vocab_size"` | removes the axis `over` names, which it ranks (by default `vocab_size`), and adds `k` | The `k` largest along the axis `over` names, the largest first: `ids`, their indices along it, and over a vocabulary (`vocab_size`, a probe's `classes`) `probs`, their float32 softmax over it, over another axis `values`, the ranked values as the value has them. By default the most likely tokens, ranked by their logits (as a step, its value also holds their `tokens`, decoded); over `features`, a featurizer's coordinates after an `encode`. Along a ragged axis (a pattern's `key`) the entries that are there are ranked, and a pick past them is id -1. An exact tie goes to the lower index (`ranked`), so `top_k`'s first is `argmax`'s. |
 | `argmax` | `over: str = "vocab_size"` | removes the axis `over` names, which it ranks: by default `vocab_size` | The index of the largest along the axis `over` names: by default the id of the most likely token, ranked by its logit. Along a ragged axis the largest of the entries that are there; -1 where none is (a missing value). An exact tie goes to the lower index, as in `top_k`. |
-| `detokenize` | `tokens: bool = false`, `after: Text = null` | needs new; removes new | Each row's generated ids as text, stopped before the row's first EOS (the id its generation stops on); with `tokens`, as its token strings. `after` (a column, each row's own text, or a literal, `{"text": "</think>"}`) keeps each row's text after its first occurrence there (`following`), the whole text where it does not occur, so `contains` scores what follows it alone. |
+| `detokenize` | `tokens: bool = false`, `after: Text = null` | needs new; removes new | Each row's generated ids as text, stopped before the row's first EOS (the id its generation stops on); with `tokens`, as its token strings. `after` (a column, each row's own text, or a literal, `{"text": "</think>"}`) keeps each row's text after its first occurrence there, the whole text where it does not occur, so `contains` scores what follows it alone. |
 | `abs` | — | keeps the layout | `|of|`, each entry's absolute value, in float32. |
 | `exp` | — | keeps the layout | `e ** of`, each entry's exponential, in float32 (`inf` past about 88.7). |
 | `log` | — | keeps the layout | `ln(of)`, each entry's natural logarithm, in float32: `-inf` at 0 and NaN below it. |
@@ -715,15 +711,15 @@ stays missing: NaN.
 | `sqrt` | — | keeps the layout | `of ** 0.5`, each entry's square root, in float32: NaN below 0. |
 | `square` | — | keeps the layout | `of * of`, each entry squared, in float32. |
 | `neg` | — | keeps the layout | `-of`, each entry negated, in float32: a read's negation, where `scale` by -1 would write it back. |
-| `mul` | `with: Value` | keeps the layout | `of * with`, in float32, `with` a number or a named value broadcast as `scale`'s `factor` is: a read's product, where `scale` by the same value is an edit and would write it back (by a comparison's value, a read's mask). |
-| `div` | `with: Value` | keeps the layout | `of / with`, in float32, `with` a number or a named value broadcast as `scale`'s `factor` is; NaN wherever `with` is 0, so a division by zero is a missing entry, never an infinite one. |
-| `pow` | `exponent: Value` | keeps the layout | `of ** exponent`, in float32, `exponent` a number or a named value broadcast as `scale`'s `factor` is: NaN where a negative entry meets a fractional exponent, `inf` where 0 meets a negative one, and NaN where either side is missing, where torch gives `NaN ** 0` and `1 ** NaN` as 1. |
-| `eq` | `with: Value` | keeps the layout | 1 where `of == with`, else 0, `with` a number or a named value broadcast as `scale`'s `factor` is: compared in float32 (ids as they are) and given in the value's dtype (float32 on ids), NaN where either side is missing (NaN, or a hole, -1, in ids). |
-| `ne` | `with: Value` | keeps the layout | 1 where `of != with`, else 0, `with` a number or a named value broadcast as `scale`'s `factor` is: compared in float32 (ids as they are) and given in the value's dtype (float32 on ids), NaN where either side is missing (NaN, or a hole, -1, in ids), so `eq` and `ne` sum to 1 wherever both are there. |
-| `gt` | `with: Value` | keeps the layout | 1 where `of > with`, else 0, `with` a number or a named value broadcast as `scale`'s `factor` is: compared in float32 (ids as they are) and given in the value's dtype (float32 on ids), NaN where either side is missing (NaN, or a hole, -1, in ids). |
-| `ge` | `with: Value` | keeps the layout | 1 where `of >= with`, else 0, `with` a number or a named value broadcast as `scale`'s `factor` is: compared in float32 (ids as they are) and given in the value's dtype (float32 on ids), NaN where either side is missing (NaN, or a hole, -1, in ids). |
-| `lt` | `with: Value` | keeps the layout | 1 where `of < with`, else 0, `with` a number or a named value broadcast as `scale`'s `factor` is: compared in float32 (ids as they are) and given in the value's dtype (float32 on ids), NaN where either side is missing (NaN, or a hole, -1, in ids). |
-| `le` | `with: Value` | keeps the layout | 1 where `of <= with`, else 0, `with` a number or a named value broadcast as `scale`'s `factor` is: compared in float32 (ids as they are) and given in the value's dtype (float32 on ids), NaN where either side is missing (NaN, or a hole, -1, in ids). |
+| `mul` | `with: Value` | keeps the layout | `of * with`, in float32: a read's product, where `scale` by the same value is an edit and would write it back (by a comparison's value, a read's mask). |
+| `div` | `with: Value` | keeps the layout | `of / with`, in float32; NaN wherever `with` is 0, so a division by zero is a missing entry, never an infinite one. |
+| `pow` | `exponent: Value` | keeps the layout | `of ** exponent`, in float32: NaN where a negative entry meets a fractional exponent, `inf` where 0 meets a negative one, and NaN where either side is missing, where torch gives `NaN ** 0` and `1 ** NaN` as 1. |
+| `eq` | `with: Value` | keeps the layout | 1 where `of == with`, else 0: compared in float32 (ids as they are) and given in the value's dtype (float32 on ids), NaN where either side is missing (NaN, or a hole, -1, in ids). |
+| `ne` | `with: Value` | keeps the layout | 1 where `of != with`, else 0, as `eq` compares, so `eq` and `ne` sum to 1 wherever both are there. |
+| `gt` | `with: Value` | keeps the layout | 1 where `of > with`, else 0, as `eq` compares. |
+| `ge` | `with: Value` | keeps the layout | 1 where `of >= with`, else 0, as `eq` compares. |
+| `lt` | `with: Value` | keeps the layout | 1 where `of < with`, else 0, as `eq` compares. |
+| `le` | `with: Value` | keeps the layout | 1 where `of <= with`, else 0, as `eq` compares. |
 
 ## Components
 
@@ -746,9 +742,8 @@ write changes nothing (its padding's keys stay as they are).
 entries are ids under (`expert_indices`' are experts, under `num_experts`): a write there is a `swap` of ids, each a
 whole number from 0 below that size, since the model indexes with them.
 
-A selection of a component (what an entry takes, and what its ops see) is
-laid out `(rows, pos, *the remaining axes in order)`: a `layers` axis comes
-first under `layers` that are a slice or a list of picks, a write's as a read's. A read whose rows hold
+A selection of a component, what an entry takes and what its ops see, is laid out as the table lists it, with a
+`layers` axis first under `layers` that are a slice or a list of picks, a write's as a read's. A read whose rows hold
 different numbers of positions is as wide as its widest row, NaN past a row's own. How an engine reaches a
 component is that engine's business; the name says only what the value is.
 
@@ -792,14 +787,14 @@ and `header` (the tensors and header of the bundle its `file_path` names) suppli
 `labels` (its class list), and for a gate over named axes `kept` (the indices its units keep on each of them).
 An instance holds plain tensors, never an `nn.Module`, made where the model is: a declared featurizer before the
 run's first step, one a fit trains at the fit's start. It is drawn from its `seed` (else the seed of the fit that
-trains it, else 0), or loaded from its bundle, which compile reads into the plan and checks key by key against the
-document; a loaded one is fixed. Three ops reach it: `encode` gives
+trains it, else 0), or loaded from its bundle, which compile reads into the plan; a loaded one is fixed. Three
+ops reach it: `encode` gives
 its coordinates of a value `h` (the last axis becomes the kind's axis: `features`, or a probe's `classes`),
 `decode` writes a change of them back into `h` as a delta (`replace`), so an op between them that changes
 nothing changes nothing to the bit, and a sparse autoencoder's error term is kept exactly; and `apply` gives
 its version of `h` in `h`'s own layout (a subspace's projection, a dictionary's reconstruction, a gate's
-masked value or, given `with`, its interpolation toward that value, an adapter's adapted value). A fit trains an
-instance's `trains` tensors; its objective may name a featurizer's scalar as `<featurizer>.<scalar>` (a gate's
+masked value or, given `with`, its interpolation toward that value, an adapter's adapted value). A fit's
+objective may name a featurizer's scalar as `<featurizer>.<scalar>` (a gate's
 `mask` is the mean of its soft mask; an sae's `reconstruction` and `l1` are over the coordinates the body read of
 it in that run of the body, its `encode`s no `decode` closes, which the instance keeps while a fit trains it). Its
 math runs on the value's device and dtype, with autocast off: a model served in bfloat16 under autocast leaves a
@@ -814,24 +809,20 @@ one is checked against it key by key: the tensors and the kind, its fields and t
 the site at every use (each layer it picks one that `layer` names, and a gate's selection on each axis it is over
 the one `kept.<axis>` names), and `width` against the model's size before any forward. A file is clab's when its
 header's `format` is `clab/...`; one that carries clab's header keys under another format is refused. Any other
-file is a published one, its kind's to read or refuse: an `sae` reads one (SAELens, Gemma Scope), whose shapes are
-checked against each other and the site's width: nothing in it says what model or site it was made at, so the
-document states the layer, which every use is checked against.
+file is a published one, its kind's to read or refuse: an `sae` reads one (SAELens, Gemma Scope).
 
 Each kind is one class, in a module of its own, registered under its name in lower case. It declares as class
 attributes what its bundle holds (`saves`), what a fit trains (`trains`), the axis its coordinates are on
 (`axis`), the fields its bundle's header records (`header`), the fields one drawn without a `file_path` needs
-(`drawn`), what a header field left unstated is where the kind rather than its signature decides it
-(`unstated`: an sae's `activation` and `centered`, a drawn dictionary's unless the document says, which a
-published file must state), the scalars a fit's objective may name (`scalars`; those of them over what the
-body's encodes of it saw, `over_encodes`, which compile refuses on a body with no open encode of it) and the
-fields that count directions of the value, so are at most its width (`counts`), whether its `apply`'s
-`with` is its input (`adapts`: an adapter's) or an operand of the value (a gate's), and whether its `apply` is
-elementwise (`elementwise`: a gate's), which keeps a missing element of the value missing where any other kind
-loses its whole vector; its constructor makes an
-instance. The ops it serves are its methods `encode(h)`, `replace(h, z, new)` (what `decode` runs, so a kind serves `decode` when it has both) and
-`apply(h, ...)`, a kind defining only those it has; the rest is the protocol `Kind` declares, with a default for
-what a kind need not have.
+(`drawn`), what a header field left unstated is where the kind rather than its signature decides it (`unstated`:
+an sae's `activation` and `centered`), the scalars a fit's objective may name (`scalars`; those of them over what
+the body's encodes of it saw, `over_encodes`, which compile refuses on a body with no open encode of it) and the
+fields that count directions of the value, so are at most its width (`counts`), whether its `apply`'s `with` is
+its input (`adapts`: an adapter's) or an operand of the value (a gate's), and whether its `apply` is elementwise
+(`elementwise`: a gate's), which keeps a missing element of the value missing where any other kind loses its
+whole vector; its constructor makes an instance. The ops it serves are its methods `encode(h)`,
+`replace(h, z, new)` (what `decode` runs, so a kind serves `decode` when it has both) and `apply(h, ...)`, a kind
+defining only those it has; the rest is the protocol `Kind` declares, with a default for what a kind need not have.
 
 ### `subspace`
 
@@ -930,7 +921,7 @@ Ops: `encode` gives its coordinates, the last axis becoming classes.
 A low-rank adapter, `A` `[width, rank]` and `B` `[rank, width]` at scale `alpha / rank`: loaded from its
 bundle (its rank and alpha from the bundle's header), or with `rank` and `alpha` one a fit trains, drawn
 from `seed`: `A` standard normal over sqrt(width), `B` zero, so it starts as the identity exactly. It has
-no coordinates, so its one op is `apply`, and nothing encodes into it.
+no coordinates, so its one op is `apply`.
 
 Ops: `apply`(with: Value or null = null) gives its version of the value, in the value's own layout: `h + (alpha/rank) (x A) B`: `x` is `h`, or `with` (a value at the same positions, from another site of the same forward: an o_proj adapter reads `attention_premix` and applies at `attention_output`), its axes after the positions flattened into the adapter's width. The addition lands on the live value.
 
@@ -1051,16 +1042,14 @@ or a scope's occurrence, not the object.
 
 A sweep may stand for any value except under `description`, `model` and `data` (a dataset's rows are compiled
 once, and a step reads them by name), on a name, a kind, a `file_path`, or a gate's `over` (a featurizer has one
-width at every point). One label is one axis: sweeps with
-one label, by default or given, and the same
-values are one axis, so their points pair up (zip), as one sweep reached from two places does (a swept site
-two steps use); sweeps with one label and different values are refused, and sweeps with different labels
-cross. So a read's `layers` swept `{"sweep": [0, 1, 2], "label": "src"}` and a write's `{"sweep": [0, 1, 2],
-"label": "dst"}` are a 3×3 grid in one step, each point keyed `src=0,dst=2`; swept `{"sweep": [0, 1, 2]}`
-each, both are labelled `layers`, so they pair up, the diagonal, layer L with layer L, and the grid gives one
-of them a `label`. A step that uses a swept thing, or references a value that varies, becomes a list of
-points, one per combination of its axes, each a whole step whose `at` gives its index on each axis; a step no
-sweep touches runs once.
+width at every point). One label is one axis: sweeps with one label, by default or given, and the same values
+pair their points (zip), as one sweep reached from two places does (a swept site two steps use); sweeps with one
+label and different values are refused, and sweeps with different labels cross. So a read's `layers` swept
+`{"sweep": [0, 1, 2], "label": "src"}` and a write's `{"sweep": [0, 1, 2], "label": "dst"}` are a 3×3 grid in
+one step, each point keyed `src=0,dst=2`; swept `{"sweep": [0, 1, 2]}` each, both are labelled `layers`, so they
+pair up, the diagonal, layer L with layer L, and the grid gives one of them a `label`. A step that uses a swept
+thing, or references a value that varies, becomes a list of points, one per combination of its axes, each a
+whole step whose `at` gives its index on each axis; a step no sweep touches runs once.
 
 A value of a swept step depends on some of the step's axes, which its record says (`axes`): the sweeps on its
 own entry (its site, its positions, an op's literal argument), those of every value or featurizer its ops

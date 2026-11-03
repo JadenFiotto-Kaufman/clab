@@ -238,7 +238,7 @@ def answer_ids(answer: Answer, of: Tensor | None, dims: list[str], ids: list[int
     metric scores, as the token ids each position may be, padded with -1 (`metrics._aligned`). A column whose every
     row is one token scores it at every position of its row (`[rows, m]`); one with an answer of several tokens is
     `aligned`: token i of each row's at the row's position i (`[rows, pos, m]`), which needs every row the value
-    reaches to have as many positions as its answer has tokens (`position_counts`)."""
+    reaches to have as many positions as its answer has tokens."""
     n = row_count(of, dims, ids) if answer.literal else 0
     column = answer.column
     chosen = answer.sets * n if answer.literal else data.by_id(answer.sets, ids)
@@ -252,20 +252,16 @@ def answer_ids(answer: Answer, of: Tensor | None, dims: list[str], ids: list[int
                          f"axis ({dims})")
     assert of is not None, "only a write's ops are bound without the value, and with no dims"
     width = of.shape[dims.index("pos")]
-    for r, value, row, k in zip(ids if ids is not None else range(len(sets)), given, sets, position_counts(of, dims)):
+    # A row's positions are those not NaN all the way (a row the value does not reach, or a position past a row's own,
+    # is NaN); the trailing size is spelled out, since a reshape with -1 is ambiguous on a `pos` axis of 0.
+    x = of.movedim((dims.index("rows"), dims.index("pos")), (0, 1))
+    counts = (~x.reshape(*x.shape[:2], math.prod(x.shape[2:])).isnan().all(-1)).sum(1).tolist()
+    for r, value, row, k in zip(ids if ids is not None else range(len(sets)), given, sets, counts):
         if k != len(row) and k != 0:                    # a row the value does not reach is missing, not refused
             raise ValueError(unaligned_answer_refusal(column, r, value, len(row), k))
     # `[rows, pos, m]` whatever `width` is: over a read no row reached it is 0, and the list alone would be `[rows, 0]`.
     return torch.tensor([[row[i] if i < len(row) else [-1] * most for i in range(width)]
                          for row in sets]).reshape(len(sets), width, most)
-
-
-def position_counts(of: Tensor, dims: list[str]) -> list[int]:
-    """How many positions each row of `of` holds: those not NaN all the way (a row the value does not reach,
-    or a position past a row's own, is NaN); 0 on every row of a value no row reached, which holds no position."""
-    x = of.movedim((dims.index("rows"), dims.index("pos")), (0, 1))
-    # The trailing size spelled out: a reshape with -1 is ambiguous on a value of no elements (a `pos` axis of 0).
-    return (~x.reshape(*x.shape[:2], math.prod(x.shape[2:])).isnan().all(-1)).sum(1).tolist()
 
 
 def unaligned_answer_refusal(column: str, row: int, value: object, k: int, n: int) -> str:

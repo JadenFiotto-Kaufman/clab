@@ -6,12 +6,9 @@ from __future__ import annotations
 
 import re
 import sys
-from typing import TYPE_CHECKING, Annotated, Any, Union, cast
+from typing import Annotated, Any, Union
 
 from pydantic import BeforeValidator
-
-if TYPE_CHECKING:
-    from clab.plan import Site
 
 # A slice string: each part an int or empty, no `-0`, no step 0.
 SLICE = r"^(0|-?[1-9][0-9]*)?:(0|-?[1-9][0-9]*)?(:(-?[1-9][0-9]*)?)?$"
@@ -82,8 +79,7 @@ def width_of(kept: Kept) -> int:
 
 
 def keys(selector: Selector) -> list[int]:
-    """The keys a selector on the `key` axis picks: the same of every row long enough to hold them, a fixed
-    number counted from the start (`keyed` says so), so no row's length changes them."""
+    """The keys a `keyed` selector picks on the `key` axis, the same of every row long enough to hold them."""
     return select(selector, sys.maxsize)
 
 
@@ -152,12 +148,6 @@ def covers(frame: Selector) -> bool:
 Selector = Annotated[Union[int, str, list[int]], "selector", BeforeValidator(checked)]
 
 
-def made_at(site: Site, n: int) -> list[int] | list[None]:
-    """The layers a point's site (its `layers` a selector, no sweep) is made at among the model's `n`, or
-    `[None]` for a model's own value."""
-    return [None] if site.layers is None else select(cast(Selector, site.layers), n)
-
-
 def picked(where: str, layers: Selector, n: int) -> list[int]:
     """The layers a site's `layers` select among the model's `n`; a layer outside them, or a slice that picks
     none, is refused by name."""
@@ -179,7 +169,7 @@ def selected(where: str, axis: str, selector: Selector, n: int, what: str) -> No
     written = keys(selector) if keyed(selector) else [selector] if isinstance(selector, int) else \
         selector if isinstance(selector, list) else []
     try:
-        got = cast(list[int], kept({axis: selector}, {axis: n})[axis])      # indices: an offset is not checked here
+        got = keys(selector) if axis == "key" else select(selector, n)
     except ValueError as e:
         raise ValueError(f"{where}: select {axis}: {e}") from None
     if any(not -n <= i < n for i in written) or any(i >= n for i in got):

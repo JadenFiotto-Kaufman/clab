@@ -1,7 +1,5 @@
-"""Reductions: ops that remove axes. `mean`, `sum`, `min`, `max`, `std`, `count`, `norm`, `dot` and `entropy` compute
-in float32 whatever the value's dtype (`ops.ABOUT`), of the entries that are there: a missing one is NaN, and in ids
-(an integer value: `argmax`'s, `top_k`'s `ids`, `expert_indices`) -1, the hole (`floated`); `pca` works in double and
-returns float32, as every bundle is."""
+"""Reductions: ops that remove axes, of the entries that are there (`floated`), in float32 whatever the value's dtype;
+`pca` works in double and returns float32, as every bundle is (`ops.ABOUT`)."""
 
 import json
 import math
@@ -98,7 +96,7 @@ def std(of: Tensor, dims: list[str], over: list[str] | None = None) -> Tensor:
 COUNTED = ("pos",)
 
 
-def counted(dims: list[str], args: dict, kind: str | None = None) -> list[str]:
+def counted(dims: list[str], args: dict, kind: str | None) -> list[str]:
     """Removes the axes `over` names, by default `pos`, and with them every axis but `layers`, `rows` and `pos`: one
     count per position of those it keeps (a read's count over `pos` is one number per row)."""
     over = COUNTED if args.get("over") is None else args["over"]
@@ -130,7 +128,7 @@ def count(of: Tensor, dims: list[str], over: list[str] | None = None) -> Tensor:
 FEATURES = ["hidden_size"]
 
 
-def featured(dims: list[str], args: dict, kind: str | None = None) -> list[str]:
+def featured(dims: list[str], args: dict, kind: str | None) -> list[str]:
     """Removes the axes `over` names, by default `hidden_size`, which a value without one names in `over`."""
     if args.get("over") is None and FEATURES[0] not in dims:
         raise ValueError(f"it reduces over {FEATURES[0]} unless 'over' names the axes, and the value is laid out "
@@ -162,8 +160,7 @@ def norm(of: Tensor, dims: list[str], over: list[str] | None = None, p: float = 
 @op("reductions", layout=featured)
 def dot(of: Tensor, with_: Value, dims: list[str], over: list[str] | None = None) -> Tensor:
     """The dot product with `with` over the axes `over` names, by default `hidden_size`: the `sum` of `of * with`
-    (`with` a number or a named value broadcast as `scale`'s `factor` is) over the entries both have, as `sum` takes
-    them (`mul` then `sum`, to the bit); NaN where none is."""
+    over the entries both have, as `sum` takes them (`mul` then `sum`, to the bit); NaN where none is."""
     product = floated(of) * floated(with_, of)
     return sum(product, dims, FEATURES if over is None else over)
 
@@ -173,7 +170,7 @@ def dot(of: Tensor, with_: Value, dims: list[str], over: list[str] | None = None
 OUTCOMES = ("vocab_size", "num_experts")
 
 
-def distributed(dims: list[str], args: dict, kind: str | None = None) -> list[str]:
+def distributed(dims: list[str], args: dict, kind: str | None) -> list[str]:
     """Removes the axes `over` names, by default `vocab_size` where the value has it, else `num_experts`; a value with
     neither names them in `over`."""
     if args.get("over") is None and not set(OUTCOMES) & set(dims):

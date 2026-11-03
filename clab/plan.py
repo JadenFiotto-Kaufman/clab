@@ -32,7 +32,7 @@ from pydantic import (
     model_serializer,
     model_validator,
 )
-from pydantic_core import ErrorDetails, core_schema
+from pydantic_core import core_schema
 from torch import Tensor
 
 from clab import featurizers, ops
@@ -71,8 +71,6 @@ class Record(BaseModel):
     def _derived_last(self, handler: SerializerFunctionWrapHandler) -> Any:
         """The record as written: the document's fields first, then what compile or the run derived."""
         dumped = handler(self)
-        if not isinstance(dumped, dict):
-            return dumped
         later = [k for k in type(self).model_fields if k not in documented(type(self))]
         return {**{k: v for k, v in dumped.items() if k not in later}, **{k: v for k, v in dumped.items() if k in later}}
 
@@ -117,15 +115,12 @@ def shaped(member: Any, value: Any) -> bool:
         return isinstance(value, dict) and "sweep" not in value
     if get_origin(member) in (Union, types.UnionType):
         return any(shaped(m, value) for m in get_args(member))
-    if get_origin(member) is Literal:
-        return isinstance(value, tuple(type(a) for a in get_args(member)))
     if get_origin(member) in (list, tuple):
         return isinstance(value, (list, tuple))
     if member is type(None):
         return value is None
     number = isinstance(value, (int, float)) and not isinstance(value, bool)
-    return {int: number and isinstance(value, int), float: number, str: isinstance(value, str),
-            bool: isinstance(value, bool)}.get(member, False)
+    return {int: number and isinstance(value, int), float: number, str: isinstance(value, str)}.get(member, False)
 
 
 T = TypeVar("T")
@@ -133,20 +128,6 @@ Swept = Annotated[Union[T, Sweep], ByShape()]
 
 AT = "the point's index on each sweep axis it varies over"
 DATASET = "the dataset whose rows the step's values are aligned to"
-SCHEDULE = ("the forward this point runs, or the point whose forward serves it. A forward depends on the step's "
-            "options and on its writes alone (`axes`: each write's site, positions, ops up to its last edit and "
-            "their operands), so the points that agree on those axes are served by the forward of the first of "
-            "them, and each other holds `serving`, that point's coordinates, and nothing else (the points a "
-            "forward serves are those that name it: `plan.serving`). Compile writes those; preflight, with the "
-            "model in hand, writes at each point that runs its forward the sites the forward visits in the engine's "
-            "forward order (`sites`: each its component and layer and the records done there in order, a write with "
-            "its ops up to its last edit and each operand resolved to a producer's name and point or to the name of "
-            "a read of the same forward, a read with the point whose entry it is and the name it feeds), `stop`, "
-            "the site the forward ends at (null for a generation, which runs whole), for a forward with `grad` "
-            "entries `grad` (one item per distinct value differentiated, `of` the names of its reads, one per "
-            "layer, and `wrt` the names of the `grad` reads whose gradient it is), and for a generation each "
-            "record's `calls` and `online`, `prompt` on a part over the prompt of an entry beyond the prefill, and "
-            "the `loop` of calls the engine iterates (null: every one). The engines execute it and decide nothing")
 
 
 # The quantized dtypes (nnsight's names for them) and the dtype each computes in: what its values, and the weights
@@ -185,13 +166,12 @@ class Derived(Record):
     """`{"from": "<column as the source has it>", "after"?: {"text": ...}, "before"?: {"text": ...}, "strip"?:
     bool}`: a column whose text on each row is cut from another's, text on text, decided at compile, never a
     computation on its values: the text of column `from` after the first occurrence of `after`'s text, then
-    before the first occurrence of `before`'s in what is left (each optional, and each a text, `{"text": ...}`,
-    one string alone, compared exactly), then, under `strip`, without its surrounding whitespace. `{"from":
+    before the first occurrence of `before`'s in what is left (each compared exactly), then, under `strip`,
+    without its surrounding whitespace. `{"from":
     "answer", "after": {"text": "#### "}, "strip": true}` is a GSM8K answer's number. `from` stays under its own
     name. Refused by name: a row whose `from` is not text, and one on which `after`'s or `before`'s text does not
     occur, naming the row."""
-    model_config = ConfigDict(extra="forbid", arbitrary_types_allowed=True, use_attribute_docstrings=True,
-                              serialize_by_alias=True)
+    model_config = ConfigDict(serialize_by_alias=True)
     source: str = Field(alias="from")
     after: TextPart | None = None
     before: TextPart | None = None
@@ -221,7 +201,7 @@ class Data(Record):
     for one run is made in shards); and `columns` renames them, `{"<name>": "<column as the source has it>"}`,
     each name that column and no longer under its own, every other column as it is (so one file serves a fit's
     `eval` substitution under the body's column names), or derives one, `{"<name>": {"from": "<column as the
-    source has it>", "after"?: ..., "before"?: ..., "strip"?: bool}}`, text cut from another column's (`Derived`),
+    source has it>", ...}}`, text cut from another column's (`Derived`),
     which joins the rows and their digest as a column the source has does. `template` is passed to the checkpoint's
     `apply_chat_template` wherever a chat column of the dataset renders (`{"add_generation_prompt": true,
     "enable_thinking": false}`), so a chat can end in the generation prompt and keep its `turn` scopes; a
@@ -233,8 +213,8 @@ class Data(Record):
     than the one its cache holds (offline, a branch reads as the cache holds it), a split it does not have (or, of
     several, none named), and a column of it whose values are not JSON (images, audio, bytes); a `skip` that
     leaves no row, `take` beyond the rows `skip` leaves, a `columns` source the rows lack or a name that is a
-    column they keep (a swap, `{"a": "b", "b": "a"}`, keeps neither), a derived column's source that is not text
-    on a row or that lacks its text there, a `template` on a dataset no step reads a chat column of, and, before
+    column they keep (a swap, `{"a": "b", "b": "a"}`, keeps neither), a `template` on a dataset no step reads a
+    chat column of, and, before
     any forward, a chat of a clock-reading template without `date_string`. `sha256` and `n_rows` describe the rows
     these leave."""
     path: str | None = None
@@ -337,11 +317,7 @@ class Column(Record):
     Where an op takes `Tokens` or `Text` (a metric's answer, `contains`'s text), a literal may stand in place of the
     column: `{"text": "</think>", "strip"?: bool, "lower"?: bool}`, its text a string or a list of them (a set), the
     same on every row of whatever value it goes with, and read exactly as a column holding it on every row is
-    (tokenized as written, the flags as here). It takes the flags and a set, where a text (`{"text": ...}` in a
-    list `input` or a derived column) is one string alone; a scope names its text in its own `text` field.
-
-    A scope searches the input for the text as the flags compare it, under `strip` without its surrounding
-    whitespace, its positions the original's.
+    (tokenized as written, the flags as here). A scope names its text in its own `text` field.
 
     An answer scored against logits is tokenized as written, and each of its tokens stands for its class: every
     token of the vocabulary whose text (what it adds after another token, so a leading space is its own) compares
@@ -371,14 +347,12 @@ class Scope(Record):
     chat, each an occurrence. `column` and `text` may each be a list: the scope's texts are then every one
     listed (a string is the one-element list), their occurrences together, ordered by where each ends. Every
     scope takes `occurrence`, which of its occurrences it is (a selector; default 0, the first): a text's
-    occurrence lies on token and word boundaries, as `pos` says (a token's own surrounding whitespace on either
-    side, and no letter or digit adjoining a word it cuts); `until`, whether it is every token of the frame up to
-    and including the occurrences it picks rather than their tokens alone (every token of the frame on a row
-    without them); and `before`,
-    whether it is the positions that predict its tokens rather than the tokens themselves. A `text` takes
+    occurrence lies on token and word boundaries, as `pos` says; `until`, whether it is every token of the frame
+    up to and including the occurrences it picks rather than their tokens alone (every token of the frame on a
+    row without them); and `before`, whether it is the positions that predict its tokens rather than the tokens
+    themselves. A `text` takes
     `strip` and `lower`, as a column's reference does (a turn's contents are located as the template rendered
     them)."""
-    # One of column, text and turn; a text's flags are its own, a column's on its reference, a turn's none.
     column: Annotated[Union[ColumnRef, list[ColumnRef], None], ByShape()] = None
     text: str | list[str] | None = None
     turn: str | None = None
@@ -781,7 +755,26 @@ class Forward(Record):
     interventions: Interventions = {}
     at: dict[str, int] = derived({}, AT)
     dataset: str | None = derived(None, DATASET)
-    schedule: dict[str, Any] = derived({}, SCHEDULE)
+    schedule: dict[str, Any] = derived({}, "the forward this point runs, or the point whose forward serves it. A "
+                                           "forward depends on the step's options and on its writes alone (`axes`: "
+                                           "each write's site, positions, ops up to its last edit and their operands), "
+                                           "so the points that agree on those axes are served by the forward of the "
+                                           "first of them, and each other holds `serving`, that point's coordinates, "
+                                           "and nothing else (the points a forward serves are those that name it: "
+                                           "`plan.serving`). Compile writes those; preflight, with the model in hand, "
+                                           "writes at each point that runs its forward the sites the forward visits in "
+                                           "the engine's forward order (`sites`: each its component and layer and the "
+                                           "records done there in order, a write with its ops up to its last edit and "
+                                           "each operand resolved to a producer's name and point or to the name of a "
+                                           "read of the same forward, a read with the point whose entry it is and the "
+                                           "name it feeds), `stop`, the site the forward ends at (null for a "
+                                           "generation, which runs whole), for a forward with `grad` entries `grad` "
+                                           "(one item per distinct value differentiated, `of` the names of its reads, "
+                                           "one per layer, and `wrt` the names of the `grad` reads whose gradient it "
+                                           "is), and for a generation each record's `calls` and `online`, `prompt` on "
+                                           "a part over the prompt of an entry beyond the prefill, and the `loop` of "
+                                           "calls the engine iterates (null: every one). The engines execute it and "
+                                           "decide nothing")
     batch_size: int | None = derived(None, "the rows a batch of the input holds, whatever the run's batch size, where "
                                            "the step fixes it: a fit's eval step's are the fit's `batch_size`; null, "
                                            "the run's")
@@ -830,8 +823,8 @@ class Generate(Forward, Labelled):
     first. A scoped write is found
     online, decoding the inputs fed so far at each call: it lands at the call fed the last token of each
     occurrence it picks, as that occurrence appears (its earlier tokens were fed before the text was there
-    to find), and a row with fewer occurrences than it picks is `alignment_missing`. No write takes a frame
-    counted from a row's last call. A row's calls are what the engine actually generated, up to the
+    to find), and a row with fewer occurrences than it picks is `alignment_missing`. A row's calls are what
+    the engine actually generated, up to the
     one that chose the row's first EOS: the step's own `eos_token_id` when it gives one, else the id the
     engine's generation stops on (its generation config's). The step's own value is the
     new token ids, `[rows, new]`; `detokenize` makes them text. Options that would change the rows, the value or
@@ -918,10 +911,10 @@ class Load(Labelled):
     from_: str = Field(alias="from")
     value: str
     at: dict[str, int] = derived({}, AT)
-    source: "Forward | None" = derived(None, "the read whose positions the value holds, where it holds any: the "
-                                             "forward that made it as the source's manifest records it, with that "
-                                             "entry alone and its positions under the value's dataset, the entry "
-                                             "named as the value's `read` names it (`<this step>.<entry>`)")
+    source: Forward | None = derived(None, "the read whose positions the value holds, where it holds any: the "
+                                           "forward that made it as the source's manifest records it, with that "
+                                           "entry alone and its positions under the value's dataset, the entry "
+                                           "named as the value's `read` names it (`<this step>.<entry>`)")
     loaded: Any = derived(None, "the value at this point, read from the source's file into a compiled plan that "
                                 "has not run (`loaded_value`), which carries it wherever the run is, in a request "
                                 "too, and the run puts where the model is; never in a document or a manifest",
@@ -1002,8 +995,6 @@ class Fit(Record):
     steps: "dict[str, Entry]"
     early_stop: EarlyStop | None = None
     eval: dict[str, dict[str, str]] = {}
-    """each named run of the body after training: a substitution `{<body dataset>: <dataset>}`, `{}` the data
-    it trained on"""
     at: dict[str, int] = derived({}, AT)
     evals: "dict[str, dict[str, Step]]" = derived(
         {}, "each eval as the steps it runs, by label, then by body step: the body's steps compiled again at the "
@@ -1039,7 +1030,6 @@ Step = Annotated[Union[Annotated[Forward, Tag("~forward")], Annotated[Generate, 
                  Discriminator(_kind, custom_error_type="kind", custom_error_message="unknown step kind")]
 Entry = Annotated[Union[Annotated[Step, Tag("~one")], Annotated[list[Step], Tag("~points")]], Discriminator(_points)]
 Fit.model_rebuild()
-Load.model_rebuild()
 
 
 class Featurizer(Record):
@@ -1156,7 +1146,20 @@ class Plan(Record):
         try:
             super().__init__(**fields)
         except ValidationError as e:
-            raise PlanError("\n".join(message(error) for error in e.errors())) from None
+            said = []
+            for error in e.errors():                # each as `<document path>: <what>`
+                path = ""
+                for part in error["loc"]:
+                    if isinstance(part, int):
+                        path += f"[{part}]"
+                    elif not part.startswith("~"):
+                        path += f".{part}" if path else part
+                text = error["msg"].removeprefix("Value error, ")
+                if error["type"] == "kind":
+                    given = error["input"].get("kind") if isinstance(error["input"], dict) else error["input"]
+                    text = f"unknown step kind {given!r}; valid: {', '.join(KINDS)}"
+                said.append(f"{path}: {text}" if path else text)
+            raise PlanError("\n".join(said)) from None
 
     @model_validator(mode="before")
     @classmethod
@@ -1280,21 +1283,6 @@ def name(plan: Plan) -> str:
     return os.path.splitext(os.path.basename(plan.document))[0] if plan.document else "plan"
 
 
-def message(error: ErrorDetails) -> str:
-    """A validation error as `<document path>: <what>`."""
-    path = ""
-    for part in error["loc"]:
-        if isinstance(part, int):
-            path += f"[{part}]"
-        elif not part.startswith("~"):
-            path += f".{part}" if path else part
-    text = error["msg"].removeprefix("Value error, ")
-    if error["type"] == "kind":
-        given = error["input"].get("kind") if isinstance(error["input"], dict) else error["input"]
-        text = f"unknown step kind {given!r}; valid: {', '.join(KINDS)}"
-    return f"{path}: {text}" if path else text
-
-
 def produced(steps: dict[str, Entry], declared: dict[str, FeaturizerEntry]) -> list[str]:
     """Every value `steps` produce, by name, in order: an op step's or a generation's own, each entry's
     `<step>.<entry>`, and a fit's members (`<fit>.history.<term>` and its eval members, `<fit>.<eval>.<member>`);
@@ -1363,7 +1351,7 @@ def record_of(steps: dict[str, Entry], ref: str, at: dict[str, int]) -> Labelled
     thing, _, member = ref.partition(".")
     step = agreeing_point(steps[thing], at)
     if step.kind != "fit":
-        host = step.source if step.kind == "load" else step            # a load's member is the read it carries
+        host = step.source if step.kind == "load" else step
         found = entries(host)[member] if member else step
         assert isinstance(found, Labelled), f"{ref} names no value"
         return found

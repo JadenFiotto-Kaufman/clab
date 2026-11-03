@@ -49,13 +49,12 @@ def generate(engine: Engine, plan: Plan, name: str, step: Generate, state: Chain
     encoded = findings.inputs[data.input_name(step.input)]["rows"]
     values_read = values_read_by(served) if values_read is None else values_read
     # Every entry beyond the prefill lands somewhere on each row, gathered or not: by entry and the point's
-    # coordinates on the entry's axes, with the record it is at the first such point.
-    beyond_prefill: dict[tuple[str, tuple], tuple[Intervention, dict[str, int], Any]] = {}
+    # coordinates on the entry's axes, the record it is at the first such point.
+    beyond_prefill: dict[tuple[str, tuple], Intervention] = {}
     for point in served:
         for key, record in entries(point).items():
             if not positions.prefill_only(positions.parse(record.pos)):
-                beyond_prefill.setdefault((key, tuple(projection(point.at, record.axes).items())),
-                                          (record, projection(point.at, record.axes), point))
+                beyond_prefill.setdefault((key, tuple(projection(point.at, record.axes).items())), record)
     parts: dict[tuple[str, tuple], list] = {k: [] for k in values_read}
     beyond_positions: dict[tuple[str, tuple], list] = {k: [] for k in beyond_prefill}
     new, batched_ids = [], []
@@ -68,7 +67,7 @@ def generate(engine: Engine, plan: Plan, name: str, step: Generate, state: Chain
         cost["forwards"] += tokens.shape[1]
         cost["tokens"] += batch["input_ids"].numel() + len(ids) * (tokens.shape[1] - 1)
         cost["real"] += batch["input_ids"].numel() - sum(pads) + sum(map(len, said)) - len(said)
-        for k, (record, own, point) in beyond_prefill.items():
+        for k, record in beyond_prefill.items():
             beyond_positions[k] += positions_beyond_prefill(record, batch_rows, inputs, said, eos, engine.tokenizer,
                                                             reads_head(step, record))
         for k, (record, own, point) in values_read.items():
@@ -77,12 +76,12 @@ def generate(engine: Engine, plan: Plan, name: str, step: Generate, state: Chain
                 parts[k].append(stack_layers(record, [
                     value_beyond_prefill(engine, plan, record, got, binds[k + (layer,)], row_positions, inputs, ids,
                                          state, point.at, reads_head(step, record), findings, layer)
-                    for layer in layers_made_at(engine, record)]))
+                    for layer in layers_made_at(record)]))
             else:
                 parts[k].append(stack_layers(record, [
                     value_in_prefill(engine, plan, record, got[binds[k + (layer,)][0]["name"]], binds[k + (layer,)][0],
                                      ids, state, point.at, findings, layer)
-                    for layer in layers_made_at(engine, record)]))
+                    for layer in layers_made_at(record)]))
         new.append(tokens)
     width = max(x.shape[1] for x in new)
     tokens = in_run_order(state, torch.cat([torch.nn.functional.pad(x, (0, width - x.shape[1]), value=min(eos))

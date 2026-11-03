@@ -37,14 +37,10 @@ NAMES = {plan.Sweep: "a sweep", plan.Site: "site", plan.Pos: "pos", plan.Scope: 
 
 
 def as_json(value: Any) -> str:
-    """A value as a document writes it: JSON (`true`, `null`, `"local"`), or as Python spells it where JSON
-    cannot."""
+    """A value as a document writes it: JSON (`true`, `null`, `"local"`)."""
     if isinstance(value, BaseModel):
         value = value.model_dump(mode="json", exclude_defaults=True)
-    try:
-        return json.dumps(value, ensure_ascii=False)
-    except TypeError:
-        return repr(value)
+    return json.dumps(value, ensure_ascii=False)
 
 
 def spell(annotation: Any) -> str:
@@ -87,12 +83,9 @@ def axes(name: str) -> str:
     a = ops.DECLARED[name]
     if a["layout"] is not None:
         return summary(a["layout"])
-
-    def listed(verb: str) -> str:
-        if verb == "removes" and a[verb] == ops.VOCABULARY:
-            return "its vocabulary axis"
-        return ", ".join(" or ".join(x) if isinstance(x, tuple) else x for x in a[verb])
-    parts = [f"{verb} {listed(verb)}" for verb in ("needs", "removes", "adds") if a[verb]]
+    parts = [f"{verb} " + ("its vocabulary axis" if verb == "removes" and a[verb] == ops.VOCABULARY else
+                           ", ".join(" or ".join(x) if isinstance(x, tuple) else x for x in a[verb]))
+             for verb in ("needs", "removes", "adds") if a[verb]]
     return "; ".join(parts) or "keeps the layout"
 
 
@@ -244,12 +237,3 @@ def markdown() -> str:
               "## Saves and the output\n", doc(output) + "\n", doc(table.table) + "\n",
               "## A worked document\n", "`documents/patching.json`:\n", "```json\n" + example + "```\n"]
     return "\n".join(parts)
-
-
-def write_markdown() -> str:
-    """`clab describe --markdown`: `markdown()` written as FORMAT.md beside the package, at the repo root, from
-    whatever directory the command runs in; returns the path written."""
-    path = os.path.join(ROOT, "FORMAT.md")
-    with open(path, "w") as f:
-        f.write(markdown())
-    return path

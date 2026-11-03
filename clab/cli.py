@@ -1,14 +1,9 @@
-"""`clab run`, `clab show`, `clab table` and `clab describe`: a thin command line over
-`clab.run` and a run's output directory, and the format read off the code.
+"""`clab run`, `clab show`, `clab table` and `clab describe`: a thin command line over `clab.run`, a run's output
+directory and the format read off the code (`clab.docs`).
 
-`show` prints what a run's directory holds (how the run ran and what each run of each step cost, with the points
-it served, where each entry resolved, then each result with its step, dims, axes and shape); `table` prints
-`plan.table(...)` over its saved values,
-aligned or as CSV. Both are `Plan.load` and one call.
-
-`describe` prints the format's tables by introspection: the records and their fields (from the plan's
-models), the ops and their signatures, the components, the featurizer kinds and the position grammar.
-`describe --markdown` writes all of it as `FORMAT.md` beside the package, at the repo root.
+`show` and `table` are each `Plan.load` and one call: what the run's directory holds as `show` prints it, or
+`plan.table(...)` over its saved values, aligned or as CSV. `describe` prints the format's tables, and `describe
+--markdown` writes them as `FORMAT.md` beside the package, at the repo root.
 
 A refusal is one `clab: <reason>` line on stderr and exit status 1. A reader that goes away (`clab show OUT |
 head -1`) ends the command quietly.
@@ -22,9 +17,9 @@ import os
 import sys
 from typing import Any
 
-from clab import output
+from clab import docs, output
 from clab.compile import positions
-from clab.docs import WHAT, as_json, describe, write_markdown
+from clab.docs import WHAT, as_json, describe
 from clab.format.data import PADDINGS
 from clab.format.sweeps import coordinate, coordinate_text
 from clab.plan import Plan, Run, entries, made_by, name, points, projections, runnable, serving
@@ -72,10 +67,9 @@ def show(filled: Plan) -> str:
 def costs(filled: Plan) -> list[list[str]]:
     """What each step cost (`plan.run.costs`) as table rows, one per run of a step (`runnable`: a fit's eval steps
     after it; `serving`: a forward's or generation's per forward, an op's per distinct value, a fit's per point),
-    at the point that ran, with the
-    points it served beside it (— itself alone; `all N points`; else each one): its seconds, its peak memory on
-    each device in MiB (— where none was measured), its model calls, the tokens they fed, padding included, and
-    the rows' own of them (`real`)."""
+    at the point that ran, with the points it served beside it (`served`): its seconds, its peak memory on each
+    device in MiB (— where none was measured), its model calls, the tokens they fed, padding included, and the
+    rows' own of them (`real`)."""
     run = filled.run
     assert run is not None
     rows = [["step", "at", "serves", "seconds", "memory", "forwards", "tokens", "real"]]
@@ -149,8 +143,7 @@ def compact(per_row: list | None) -> str:
 
 
 def row_cell(positions_: Any) -> str:
-    """One row's positions as `compact` prints them: the list, cut to its first three, `…` and its last past
-    `SHOWN`; `—` for a row the entry did not reach."""
+    """One row's positions as `compact` prints them."""
     if positions_ == positions.MISSING:
         return "—"
     if isinstance(positions_, list) and len(positions_) > SHOWN:
@@ -253,8 +246,10 @@ def main(argv: list[str] | None = None) -> int:
 def command(args: argparse.Namespace) -> int:
     """The parsed command, run: its exit status, a refusal said in one `clab:` line on stderr."""
     if args.command == "describe":
-        if args.markdown:
-            path = write_markdown()
+        if args.markdown:                   # at the repo root, from whatever directory the command runs in
+            path = os.path.join(docs.ROOT, "FORMAT.md")
+            with open(path, "w") as f:
+                f.write(docs.markdown())
             if args.verbose:
                 print(f"wrote {path}")
         else:
@@ -300,7 +295,3 @@ def command(args: argparse.Namespace) -> int:
         print("  " + line)
     print(f"  {os.path.join(out, 'manifest.json')}")
     return 0
-
-
-if __name__ == "__main__":
-    sys.exit(main())

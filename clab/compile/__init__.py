@@ -122,10 +122,10 @@ def make_dataset_rows(root: str, name: str, d: Data) -> list[dict]:
         rows = data.hub(d) if d.hf is not None else d.rows if d.path is None else data.rows(root, d.path, d.split)
     except ValueError as e:
         fail(f"data.{name}.{'path' if d.hf is None else 'hf'}", str(e))
-    if not rows:
-        fail(f"data.{name}", "the dataset has no rows" + (f" in split {d.split!r}" if d.split else ""))
-    rows = data.shuffled(rows) if d.shuffle else rows
     held = f" in split {d.split!r}" if d.split else ""
+    if not rows:
+        fail(f"data.{name}", f"the dataset has no rows{held}")
+    rows = data.shuffled(rows) if d.shuffle else rows
     if d.skip is not None and d.skip >= len(rows):
         fail(f"data.{name}.skip", f"skip {d.skip}, and the dataset has {len(rows)} rows{held}; skip leaves at least "
              "one")
@@ -191,10 +191,8 @@ def expand(cx: Compiling, name: str, where: tuple, build: Callable[[Plan, dict[s
     point of a sweep names the point after the document path (`index="-2:"`). A load declares each sweep its value
     depends on that the document does not, with the label and values the run swept it over (`cx.values`, which the
     compiled plan's `sweeps` are), and is refused by name where the document sweeps that label over other values."""
-    own = {label for path, label in cx.sweeps.items() if any(path[:len(p)] == p for p in footprint(cx, where))}
-    inherited = {a for ref in referenced_names(cx, get(cx.doc, where))
-                 for a in cx.axes_of.get(ref.partition(".")[0], [])}
     spec = get(cx.doc, where)
+    inherited = {a for ref in referenced_names(cx, spec) for a in cx.axes_of.get(ref.partition(".")[0], [])}
     if where[0] == "steps" and spec["kind"] == "load":          # a saved value's own axes, which its run recorded
         src, d = saved_value_record(cx, f"steps.{name}", spec["from"], spec["value"])
         for label in d["axes"]:
@@ -204,7 +202,7 @@ def expand(cx: Compiling, name: str, where: tuple, build: Callable[[Plan, dict[s
                      f"and this document sweeps {label!r} over {cx.values[label]}; a load declares the sweeps its "
                      "value depends on, and a sweep of this document under the same label has the same values")
         inherited |= set(d["axes"])
-    labels = [label for label in cx.values if label in own or label in inherited]
+    labels = in_axis_order(cx, labels_under(cx, *footprint(cx, where)) | inherited)
     cx.axes_of[name] = labels
     built = []
     for index in itertools.product(*(range(len(cx.values[label])) for label in labels)):
@@ -599,24 +597,18 @@ def loaded_run(cx: Compiling, path: str, out: str) -> dict:
 
 def saved_value_record(cx: Compiling, path: str, out: str, value: str) -> tuple[dict, dict]:
     """The run at `out` a load reads (`loaded_run`) and the record its manifest holds for saved value `value`; refused
-    by name where the run saved no such value, and where its manifest predates the sweep axes a value's record holds
-    (`axes`, which a run of an older clab did not write), since it then cannot say which sweeps the value depends on,
-    and taking it as unswept would load a swept value's points as one."""
+    by name where the run saved no such value."""
     src = loaded_run(cx, path, out)
     if value not in src["described"]:
         fail(f"{path}.value", f"{out} saved no {value!r}; it saved {', '.join(src['described'])}")
-    d = src["described"][value]
-    if "axes" not in d:
-        fail(f"{path}.from", f"{out}/manifest.json predates the sweep axes a saved value's record holds ('axes'), so "
-             f"it does not say which sweeps {value!r} depends on; rerun the document that saves it, with --out {out}")
-    return src, d
+    return src, src["described"][value]
 
 
 # -- references --------------------------------------------------------------------------------------
 
 
 def mark_gathered(steps: dict, used: set[str]) -> None:
-    """Marks each compiled entry the run takes off the model (`mark_gathered`), a fit's body's and its evals' too: one
+    """Marks each compiled entry the run takes off the model (`gathered`), a fit's body's and its evals' too: one
     `used` names (a value something references, a save, or the entries a fit's objective scalar is over), and the
     entry a gathered `grad` entry differentiates. Any other entry only writes, and an entry that neither writes nor
     is gathered does nothing."""
@@ -777,7 +769,7 @@ def compile_fit(cx: Compiling, path: str, name: str, spec: Fit, plan: Plan, at: 
                  f"take rows of {d!r} at the ids of its rows of {theirs}, pairing the two row by row: read {d!r} in a "
                  f"forward of the body, or make {ref!r} over {theirs}")
     fit.steps = body
-    for label, swap in spec.eval.items():          # each eval's steps, in the root's scope with the fit in it
+    for label, swap in spec.eval.items():
         scope, names, fit.evals[label] = replace(cx, steps={**cx.steps, name: fit}), dict(own), {}
         for n, s in spec.steps.items():
             names[n] = f"{name}.{label}.{n}"    # it and the body's steps before it: a later one's name is the root's

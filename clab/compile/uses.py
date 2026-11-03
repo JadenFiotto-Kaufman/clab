@@ -87,13 +87,6 @@ def over_of(f: Featurizer) -> list[str] | None:
     return given if given is not None or f.header is None or "over" not in f.header else json.loads(f.header["over"])
 
 
-def layout_at_use(read: Intervention, o: Op | OpStep) -> list[str]:
-    """The layout of the value a featurizer's op meets at a use made before any encode: inside an entry its site's
-    selection, a `layers` axis first where the site picks several; as a step, its `of`'s."""
-    site = cast(Site, read.site)
-    return list(read.dims or []) if isinstance(o, OpStep) else address.dims(site.component, site.layers)
-
-
 def check_gate_axes(plan: Plan) -> None:
     """A gate over axes is used by `apply` alone, on its site's own layout (inside no `encode`, whose coordinates
     are no axes of the site's), whose selection has each axis it names, in the selection's order, `layers` only
@@ -119,7 +112,10 @@ def check_gate_axes(plan: Plan) -> None:
             over = over_of(agreeing_point(plan.featurizers[name], at))
             if over is None:
                 continue
-            path, site, laid = f"featurizers.{name}.over", cast(Site, read.site), layout_at_use(read, o)
+            path, site = f"featurizers.{name}.over", cast(Site, read.site)
+            # What the gate meets at a use made before any encode: inside an entry its site's selection, a `layers`
+            # axis first where the site picks several; as a step, its `of`'s layout.
+            laid = list(read.dims or []) if isinstance(o, OpStep) else address.dims(site.component, site.layers)
             if o.op != "apply":
                 fail(path, f"{over}: {where} encodes {name!r}, and a gate over axes serves apply alone: its units "
                      "are not the last axis, which an encode makes its coordinates; an interchange through it is "
@@ -199,7 +195,7 @@ def write_widths(engine: Engine, plan: Plan) -> None:
             if width is None:
                 raise ValueError(f"{where}: {site.component}'s last axis is {last}, which grows with the input; "
                                  f"featurizer {name!r} needs a feature axis")
-            for outer in around:                # the coordinates of each encode it is inside, outermost first
+            for outer in around:
                 ref = declared(plan, arguments(outer)["featurizer"])
                 width = instance(plan, agreeing_point(plan.featurizers[ref], at), width, None).size()
                 chosen = (arguments(outer).get("select") or {}).get("features")
@@ -214,11 +210,11 @@ def write_widths(engine: Engine, plan: Plan) -> None:
                                      f"{width} ({site.component}), which has no more than {width} directions; "
                                      f"{field} is at most {width}")
             stated = (f.model_extra or {}).get("site")
-            for layer in read.layers or [None]:                       # each layer the use is made at
+            for layer in read.layers or [None]:
                 which = f"picks layer {layer}" if address.stacks(site.layers) else f"is layer {layer}"
                 if stated is not None and \
-                        (stated["component"], layer_as_recorded(stated["layers"], sizes["num_layers"])) != \
-                        (site.component, str(layer)):
+                        (stated["component"], selectors.select(stated["layers"], sizes["num_layers"])[0]) != \
+                        (site.component, layer):
                     raise ValueError(f"{where}: featurizer {name!r} was trained at {stated['component']} layer "
                                      f"{stated['layers']} (its site); this use is {site.component} layer "
                                      f"{site.layers!r}" + (f", which {which}" if address.stacks(site.layers) else ""))
@@ -247,11 +243,6 @@ def write_widths(engine: Engine, plan: Plan) -> None:
     for name, width in out.items():
         for f in points(plan.featurizers[name]):
             f.width, f.kept = width, laid.get(name, {})
-
-
-def layer_as_recorded(layers: object, n: int) -> str:
-    """A site's one layer counted from the first, as a header records it; other layers as written."""
-    return str(selectors.select(layers, n)[0]) if isinstance(layers, int) else str(layers)
 
 
 def check_input_site(plan: Plan, where: str, at: dict, f: Featurizer, o: Op | OpStep, layer: int | None) -> None:

@@ -29,12 +29,12 @@ if TYPE_CHECKING:
 
 def selection_in_batch(record: Intervention, picks: dict, row_positions: list, pads: list[int], width: int,
                        last_only: bool, device: str = "cpu", span: int | None = None) -> dict:
-    """What the engine needs to reach a record's selection in this batch, `width` tokens wide: its component,
-    its token indices into the padded batch (`positions`, `[rows, n]`; a row with fewer positions than the
-    batch's widest repeats its last index, `keep` marking its own, `tok` the unpadded indices, -1 past its
-    own; a row the record does not reach, the marker in `row_positions`, holds none), the part of the feature axes it
-    keeps (`select`: `picks`, the indices preflight resolved its `select` to), and on a `key` axis each row's own keys,
-    as many as the input's longest row has (`keys`, `span`; None: `width`). Where the value holds the last position
+    """What the engine needs to reach a record's selection in this batch, `width` tokens wide: its token indices
+    into the padded batch (`positions`, `[rows, n]`; a row with fewer positions than the batch's widest repeats its
+    last index, `keep` marking its own, `tok` the unpadded indices, -1 past its own; a row the record does not reach,
+    the marker in `row_positions`, holds none), the part of the feature axes it keeps (`select`: `picks`, the indices
+    preflight resolved its `select` to), and on a `key` axis each row's own keys, as many as the input's longest row
+    has (`keys`, `span`; None: `width`). Where the value holds the last position
     alone (`last_only`: a generation's head in the prefill) every index is -1. Where every row holds `n` positions there
     is no `keep`, so that a read or a write of equal-width rows indexes by no mask, which the device would have to count
     before the host could go on. The indices and masks the value meets are made on `device`, where the model is
@@ -47,25 +47,15 @@ def selection_in_batch(record: Intervention, picks: dict, row_positions: list, p
     indices = [[-1] * n for _ in row_positions] if last_only else indices
     ragged = any(len(row) < n for row in row_positions)
     query_positions = [row + [row[-1] if row else 0] * (n - len(row)) for row in row_positions]
-    return {"component": cast(Site, record.site).component, "positions": tensor_on_device(indices, device),
-            "select": select_indices(record, picks, device),
+    return {"positions": tensor_on_device(indices, device), "select": select_indices(record, picks, device),
             **key_index(record, pads, width, device, span, query_positions),
             **({"keep": tensor_on_device([[j < len(row) for j in range(n)] for row in row_positions], device)}
                if ragged else {}),
             "tok": torch.tensor(token_positions)}
 
 
-def selection_at_decode_call(record: Intervention, picks: dict, prompts: list[int], device: str = "cpu") -> dict:
-    """What the engine needs to reach a record at a decode call: the call's one position, the last, on `device`;
-    and, in `tok`, the position before decode call 1's input in each row of `prompts` tokens, which with the call
-    number is the input's."""
-    return {"component": cast(Site, record.site).component,
-            "positions": torch.full((len(prompts), 1), -1, device=device),
-            "select": select_indices(record, picks, device), "tok": torch.tensor([[p - 1] for p in prompts])}
-
-
-def key_index(record: Intervention, pads: list[int], width: int, device: str = "cpu", span: int | None = None,
-              query_positions: list[list[int]] | None = None) -> dict:
+def key_index(record: Intervention, pads: list[int], width: int, device: str, span: int | None,
+              query_positions: list[list[int]]) -> dict:
     """A `key` axis as each row's own keys, its positions (`positions.prompt_positions`), which a key selector counts:
     `dim` is the axis's dimension in the selection's layout, `index` (`[rows, span]`) each row's keys in the
     padded batch, `width` tokens wide, in order, then its padding's, then up to `span` (the input's longest row;
@@ -79,7 +69,6 @@ def key_index(record: Intervention, pads: list[int], width: int, device: str = "
         return {}
     relative = record.kept.get("key")
     if isinstance(relative, dict):
-        assert query_positions is not None, "a read's selection is bound with its positions"
         valid = [[[0 <= p + k < width - pad for k in relative["offset"]] for p in row]
                  for row, pad in zip(query_positions, pads)]
         index = [[[p + k + pad if ok else 0 for k, ok in zip(relative["offset"], oks)] for p, oks in zip(row, okay)]
@@ -174,7 +163,7 @@ def scope_ids(state: ChainMap) -> list[int] | None:
 
 
 def input_batches(engine: Engine, step: Forward, state: ChainMap, findings: Findings, batch_size: int,
-                  padding: str = "dataset") -> Iterator[tuple[list[int], dict, list]]:
+                  padding: str) -> Iterator[tuple[list[int], dict, list]]:
     """The step's input in batches of `batch_size` dataset row ids, of every row in order or of the rows the run is
     over (`scope_ids`), padded as `padding` says (`data.PADDINGS`): under `dataset` and `batch` in that order, under
     `sorted` longest first by the encoded rows' token counts (rows of one count in that order); each batch's ids, its
@@ -212,8 +201,9 @@ def bind_schedule(engine: Engine, plan: Plan, name: str, step: Forward, state: C
                   ) -> tuple[dict[str, Any], dict[tuple[str, tuple, int | None], list[dict]]]:
     """The schedule of `step` (a serving point of step `name`) bound to one batch of dataset row `ids`, as the engine
     executes it: its sites in order, each record with what reaches its selection in the padded batch
-    (`selection_in_batch`; at a decode call `selection_at_decode_call`; a part over the prompt of an entry beyond the
-    prefill at every prompt position, the head's at the last, the one the prefill computes), a write with its ops bound
+    (`selection_in_batch`; at a decode call the call's one position, the last, its `tok` the position before decode
+    call 1's input, which with the call number is the input's; a part over the prompt of an entry beyond the prefill
+    at every prompt position, the head's at the last, the one the prefill computes), a write with its ops bound
     (`bind_ops`), on a component of ids the size they are under (`ids`: the entry, the axis and the model's size of it,
     which `visit_site` holds what lands to), its decode `calls` and, found `online`, each row's texts to find it by, a
     read with its name (a `grad` entry's marked `capture`) and the ops it runs at each call bound (`per_call`, by
@@ -245,8 +235,10 @@ def bind_schedule(engine: Engine, plan: Plan, name: str, step: Forward, state: C
                 record.positions[cast(str, step.dataset)]
             reached = (cast(Site, record.site).component, repr(record.kept), head_only, "calls" in site_record,
                        site_record.get("prompt"), None if row_positions is None else id(row_positions))
-            bound_record = dict(make_once(shared, reached, lambda: selection_at_decode_call(
-                record, record.kept, prompts, device) if "calls" in site_record else selection_in_batch(
+            bound_record = dict(make_once(shared, reached, lambda: {
+                "positions": torch.full((len(prompts), 1), -1, device=device),
+                "select": select_indices(record, record.kept, device),
+                "tok": torch.tensor([[p - 1] for p in prompts])} if "calls" in site_record else selection_in_batch(
                     record, record.kept, [positions.prompt_positions(p, head_only) for p in prompts]
                     if row_positions is None else data.by_id(row_positions, ids), pads, width, head_only, device,
                     span)))
@@ -289,7 +281,7 @@ def bind_schedule(engine: Engine, plan: Plan, name: str, step: Forward, state: C
             "online": schedule.get("online", False)}, binds
 
 
-def layers_made_at(engine: Engine, record: Intervention) -> list[int] | list[None]:
+def layers_made_at(record: Intervention) -> list[int] | list[None]:
     """The layers a record is made at, a read's and a write's alike, as its record says: those its site's
     `layers` pick among the model's, in order (an int's one; None for a model's own value)."""
     return cast("list[int] | list[None]", record.layers if record.layers is not None else [None])
@@ -311,27 +303,21 @@ def join_batches(state: ChainMap, name: str, record: Intervention, at: dict[str,
     """A gathered entry's per-batch `values` joined along rows, on the first batch's device, as `stack_layers`
     joins layers (a batch whose rows all stopped before the calls a read names made its blank on the CPU, and
     under a device map batches can come back apart); a batch narrower than the widest along `pos` is padded
-    to it first (`pad_with_missing`). The batches' rows are dataset row `ids` in the order they ran, put back in the
-    run's order (`in_run_order`). The value is put under `name` (`<step>.<entry>`) at `at`, its coordinates on its own
-    axes."""
+    to it first with what marks a missing position, NaN, or -1 in ids. The batches' rows are dataset row `ids` in the
+    order they ran, put back in the run's order (`in_run_order`). The value is put under `name` (`<step>.<entry>`) at
+    `at`, its coordinates on its own axes."""
     dims = record.dims or []
 
     def cat(parts: list[Tensor]) -> Tensor:
         if "pos" in dims:
-            parts = [pad_with_missing(v, dims.index("pos"), max(v.shape[dims.index("pos")] for v in parts))
-                     for v in parts]
+            pos = dims.index("pos")
+            n = max(v.shape[pos] for v in parts)
+            parts = [v if v.shape[pos] == n else torch.cat([v, torch.full(
+                [*v.shape[:pos], n - v.shape[pos], *v.shape[pos + 1:]], float("nan") if v.is_floating_point() else -1,
+                dtype=v.dtype, device=v.device)], pos) for v in parts]
         return torch.cat([v.to(parts[0].device) for v in parts], dims.index("rows"))
     value = cat(values) if isinstance(values[0], Tensor) else {k: cat([v[k] for v in values]) for k in values[0]}
     put(state, name, at, value if ids is None else in_run_order(state, value, ids, dims.index("rows")))
-
-
-def pad_with_missing(value: Tensor, dim: int, n: int) -> Tensor:
-    """`value` padded along `dim` to `n` with what marks a missing position: NaN, or -1 in ids."""
-    shape = list(value.shape)
-    shape[dim] = n - shape[dim]
-    missing = float("nan") if value.is_floating_point() else -1
-    return value if shape[dim] == 0 else torch.cat([value, torch.full(shape, missing, dtype=value.dtype,
-                                                                       device=value.device)], dim)
 
 
 def value_in_prefill(engine: Engine, plan: Plan, record: Intervention, value: Tensor, bound_record: dict,
@@ -347,7 +333,7 @@ def value_in_prefill(engine: Engine, plan: Plan, record: Intervention, value: Te
 
 
 def apply_ops_after_edit(engine: Engine, plan: Plan, record: Intervention, value: Any, state: ChainMap, at: dict,
-                         ids: list[int], token_positions: Tensor | None, findings: Findings, layer: int | None,
+                         ids: list[int], token_positions: Tensor, findings: Findings, layer: int | None,
                          start: int | None = None) -> Any:
     """An entry's value at one of its layers (`layer`) taken off the model with the ops after its last edit
     applied in turn (from op `start` on, where a generation ran those before it at each call), each on the layout
@@ -370,9 +356,9 @@ def apply_ops_after_edit(engine: Engine, plan: Plan, record: Intervention, value
 
 
 def bind_arguments(plan: Plan, name: str, args: dict, state: ChainMap, at: dict, ids: list[int] | None,
-                   findings: Findings, of: Any = None, vocabulary: list | None = None,
-                   operands: dict[str, dict] | None = None, dims: list[str] | None = None,
-                   layers: int | list[int] | None = None, shared: dict | None = None) -> dict:
+                   findings: Findings, of: Any = None, vocabulary: list | None = None, *,
+                   operands: dict[str, dict] | None = None, dims: list[str], layers: int | list[int] | None = None,
+                   shared: dict | None = None) -> dict:
     """An op's arguments bound to tensors: names looked up at the point the schedule resolved them to for a
     write's ops (`operands`, by name: a value or a featurizer at its own point, `at`, or an entry of the same forward as
     `{"live": <the name of its read>}`), else at the consumer's point `at` (a featurizer to its instance), columns
@@ -406,20 +392,20 @@ def bind_arguments(plan: Plan, name: str, args: dict, state: ChainMap, at: dict,
                         value, axes = value[labels.index(layers)], axes[1:]
                     elif layers != labels:
                         value = value[[labels.index(layer) for layer in layers]]
-                if dims is not None and axes and isinstance(value, Tensor) and not (key == "with" and adapter):
+                if axes and isinstance(value, Tensor) and not (key == "with" and adapter):
                     value = value.reshape([value.shape[axes.index(a)] if a in axes else 1 for a in dims])
         elif annotation == ops.Tokens:
-            value = (class_indices(plan, value, vocabulary, ids, of, dims or [])[:, None]
-                     if vocabulary is not None else answer_ids(findings.answers[refkey(value)], of, dims or [], ids))
+            value = (class_indices(plan, value, vocabulary, ids, of, dims)[:, None]
+                     if vocabulary is not None else answer_ids(findings.answers[refkey(value)], of, dims, ids))
             value = tensor_on_device(value, of.device) if isinstance(of, Tensor) else value
         elif annotation == ops.Text:
             strip, lower = data.flags_of(value)
             value = [(v if isinstance(v, list) else [v], strip, lower)
-                     for v in texts_of(plan, value, ids, of, dims or [])]
+                     for v in texts_of(plan, value, ids, of, dims)]
         elif annotation == ops.Featurizer:
             value = lookup(state, value, operands[value]["at"] if value in operands else at)
         if editing and annotation == ops.Value and isinstance(value, (int, float)) and isinstance(of, Tensor):
-            value = tensor_on_device(value, of.device)    # as `bind_ops` binds a write's number, on the value's device
+            value = tensor_on_device(value, of.device)
         out[key] = value
     return out
 
@@ -470,15 +456,6 @@ def own_keys(value: Tensor, record: dict) -> Tensor:
     return value.masked_fill(~expanded_row_indices(value, dim, keys["own"].to(value.device)), float("nan"))
 
 
-def back_in_batch_order(current: Tensor, new: Tensor, record: dict) -> Tensor:
-    """`new`, a selection in each row's own key order (`own_keys`), back in the batch's order over `current`: the
-    row's own keys from `new`, its padding's as `current` has them; the keys past the batch's width (`own_keys`'s,
-    up to the input's longest row) are no row's own, and go nowhere."""
-    dim, keys, n = record["keys"]["dim"], record["keys"], current.shape[record["keys"]["dim"]]
-    index, own = (expanded_row_indices(current, dim, keys[k][:, :n].to(current.device)) for k in ("index", "own"))
-    return current.scatter(dim, index, torch.where(own, new.narrow(dim, 0, n), current.gather(dim, index)))
-
-
 def index_along(value: Tensor, dim: int, index: Tensor) -> Tensor:
     """`value` at `index` along `dim`, the same indices on every row."""
     return value.index_select(dim, index.to(value.device))
@@ -513,7 +490,8 @@ def visit_site(value: Tensor, component: str, records: list[dict], got: dict) ->
     write narrows at most one dimension of its selection (compile refuses more). A ragged write's rows are
     padded to one width; only the positions its `keep` marks are written (a write whose rows are equal has no
     `keep` and writes by index alone). A `key` axis is each row's own keys in order, NaN past them (`own_keys`), to a
-    read and to a write's ops alike, and a write writes those alone (`back_in_batch_order`). A write of ids (`ids`,
+    read and to a write's ops alike, and a write writes those alone, its padding's keys as they were and the keys
+    past the batch's width (up to the input's longest row) nowhere, being no row's own. A write of ids (`ids`,
     `bind_schedule`'s) runs its ops in float32 and is refused by its entry where what would land is no id under the
     model's size (`check_written_ids`), before the model reads it. Every index, mask and result moves to the value's
     device, and a result to its dtype, where it meets the value: no move for the indices `bind_schedule` made, which are
@@ -547,16 +525,18 @@ def visit_site(value: Tensor, component: str, records: list[dict], got: dict) ->
         whole = new
         for dim, index in record["select"].items():
             new, original = index_along(new, dim, index), index_along(original, dim, index)
-        # each position, at a decode call its own
         token_positions = record["tok"] + record.get("call", 0) if "tok" in record else None
-        # A write of ids runs on them in float32, as the model would never see them, and is held to its size first.
         new = apply_bound_ops(new.float() if "ids" in record else new, original, record["ops"], got, token_positions)
         if "ids" in record:
             check_written_ids(new, component, record, token_positions)
         new = new.to(device=current.device, dtype=current.dtype)
         for dim, index in record["select"].items():
             new = whole.index_copy(dim, index.to(current.device), new)
-        new = back_in_batch_order(current, new, record) if "keys" in record else new
+        if "keys" in record:        # back in the batch's order over `current`
+            dim, keys, n = record["keys"]["dim"], record["keys"], current.shape[record["keys"]["dim"]]
+            index, own = (expanded_row_indices(current, dim, keys[k][:, :n].to(current.device))
+                          for k in ("index", "own"))
+            new = current.scatter(dim, index, torch.where(own, new.narrow(dim, 0, n), current.gather(dim, index)))
         new = new.to(device=site_value.device, dtype=site_value.dtype)
         if "keep" in record:
             keep = record["keep"].to(site_value.device)

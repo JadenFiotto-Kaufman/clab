@@ -63,8 +63,10 @@ class NnterpEngine:
         placed, loaded = sharded(model, tp, device), loading(model, "nnterp", device)
         self.spec, self.device, self.options = model, device, {"tp": tp}
         if tp > 1:          # nnterp's probe of the sharded model would read every value, the embedding's among them
-            self.order = measured(build(model, "nnterp", lambda extra: StandardizedTransformer(
-                model.key, revision=model.revision, dispatch=False, device_map=None, **extra)))
+            shell = build(model, "nnterp", lambda extra: StandardizedTransformer(
+                model.key, revision=model.revision, dispatch=False, device_map=None, **extra))
+            self.order = {(c, layer): shell.rank(nnterp_name(c), layer) for c, refused in
+                          standard.unserved(shell).items() for layer in served(c, refused, shell.num_layers)}
         self.model = build(model, "nnterp", lambda extra: StandardizedTransformer(
             model.key, revision=model.revision, dispatch=True, **loaded, **placed, **extra))
         self.model.requires_grad_(False)        # no gradient reaches a weight, so no graph is kept for one
@@ -124,14 +126,28 @@ class NnterpEngine:
     def ready(self) -> None:
         """What the model does once, done before the run's first step so that no step's cost holds it: a meta shell
         (ndif under `remote="local"`) loads its weights, which it would at its first trace; a mixture of experts'
-        module whose forward nnterp reads a value inside has that forward instrumented (its `.source` touched, as
-        nnterp's docs say to outside a trace), since nnsight would otherwise build it lazily at the first trace that
-        reads that value, too late where the trace has read a child module of it first (JetMoE's router logits, the
-        router's projection, before its indices); and nnterp measures its forward order (`rank`), which it would at
-        the first site a step ranks (under `tp` the engine measured it at load, on a meta shell). Each is a no-op once
-        done."""
+        module whose forward nnterp reads a value inside (the module the path of nnterp's key for the value names
+        before its first `source`, at every block that serves the value: JetMoE's router, Mixtral's router and
+        experts) has that forward instrumented (its `.source` touched, as nnterp's docs say to outside a trace), since
+        nnsight would otherwise build it lazily at the first trace that reads that value, too late where the trace has
+        read a child module of it first (JetMoE's router logits, the router's projection, before its indices); and
+        nnterp measures its forward order (`rank`), which it would at the first site a step ranks (under `tp` the
+        engine measured it at load, on a meta shell). Each is a no-op once done."""
         self.model.dispatch()
-        sourced(self.model)
+        reasons = standard.unserved(self.model)
+        for c in [c for c in COMPONENTS if c in standard.mixed()]:
+            for layer in served(c, reasons[c], self.model.num_layers):
+                host: Any = envoy(self.model, c, layer)
+                value = getattr(type(host), c)
+                if not standard.inside(value, host):
+                    continue
+                key = value.path(host)
+                while key.startswith("../"):
+                    host, key = host.parent, key[3:]
+                parts = key.split(".")
+                for child in parts[:parts.index("source")]:
+                    host = getattr(host, child)
+                host.source
         self.rank("layer_output", 0)
 
     @property
@@ -164,7 +180,7 @@ class NnterpEngine:
         """Where the component falls in this checkpoint's forward: nnterp's measured order (under `tp` measured on
         a meta shell at load, since a probe of the sharded model reads values the ranks cannot reassemble)."""
         if self.order is not None:
-            return self.order[component, None if layer is None else range(self.model.num_layers)[layer]]
+            return self.order[component, layer]
         return self.model.rank(nnterp_name(component), layer)
 
     def sizes(self) -> dict[str, int]:
@@ -248,32 +264,6 @@ def nbytes(value: Any) -> int:
     if isinstance(value, Tensor):
         return value.numel() * value.element_size()
     return sum(nbytes(v) for v in value.values()) if isinstance(value, dict) else 0
-
-
-def sourced(model: StandardizedTransformer) -> None:
-    """Each module of a mixture of experts whose forward nnterp reads one of the mixture's values inside, at every
-    block it serves the value at, with its `.source` touched, which instruments that forward: the module the path of
-    nnterp's key for the value names before its first `source` (JetMoE's router, Mixtral's router and experts)."""
-    reasons = standard.unserved(model)
-    for c in [c for c in COMPONENTS if c in standard.mixed()]:
-        for layer in served(c, reasons[c], model.num_layers):
-            host: Any = envoy(model, c, layer)
-            value = getattr(type(host), c)
-            if not standard.inside(value, host):
-                continue
-            key = value.path(host)
-            while key.startswith("../"):
-                host, key = host.parent, key[3:]
-            parts = key.split(".")
-            for child in parts[:parts.index("source")]:
-                host = getattr(host, child)
-            host.source
-
-
-def measured(shell: StandardizedTransformer) -> dict[tuple[str, int | None], tuple[int, int]]:
-    """nnterp's rank of every component `shell` serves, at each layer it serves it, by `(component, layer)`."""
-    return {(c, layer): shell.rank(nnterp_name(c), layer) for c, refused in standard.unserved(shell).items()
-            for layer in served(c, refused, shell.num_layers)}
 
 
 def sharded(model: Model, tp: int, device: str) -> dict[str, Any]:

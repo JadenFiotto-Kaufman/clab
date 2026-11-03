@@ -146,6 +146,8 @@ def published(tmp_path, tensors: dict, featurizer: dict, site: dict | None = Non
     ({**TENSORS, "W_gate": TENSORS["W_enc"].clone()}, STATED,
      r"published\.safetensors has no clab header and holds W_dec, W_enc, W_gate, b_dec, b_enc; a published sae "
      r"holds W_enc, W_dec, b_enc, b_dec, threshold \(threshold optional\)"),
+    ({**TENSORS, "W_enc": torch.zeros(16)}, STATED,
+     r"published\.safetensors: W_enc is \[16\]; it is \[width, latents\]"),
     ({**TENSORS, "b_enc": torch.zeros(31)}, STATED,
      r"published\.safetensors: b_enc is \[31\]; with W_enc \[16, 32\] it is \[latents 32\]"),
     ({**TENSORS, "W_dec": torch.zeros(32, 15)}, STATED,

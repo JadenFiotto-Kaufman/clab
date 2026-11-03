@@ -10,6 +10,7 @@ from clab import ops
 from clab.compile import dataset_rows, positions
 from clab.format import data
 from clab.format.sweeps import agreeing_point, coordinate_text, projection
+from clab.output import run_record
 from clab.plan import (Intervention, Labelled, OpStep, Plan, arguments, by_point, entries, entry_of, made_by, points,
                         projections, record_of, runnable)
 
@@ -39,15 +40,16 @@ def table(plan: Plan, names: tuple[str, ...], columns: list[str] | None) -> list
     and the joined `at` both points' coordinates; a shared `pos` or `key` that does not mean one thing for both,
     counting the positions of different inputs or a plain index beside a token position, is refused by name.
     """
-    from clab.output import run_record
-
     run = run_record(plan)
+    by_dataset: dict[str, str] = {}             # the dataset each value has a row per example of, as its record says
     for name in names:
         if name not in plan.saves:
             raise ValueError(f"{name!r} was not saved; add it to saves")
         if name not in plan.results:
             raise ValueError(f"{name!r} has no result: the run stopped before its step; {run.stopped}")
-    by_dataset = {d: name for name in names if (d := dataset_of(plan, name)) is not None}
+        record = record_of(plan.steps, name, points(plan.steps[name.partition(".")[0]])[0].at)
+        if "rows" in (record.dims or []) and record.dataset is not None:
+            by_dataset[record.dataset] = name
     if len(by_dataset) > 1:
         (a, x), (b, y) = list(by_dataset.items())[:2]
         raise ValueError(f"{x!r} has a row per example of {a!r} and {y!r} of {b!r}; a table joins the values of "
@@ -109,7 +111,7 @@ def join(left: list[dict[str, Any]], mine: tuple[list[str], list[str], str | Non
         for other in by_key.get(key(row), []):
             a, b = (row, other) if many is left else (other, row)
             merged = {**a, **b}
-            if "at" in merged:              # the two points' coordinates together, first
+            if "at" in merged:
                 merged = {"at": {**a.get("at", {}), **b.get("at", {})},
                           **{k: v for k, v in merged.items() if k != "at"}}
             out.append(merged)
@@ -148,26 +150,20 @@ def rows_of(plan: Plan, name: str, columns: list[str] | None) -> list[dict[str, 
     return out
 
 
-def dataset_of(plan: Plan, name: str) -> str | None:
-    """The dataset a saved value has a row per example of, if any, as its record says."""
-    record = record_of(plan.steps, name, points(plan.steps[name.partition(".")[0]])[0].at)
-    return record.dataset if "rows" in (record.dims or []) else None
-
-
 def value_rows(value: Tensor | list[Any] | dict[str, Any], dims: list[str], place: dict[str, Any] | None
                ) -> list[dict[str, Any]]:
     """A value's rows: one per index on its example and token axes, the rest of it as the row's value; a row the
     read did not reach (`place` says so) is one row, `alignment_missing`, whatever its token axes hold, none
     included (a read no row reached is `[rows, 0]`)."""
-    assert not isinstance(value, dict) or "rows" in dims, "a bundle has no rows to table (rows_of refuses it)"
     first = next(iter(value.values())) if isinstance(value, dict) else value
     shape = list(first.shape) if isinstance(first, Tensor) else [len(first)]
     # The axes a row is per: the example axes, then the token axes within each; every axis of a value with no rows.
     outer = [i for i, a in enumerate(dims) if a in ("layers", "rows") or "rows" not in dims]
     inner = [i for i, a in enumerate(dims) if a in ("pos", "key") and "rows" in dims]
+    layers = place["layers"] if place else None             # the model's layer at each index of a layers axis
     out = []
     for index in itertools.product(*(range(shape[i]) for i in outer)):
-        whole = {COLUMNS.get(dims[i], dims[i]): model_layer(place, k) if dims[i] == "layers" else k
+        whole = {COLUMNS.get(dims[i], dims[i]): layers[k] if dims[i] == "layers" and layers is not None else k
                  for i, k in zip(outer, index)}
         if place and "row" in whole and place["positions"][whole["row"]] == positions.MISSING:
             out.append({**whole, positions.MISSING: True})      # one row says so, in place of its tokens
@@ -185,12 +181,7 @@ def value_rows(value: Tensor | list[Any] | dict[str, Any], dims: list[str], plac
     return out
 
 
-def model_layer(place: dict[str, Any] | None, k: int) -> int:
-    """Index `k` on a `layers` axis as the model's layer it is, by the value's own `layers` label."""
-    return place["layers"][k] if place and place["layers"] is not None else k
-
-
-def token(place: dict[str, Any], row: int, axis: str, k: int, at: int | None = None) -> dict[str, Any]:
+def token(place: dict[str, Any], row: int, axis: str, k: int, at: int | None) -> dict[str, Any]:
     """Index `k` on a token axis as the token it is: on `pos` through the read's resolved positions, on `key`
     through its `select` or, unselected, the row's own key `k`, each a position of the row as `pos` counts them, and
     a key relative to the query at its offset from the position `at` the row is labelled with (its `offset` alone

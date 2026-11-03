@@ -67,7 +67,7 @@ def start_run(engine: Engine, plan: Plan, batch_size: int, padding: str = "datas
     return time.time()
 
 
-def check_run_options(batch_size: int, padding: str = "dataset") -> int:
+def check_run_options(batch_size: int, padding: str) -> None:
     """`batch_size` and `padding` as every run takes them: one row or more per batch, and a padding
     `data.PADDINGS` names, each refused by name otherwise (`clab.run` asks before the model loads, `start_run` for an
     engine's `execute` called on its own)."""
@@ -75,7 +75,6 @@ def check_run_options(batch_size: int, padding: str = "dataset") -> int:
         raise ValueError(f"batch_size {batch_size}: a batch holds one row or more (--batch-size N, N at least 1)")
     if padding not in data.PADDINGS:
         raise ValueError(f"padding {padding!r}: one of {', '.join(map(repr, data.PADDINGS))} (--padding)")
-    return batch_size
 
 
 def run(engine: Engine, plan: Plan, batch_size: int) -> None:
@@ -83,13 +82,11 @@ def run(engine: Engine, plan: Plan, batch_size: int) -> None:
     (`serving`: a forward's or generation's serving points, an op's one per distinct point on its value's axes, a
     fit's every one), over the plan with its rows (`plan_with_rows`), without gradients except where a fit trains, a
     forward's batches of `batch_size` rows unless its record fixes another (a fit's eval step's: the fit's), each
-    run's cost measured into `plan.run.costs` (`measure_cost`) with the points it served; then (`record_results`)
-    each saved value into `plan.results` (a trained featurizer as its bundle's tensors), and what served the run: the
-    model's sizes, and the dtypes and devices of the model's parameters (`dtypes_and_devices`). Where each read and
-    write resolved, and each featurizer's width, is on its record, which preflight and the steps complete in place. A
-    step that runs out of CUDA memory stops the run: the refusal (`out_of_memory_refusal`) names the step, the batch
-    size and every value the run holds, is recorded as `plan.run.stopped`, and the steps that finished are recorded
-    and saved as if the run had ended there."""
+    run's cost measured into `plan.run.costs` (`measure_cost`) with the points it served; then what `record_results`
+    records, each saved value into `plan.results` among it, and the model's sizes. Where each read and write
+    resolved, and each featurizer's width, is on its record, which preflight and the steps complete in place. A step
+    that runs out of CUDA memory stops the run: its refusal (`out_of_memory_refusal`) is recorded as
+    `plan.run.stopped`, and the steps that finished are recorded and saved as if the run had ended there."""
     plan = plan_with_rows(plan)
     assert plan.run is not None
     plan.run.versions, plan.run.sizes = versions(), engine.sizes()
@@ -123,9 +120,14 @@ def record_results(engine: Engine, plan: Plan, state: ChainMap, costs: dict, fin
     plan.run.costs = {name: keyed_by_coordinate(plan, by_point) for name, by_point in costs.items()}
     done = {name for name in runnable(plan.steps) if len(costs.get(name, {})) == len(serving(plan, name))}
     for name in (n for n in plan.saves if made_by(plan, n) in done):
+        thing, _, member = name.partition(".")
+        step = points(plan.steps[thing])[0]
         ats = [at for at, _ in projections(plan, name)]
-        plan.results[name] = ({coordinate(plan, at): detached_cpu_clone(saved(plan, state, name, at)) for at in ats}
-                              if ats != [{}] else detached_cpu_clone(saved(plan, state, name, {})))
+        values = [lookup(state, name, at) for at in ats]
+        if step.kind == "fit" and member in step.train:
+            values = [v.tensors() for v in values]
+        plan.results[name] = ({coordinate(plan, at): detached_cpu_clone(v) for at, v in zip(ats, values)}
+                              if ats != [{}] else detached_cpu_clone(values[0]))
     plan.run.tokens.update({name: keyed_by_coordinate(plan, by_point) for name, by_point in findings.said.items()})
     plan.run.dtype, plan.run.devices = dtypes_and_devices(engine.model)
 
@@ -161,7 +163,7 @@ def value_text(value: Any) -> str | None:
     return None
 
 
-def measure_cost(devices: list[str], cost: dict[str, Any], call: Callable[[], None], synced: bool = True) -> None:
+def measure_cost(devices: list[str], cost: dict[str, Any], call: Callable[[], None], synced: bool) -> None:
     """What a run of a step cost, written into `cost` beside the model calls it made and the tokens they fed,
     which `call`, running it, adds (`forwards`, `tokens`): its time (`seconds`), with the model's CUDA `devices`
     synchronized at both ends where it calls the model (`synced`), and the peak memory allocated on each of them
@@ -206,13 +208,6 @@ def dtypes_and_devices(model: Parameterized) -> tuple[list[str], list[str]]:
     for parameter in model.parameters():
         dtypes[str(parameter.dtype).removeprefix("torch.")] = devices[str(parameter.device)] = None
     return list(dtypes), list(devices)
-
-
-def saved(plan: Plan, state: ChainMap, name: str, at: dict) -> Any:
-    thing, _, member = name.partition(".")
-    step = points(plan.steps[thing])[0]
-    value = lookup(state, name, at)
-    return value.tensors() if step.kind == "fit" and member in step.train else value
 
 
 def state_at_start(plan: Plan, device: str) -> ChainMap:
@@ -302,7 +297,7 @@ def forward(engine: Engine, plan: Plan, name: str, step: Forward, state: ChainMa
             parts[k].append(stack_layers(record, [
                 value_in_prefill(engine, plan, record, got[binds[k + (layer,)][0]["name"]], binds[k + (layer,)][0], ids,
                                  state, point.at, findings, layer)
-                for layer in layers_made_at(engine, record)]))
+                for layer in layers_made_at(record)]))
     for k, (record, own, _) in values_read.items():
         join_batches(state, f"{name}.{k[0]}", record, own, parts[k], batched_ids)
 

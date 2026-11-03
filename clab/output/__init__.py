@@ -104,11 +104,14 @@ def saved_value_axes(plan: Plan, name: str) -> list[str]:
 
 
 def saved_value_layout(plan: Plan, name: str) -> dict[str, Any]:
-    """A saved value's `dims` and labels (`LABELS`, those it has), as its record holds them: once where the value
-    depends on no axis or every point of it agrees, else per point by coordinate, as the manifest records a
-    result's `shape`."""
-    per = {coordinate_text(plan, at): layout_json(record_of(plan.steps, name, p.at))
-           for at, p in projections(plan, name)}
+    """A saved value's `dims` (always: a value with no axes has `[]`) and labels (`LABELS`, those it has), as its
+    record holds them: once where the value depends on no axis or every point of it agrees, else per point by
+    coordinate, as the manifest records a result's `shape`."""
+    per = {}
+    for at, p in projections(plan, name):
+        record = record_of(plan.steps, name, p.at)
+        per[coordinate_text(plan, at)] = {"dims": record.dims, **{k: v for k in LABELS
+                                                                  if (v := getattr(record, k)) not in (None, {}, [])}}
     if list(per) == [""]:
         return per[""]
     out = {}
@@ -117,11 +120,6 @@ def saved_value_layout(plan: Plan, name: str) -> dict[str, Any]:
         if any(v is not None for v in each.values()):
             out[key] = next(iter(each.values())) if len({json.dumps(v) for v in each.values()}) == 1 else each
     return out
-
-
-def layout_json(record: Labelled) -> dict[str, Any]:
-    """A value's `dims` and the labels it has, as JSON (`dims` always: a value with no axes has `[]`)."""
-    return {"dims": record.dims, **{k: v for k in LABELS if (v := getattr(record, k)) not in (None, {}, [])}}
 
 
 def write_safetensors(path: str, tensors: dict[str, Tensor], metadata: dict[str, str] | None = None) -> None:
@@ -171,6 +169,9 @@ def load(out: str) -> Plan:
     if plan.run is not None and os.path.exists(tokens):
         with open(tokens) as f:
             plan.run.tokens = json.load(f)
+    elif plan.run is not None and not plan.run.tokens:       # neither beside the manifest nor, as before, in it
+        raise FileNotFoundError(f"{out}/tokens.json is missing, and the manifest holds no tokens; a run this clab "
+                                "wrote has one beside its manifest, so rerun the document that wrote it")
     for name, d in described.items():
         value = read_saved_value(out, name, d)
         if d["axes"]:
@@ -181,12 +182,17 @@ def load(out: str) -> Plan:
 
 def manifest(out: str) -> tuple[dict[str, Any], dict[str, Any]]:
     """The manifest of the run at `out`, as JSON, and apart from it its `results`: each saved value's record by
-    name. One whose fit has an `eval` and no `evals`, which an older clab wrote, is refused by name."""
+    name. One an older clab wrote is refused by name: whose value records have no `axes` (it cannot say which sweeps
+    a value depends on, and taken as unswept a swept value's points would load as one), or whose fit has an `eval`
+    and no `evals` (it holds no record of an eval's values)."""
     try:
         with open(os.path.join(out, "manifest.json")) as f:
             held = json.load(f)
     except FileNotFoundError:
         raise FileNotFoundError(f"no run at {out!r} (no manifest.json); run the document first") from None
+    if any("axes" not in d for d in held.get("results", {}).values()):
+        raise ValueError(f"{out}/manifest.json predates the sweep axes a saved value's record holds ('axes'), so it "
+                         "does not say which sweeps its values depend on; rerun the document that wrote it")
     for name, entry in held.get("steps", {}).items():
         if any(p.get("kind") == "fit" and p.get("eval") and "evals" not in p for p in points(entry)):
             raise ValueError(f"{out}/manifest.json predates a fit's evals as steps ('evals'), so its fit {name!r} "
@@ -199,21 +205,16 @@ def read_saved_value(out: str, name: str, d: dict[str, Any]) -> Any:
     a dict of them again, a swept one keyed by each point's coordinate as text (`pos=-1`)."""
     file = os.path.join(out, d["file"])
     if file.endswith(".safetensors"):
-        value = nested(load_file(file))
+        value: dict[str, Any] = {}
+        for key, tensor in load_file(file).items():         # each `/` a level of the dict `flat` wrote
+            *path, last = key.split("/")
+            here = value
+            for k in path:
+                here = here.setdefault(k, {})
+            here[last] = tensor
         return value[name] if isinstance(d["dtype"], str) else value
     with open(file) as f:
         return restore_tensors(json.load(f), d["dtype"])
-
-
-def nested(value: dict[str, Tensor]) -> dict[str, Any]:
-    out: dict[str, Any] = {}
-    for key, v in value.items():
-        *path, last = key.split("/")
-        here = out
-        for k in path:
-            here = here.setdefault(k, {})
-        here[last] = v
-    return out
 
 
 def restore_tensors(value: Any, dtype: str | dict[str, Any] | None) -> Any:

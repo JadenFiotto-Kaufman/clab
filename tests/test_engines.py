@@ -58,8 +58,8 @@ def reading(model: dict, entries: dict, **rows) -> Plan:
 
 
 def test_the_pad_token_id_warning_is_filtered_off_the_logger_that_emits_it_and_nothing_else_is(engines):
-    """Every load runs `standard.quiet` once: the transformers logger that validates a config drops the one
-    warning a `pad_token_id: -1` config emits, and passes every other message."""
+    """Every load (`standard.build`) adds `standard.unpadded` once: the transformers logger that validates a config
+    drops the one warning a `pad_token_id: -1` config emits, and passes every other message."""
     import logging
 
     from clab.engines import standard

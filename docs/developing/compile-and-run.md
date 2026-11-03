@@ -52,7 +52,7 @@ The concepts compile resolves each have a module with their checks at compile an
 - prepares each fit's body over its training rows, into the same `Findings`, in the plan as the body sees it (`clab/plan.py` `body_view`), and each eval step after the fit as any step: `prepare` walks the steps `runnable` lists;
 - finds each featurizer's width at its uses (`clab/compile/uses.py` `write_widths`).
 
-It completes the plan's records in place (`layers`, `kept`, `positions` and `width` on every read and write, op steps' labels from their producers', the schedules, each featurizer's `width`) and returns a `Findings` (`clab/compile/state.py` `Findings`) with the rest the run needs: each input's encoded rows and padded width, room for what each generation's rows said, answers and featurizer widths.
+It completes the plan's records in place (`layers`, `kept`, `positions` and `width` on every read and write, op steps' labels from their producers', the schedules, each featurizer's `width`) and returns a `Findings` (`clab/compile/state.py` `Findings`) with the rest the run needs: each input's encoded rows and padded width, room for what each generation's rows said, and answers.
 
 ## The run
 

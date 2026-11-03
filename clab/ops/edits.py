@@ -32,8 +32,8 @@ def sub(of: Tensor, with_: Value) -> Tensor:
 
 @op("edits")
 def scale(of: Tensor, factor: Value) -> Tensor:
-    """`of * factor`, broadcast as `add`'s `with` is: a number, or a named value (a dose measured by a step; a
-    `[rows, pos]` factor scales each position's vector by its own number, over `hidden_size`)."""
+    """`of * factor`: a number, or a named value (a dose measured by a step; a `[rows, pos]` factor scales each
+    position's vector by its own number, over `hidden_size`)."""
     return of * torch.as_tensor(factor, device=of.device)
 
 
@@ -61,7 +61,7 @@ def decode(of: Tensor, featurizer: Featurizer) -> Tensor:
     that `encode`, the change of its coordinates written back as a delta (`replace`), so an op between them
     that changes no coordinate changes nothing and a sparse autoencoder's error term survives. The pair runs as
     one, the ops between on the coordinates (`batches.apply_bound_ops`)."""
-    raise ValueError("'decode' runs as the close of its encode, with the ops between (batches.edited), never alone")
+    raise ValueError("'decode' runs as the close of its encode, with the ops between, never alone")
 
 
 def present(x: Tensor) -> Tensor:
@@ -106,17 +106,16 @@ def project_out(of: Tensor, direction: Value) -> Tensor:
 @op("edits")
 def noise(of: Tensor, scale: Value, dims: list[str], seed: int = 0, rows: Tensor | None = None,
           positions: Tensor | None = None) -> Tensor:
-    """`of + scale * noise`, `scale` a number or a named value broadcast as `add`'s `with` is, the noise
-    standard normal and drawn per example: the noise at a row's position is one draw of the value's other axes
-    from a CPU generator seeded by `seed`, the row's place in its dataset and the token's position alone (in a
-    step over a value that holds no positions, its index along `pos`), then moved to the value's device. So
-    batch size, sweep point and forward call never change it, no two rows or positions share one, a write across
-    layers draws the same bits at each of them (as one entry per layer with one seed does), and a document draws
+    """`of + scale * noise`, the noise standard normal and drawn per example: the noise at a row's position is one draw
+    of the value's other axes from a CPU generator seeded by `seed`, the row's place in its dataset and the token's
+    position alone (in a step over a value that holds no positions, its index along `pos`), then moved to the value's
+    device. So batch size, sweep point and forward call never change it, no two rows or positions share one, a write
+    across layers draws the same bits at each of them (as one entry per layer with one seed does), and a document draws
     the same bits on any device. A value with no rows is one draw from `seed`."""
-    lead = [i for i, a in enumerate(dims) if a in ("rows", "pos")]
     scale = torch.as_tensor(scale, device=of.device)
-    if rows is None or not lead:
+    if rows is None:
         return of + scale * torch.randn(of.shape, generator=seeded(seed)).to(device=of.device, dtype=of.dtype)
+    lead = [i for i, a in enumerate(dims) if a in ("rows", "pos")]
     shape = [of.shape[i] for i in lead]
     rest = [n for i, n in enumerate(of.shape) if i not in lead]
     draws = []

@@ -73,7 +73,7 @@ def sizes(model: StandardizedTransformer) -> dict[str, int]:
 
 # nnterp's reason for a dense MLP's values at a block whose MLP is a mixture of experts (`nnterp.components.moe`
 # `ROUTED`), which points at nnterp's own `Moe` component; clab names that component's values, so it says which of
-# them, and of the MLP's, the engine serves there instead (`mixture`).
+# them, and of the MLP's, the engine serves there instead (`own`).
 ROUTED = "routed experts; read per-expert via the Moe component"
 
 # clab's reason for a mixture's value on a model none of whose blocks has one, which nnterp's answer does not name.
@@ -81,7 +81,7 @@ DENSE = "no block of this model has a mixture of experts"
 
 # clab's reason for a mixture's value on a model nnterp has no family for and reads under its default one, which
 # names no mixture's values but says a block's MLP is a mixture (`nnterp.families.default.MIXTURE`, its reason for
-# the activation there); `mixture` adds what the engine serves of the MLPs.
+# the activation there); `own` adds what the engine serves of the MLPs.
 UNADDRESSED = ("nnterp has no family for this architecture (it reads the model under its default family), so its "
                "mixture of experts is not addressed")
 
@@ -116,29 +116,21 @@ def unserved(shell: StandardizedTransformer) -> dict[str, str | dict[int, str] |
 
 def own(answer: dict[str, str | dict[int, str] | None]) -> dict[str, str | dict[int, str] | None]:
     """An engine's `answer` (`unserved`'s, or the engine's own from it) with clab's reason where nnterp's sends the
-    reader to its `Moe` component (`ROUTED`), or where nnterp's default family leaves a mixture unaddressed
-    (`UNADDRESSED`): `mixture`, which names what the engine's answer serves there."""
+    reader to its `Moe` component (`ROUTED`): that a mixture has no single activation or down projection; or where
+    nnterp's default family leaves a mixture unaddressed (`UNADDRESSED`); each naming the MLP's components, its
+    routing and experts', the answer serves at that block (at every block, for a value refused at all)."""
     def said(why: str, layer: int | None) -> str:
-        return mixture(answer, layer, why) if why in (ROUTED, UNADDRESSED) else why
+        if why not in (ROUTED, UNADDRESSED):
+            return why
+        mlp = [c for c in COMPONENTS if (c.startswith("mlp_") or host(c) == "mlp") and (
+            (r := answer[c]) is None or isinstance(r, dict) and layer is not None and not r.get(layer))]
+        named = ", ".join(mlp[:-1]) + f" and {mlp[-1]}" if len(mlp) > 1 else "".join(mlp) or "none of them"
+        if why == UNADDRESSED:
+            return f"{UNADDRESSED}; its MLPs are served as {named}"
+        return (f"block {layer}'s MLP is a mixture of experts, which has no single activation or down projection; at "
+                f"block {layer} its MLP is served as {named}")
     return {c: {layer: said(why, layer) for layer, why in refused.items()} if isinstance(refused, dict) else
             refused and said(refused, None) for c, refused in answer.items()}
-
-
-def mixture(answer: dict[str, Any], layer: int | None, why: str = ROUTED) -> str:
-    """clab's reason, in place of `why`, for a value at block `layer` (None: at every block) whose MLP is a mixture of
-    experts: for a dense MLP's value (nnterp's `ROUTED`) that a mixture has no single activation or down projection,
-    for a mixture's own value under nnterp's default family `UNADDRESSED`; and the MLP's components, its routing and
-    experts', the engine's `answer` serves there."""
-    mlp = [c for c in COMPONENTS if (c.startswith("mlp_") or host(c) == "mlp")
-           and (answer[c] is None or isinstance(answer[c], dict) and layer is not None and not answer[c].get(layer))]
-    named = ", ".join(mlp[:-1]) + f" and {mlp[-1]}" if len(mlp) > 1 else "".join(mlp) or "none of them"
-    if why == UNADDRESSED:
-        return f"{UNADDRESSED}; its MLPs are served as {named}"
-    if layer is None:
-        return (f"this model's MLPs are mixtures of experts, which have no single activation or down projection; its "
-                f"MLPs are served as {named}")
-    return (f"block {layer}'s MLP is a mixture of experts, which has no single activation or down projection; at "
-            f"block {layer} its MLP is served as {named}")
 
 
 def served(component: str, refused: str | dict[int, str] | None, num_layers: int) -> list[int | None]:
@@ -167,14 +159,26 @@ def loading(model: Model, engine: str, device: str) -> dict[str, Any]:
     holds the same weights and computes in the same dtype on each by construction: `dtype`, torch's (the compute
     dtype, `Model.computes`, under a quantization), and for a quantization the `quantization_config` nnsight builds
     for its name: bitsandbytes 4-bit in that quant type computing in that dtype (without double quantization),
-    LLM.int8(), or transformers' FP8. Refused by name before anything loads: a `device` no engine can place a model
-    on (`placeable`: every engine's constructor comes through here before its loader), a bitsandbytes format without
+    LLM.int8(), or transformers' FP8. Refused by name before anything loads (every engine's constructor comes through
+    here before its loader): a `device` that is neither a device map transformers computes (`COMPUTED`) nor one torch
+    device, a CUDA device where none is visible or one beyond those that are, a bitsandbytes format without
     bitsandbytes installed, and `fp8` off a GPU of compute capability 8.9 or later (below it transformers would load
     bfloat16)."""
     import torch
     from transformers import BitsAndBytesConfig, FineGrainedFP8Config
 
-    placeable(device)
+    if device not in COMPUTED:
+        try:
+            where = torch.device(device)
+        except RuntimeError:
+            raise ValueError(f"device {device!r}: not a torch device ('cpu', 'cuda:0') or a device map transformers "
+                             f"computes ({', '.join(map(repr, COMPUTED))})") from None
+        if where.type == "cuda" and not torch.cuda.is_available():
+            raise ValueError(f"device {device!r}: no CUDA device is visible (torch.cuda.is_available() is False); run "
+                             "on 'cpu', or make a GPU visible (CUDA_VISIBLE_DEVICES)")
+        if where.type == "cuda" and where.index is not None and where.index >= torch.cuda.device_count():
+            n = torch.cuda.device_count()
+            raise ValueError(f"device {device!r}: {n} CUDA device{'s' * (n != 1)} visible, cuda:0 to cuda:{n - 1}")
     dtype = getattr(torch, model.computes)
     if model.dtype not in QUANTIZED:
         return {"dtype": dtype}
@@ -195,29 +199,6 @@ def loading(model: Model, engine: str, device: str) -> dict[str, Any]:
     config = (BitsAndBytesConfig(load_in_8bit=True) if model.dtype == "int8" else
               BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_quant_type=model.dtype, bnb_4bit_compute_dtype=dtype))
     return {"dtype": dtype, "quantization_config": config}
-
-
-def placeable(device: str) -> None:
-    """`device` as every engine takes it: a device map transformers computes (`COMPUTED`), or one torch device.
-    Refused by name before anything loads: a string that is neither, a CUDA device where none is visible, and
-    one beyond those that are."""
-    import torch
-
-    if device in COMPUTED:
-        return
-    try:
-        where = torch.device(device)
-    except RuntimeError:
-        raise ValueError(f"device {device!r}: not a torch device ('cpu', 'cuda:0') or a device map transformers "
-                         f"computes ({', '.join(map(repr, COMPUTED))})") from None
-    if where.type != "cuda":
-        return
-    if not torch.cuda.is_available():
-        raise ValueError(f"device {device!r}: no CUDA device is visible (torch.cuda.is_available() is False); run "
-                         "on 'cpu', or make a GPU visible (CUDA_VISIBLE_DEVICES)")
-    if where.index is not None and where.index >= torch.cuda.device_count():
-        n = torch.cuda.device_count()
-        raise ValueError(f"device {device!r}: {n} CUDA device{'s' * (n != 1)} visible, cuda:0 to cuda:{n - 1}")
 
 
 def placing(model: Model, device: str) -> dict[str, str]:
@@ -244,17 +225,20 @@ def inputs(batch: dict[str, Tensor], keys: tuple[str, ...], device: str) -> dict
 
 
 def build(model: Model, engine: str, call: Callable[[dict[str, Any]], Any]) -> Any:
-    """`call` with the model block's keys other than `key`, `revision` and `dtype` (which `loading` reads), as
-    they are. A key in
-    `OWNED` is refused by name, and one the loader rejects is reported as that key. A checkpoint the loader cannot
-    get (its `OSError`) is refused as `model.key`, saying whether the run is offline and the cache lacks it."""
+    """`call` with the model block's keys other than `key`, `revision` and `dtype` (which `loading` reads), as they
+    are, once the `pad_token_id` warning (`PADDED`) is filtered off the transformers logger that emits it, the filter
+    (`unpadded`) added once and passing every other message of that logger. A key in `OWNED` is refused by name, and
+    one the loader rejects is reported as that key. A checkpoint the loader cannot get (its `OSError`) is refused as
+    `model.key`, saying whether the run is offline and the cache lacks it."""
     from huggingface_hub.constants import HF_HUB_OFFLINE
 
     extra = dict(model.model_extra or {})
     for key in extra:
         if key in OWNED:
             raise ValueError(f"model.{key}: the {engine} engine cannot honor it: {OWNED[key]}")
-    quiet()
+    logger = logging.getLogger("transformers.configuration_utils")
+    if unpadded not in logger.filters:
+        logger.addFilter(unpadded)
     try:
         return call(extra)
     except OSError as e:                   # before ValueError: the hub's not-found error is both
@@ -283,14 +267,6 @@ PADDED = "Model config: pad_token_id must be `None` or an integer within the voc
 
 def unpadded(record: logging.LogRecord) -> bool:
     return not record.getMessage().startswith(PADDED)
-
-
-def quiet() -> None:
-    """The `pad_token_id` warning (`PADDED`) filtered off the transformers logger that emits it, once, before a
-    model loads; every other message of that logger passes."""
-    logger = logging.getLogger("transformers.configuration_utils")
-    if unpadded not in logger.filters:
-        logger.addFilter(unpadded)
 
 
 def stops(config: GenerationConfig, tokenizer: PreTrainedTokenizerBase) -> list[int]:

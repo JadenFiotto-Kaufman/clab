@@ -97,7 +97,7 @@ def rescope_entry(plan: Plan, path: str, spec: Intervention, bundle: str, step: 
 def compile_entry(cx: Compiling, path: str, spec: Intervention, plan: Plan, step: Forward | Generate, dataset: str,
                   live: dict[str, Intervention], own: set[str], where: str, at: dict[str, int]) -> Intervention:
     """One entry compiled: its site inlined, its positions checked against the step, its labels written as far as
-    the document decides them (`layers_of`, `kept_of`, the static width of its `pos`), and its ops walked once for
+    the document decides them (its layers, `kept_of`, the static width of its `pos`), and its ops walked once for
     their layouts and coordinates (each op's recorded on it) and for their operands, each checked against the value
     the op meets there (`arguments.mismatch`). Up to its last edit each op acts on the live value, so no edit
     follows an op that changed the layout unless that was an `encode` its `decode` closes, every encode before the
@@ -167,8 +167,11 @@ def compile_entry(cx: Compiling, path: str, spec: Intervention, plan: Plan, step
     nodes = {node["at"]: node for node, _ in visited(tree)}
     around = {node["at"]: list(outer) for node, outer in visited(tree)}
     closes = {node["closed"]: node for node, _ in visited(tree) if node.get("closed") is not None}
-    # The entry's labels, which every op's operand meets, and which its record carries.
-    labels = {"dataset": dataset, "read": where, "layers": layers_of(cast("Selector | None", site.layers)),
+    # The entry's labels, which every op's operand meets, and which its record carries: its `layers` None for a
+    # model's own value, the layers a non-negative int or picks name, else `[]` until preflight resolves them.
+    picks = [site.layers] if isinstance(site.layers, int) else site.layers if isinstance(site.layers, list) else None
+    labels = {"dataset": dataset, "read": where,
+              "layers": None if site.layers is None else list(picks) if picks and min(picks) >= 0 else [],
               "kept": kept_of(cast("dict[str, Selector] | None", site.select)), "width": positions.width(pos)}
     before: dict[int, list[str]] = {}                       # the layout each encode turned into coordinates
     changed = None                                          # the op that changed the layout, which no edit follows
@@ -258,15 +261,6 @@ def compile_entry(cx: Compiling, path: str, spec: Intervention, plan: Plan, step
                         space=space_of([n["op"] for n in unclosed]), per_call=per_call)
 
 
-def layers_of(layers: Selector | None) -> list[int] | None:
-    """A site's `layers` as the value's label, as far as the document decides it: None for a model's own value,
-    the layers a non-negative int or picks name, else `[]` until preflight resolves it among the model's."""
-    if layers is None:
-        return None
-    picks = [layers] if isinstance(layers, int) else layers if isinstance(layers, list) else None
-    return list(picks) if picks is not None and all(i >= 0 for i in picks) else []
-
-
 def kept_of(select: dict[str, Selector] | None) -> dict[str, selectors.Kept]:
     """A site's `select` as the indices it keeps on each axis, as far as the document decides them: those of a
     selector counted from the start (`keyed`: a non-negative int or picks, a front-bounded slice, every `key`
@@ -336,8 +330,10 @@ def check_operands(engine: Engine, plan: Plan, where: str, o: Op, step: Forward 
                     raise ValueError(f"{where}: operand {value!r} is read at positions {a} of row {row} and this "
                                      f"write lands at {b}; {key!r} from the write's own forward is read where it "
                                      "lands")
-                if not isinstance(a, list):
-                    raise ValueError(unreached_row_refusal(where, value, row, b))
+                if not isinstance(a, list):     # compile refused a ragged operand of another forward (Ops' one rule)
+                    raise ValueError(f"{where}: operand {value!r} holds no position on row {row} ({positions.MISSING}: "
+                                     f"its pos picks none of the row's tokens) and this write lands at {b} there; a "
+                                     "write takes an operand read on every row it lands on")
                 if len(a) != len(b):
                     raise ValueError(f"{where}: operand {value!r} holds {len(a)} position(s) on row {row} and this "
                                      f"write {len(b)}; position i meets position i, so an entry of the write's own "
@@ -353,15 +349,6 @@ def check_operands(engine: Engine, plan: Plan, where: str, o: Op, step: Forward 
         written = positions.parse(record.pos)
         if producer_input != consumer and written["scope"] is None and positions.parse(read.pos) == written:
             check_window(engine, plan, where, value, producer_input, consumer, findings, step.at)
-
-
-def unreached_row_refusal(where: str, value: str, row: int, lands: list[int]) -> str:
-    """Why a write cannot take an operand of its own forward that does not reach a row it lands on: it would write
-    what the operand has not, NaN. (An operand of another forward without one width on every row is refused at
-    compile, Ops' one rule, so only an entry of the write's own forward can be missing on a row.)"""
-    return (f"{where}: operand {value!r} holds no position on row {row} ({positions.MISSING}: its pos picks none "
-            f"of the row's tokens) and this write lands at {lands} there; a write takes an operand read on every row "
-            "it lands on")
 
 
 def check_window(engine: Engine, plan: Plan, where: str, value: str, producer: str, consumer: str, findings: Findings,
