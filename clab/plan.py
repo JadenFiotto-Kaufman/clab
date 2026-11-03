@@ -550,7 +550,8 @@ class Op(Record):
     dims: list[str] | None = derived(None, "the layout of the op's value, at each layer the entry is made at (the "
                                            "op after it meets it; the first meets the site's selection)")
     space: list[dict] = derived([], "the coordinates the op's value is in: the encodes open after it, outermost "
-                                    "first, each its `featurizer` and `select`; none in the site's own layout")
+                                    "first, each its `featurizer` and `select`; none in the site's own layout, and "
+                                    "none once an op changed the last axis they lie on (a sum over features)")
 
     @model_validator(mode="after")
     def _arguments(self) -> "Op":
@@ -587,7 +588,8 @@ class Labelled(Record):
                                                   "whole, and `[]` stands until preflight resolves a slice or a "
                                                   "negative pick")
     space: list[dict] = derived([], "the coordinates the value is in: the encodes left open around it, outermost "
-                                    "first, each its `featurizer` and `select`; none for the site's own layout")
+                                    "first, each its `featurizer` and `select`; none for the site's own layout, and "
+                                    "none once an op changed the last axis they lie on (a sum over features)")
     axes: list[str] = derived([], "the sweep axes the value depends on, in axis order: the sweeps on its own entry "
                                   "(its site, its positions, an op's literal argument), those of every value or "
                                   "featurizer its ops name, and, for an entry of a forward, the forward's "

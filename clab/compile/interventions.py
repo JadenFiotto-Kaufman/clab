@@ -168,7 +168,6 @@ def compile_entry(cx: Compiling, path: str, spec: Intervention, plan: Plan, step
         tree = bracketed(spec.ops)
     except Unbracketed as e:
         fail(f"{path}.ops[{e.at}]", str(e))
-    nodes = {node["at"]: node for node, _ in visited(tree)}
     around = {node["at"]: list(outer) for node, outer in visited(tree)}
     closes = {node["closed"]: node for node, _ in visited(tree) if node.get("closed") is not None}
     # The entry's labels, which every op's operand meets, and which its record carries: its `layers` None for a
@@ -178,6 +177,10 @@ def compile_entry(cx: Compiling, path: str, spec: Intervention, plan: Plan, step
               "layers": None if site.layers is None else list(picks) if picks and min(picks) >= 0 else [],
               "kept": kept_of(cast("dict[str, Selector] | None", site.select)), "width": positions.width(pos)}
     before: dict[int, list[str]] = {}                       # the layout each encode turned into coordinates
+    # The coordinates the value is in as the op before left it: an encode's added, a decode's closed, all of them
+    # left once an op changes the last axis they lie on (a sum over features), as an op step's are.
+    space: list[dict] = []
+    outside: dict[int, list[dict]] = {}                     # the coordinates each encode's value was in before it
     changed = None                                          # the op that changed the layout, which no edit follows
     laid: list[Op] = []                                     # each op with the layout and coordinates of its value
     # The ops after the last edit that run at each call a generation reads the entry beyond its prefill: the leading
@@ -221,8 +224,9 @@ def compile_entry(cx: Compiling, path: str, spec: Intervention, plan: Plan, step
                      "step is served in a forward, not inside a generate" if step.kind == "generate" else
                      f"{value!r} is this entry or one this forward makes after it; an operand names an earlier "
                      "entry")
-        # What the op meets: the value as the op before it left it, in the coordinates of the encodes open here.
-        ours = Labelled(dims=dims, space=space_of([n["op"] for n in outer]),
+        # What the op meets: the value as the op before it left it, in its coordinates (a decode's, outside its
+        # encode).
+        ours = Labelled(dims=dims, space=outside[closes[i]["at"]] if i in closes else space,
                         **{**labels, "kept": {a: v for a, v in labels["kept"].items() if a in dims},
                            "width": labels["width"] if "pos" in dims else None})
         operands = references(o.op, args, resolver(cx, here, "classes" in dims, at, live))
@@ -239,21 +243,20 @@ def compile_entry(cx: Compiling, path: str, spec: Intervention, plan: Plan, step
             if why:
                 fail(f"{here}.{key}", why)
         if i in closes:
-            dims = before[closes[i]["at"]]
+            dims, space = before[closes[i]["at"]], outside[closes[i]["at"]]
         elif o.op == "encode":
-            before[i] = dims
-            dims = layout(here, o.op, args, dims, "live" if i <= last else "entry", kind)
+            before[i], outside[i] = dims, space
+            dims, space = layout(here, o.op, args, dims, "live" if i <= last else "entry", kind), \
+                space + space_of([o])
         else:
             out = layout(here, o.op, args, dims, "live" if i <= last else "entry", kind)
             changed = o.op if out != dims and changed is None else changed
-            dims = out
+            dims, space = out, space if out[-1:] == dims[-1:] else []
         if i > last and each:
             each = ops.DECLARED[o.op]["positionwise"] and "pos" in dims and "rows" in dims and \
                 not any("pos" in (theirs.dims or []) for _, theirs in operands.values())
             per_call += each
-        open_after = outer + [nodes[i]] if o.op == "encode" else outer
-        laid.append(Op(**o.model_dump(exclude_defaults=True), dims=dims,
-                       space=space_of([n["op"] for n in open_after])))
+        laid.append(Op(**o.model_dump(exclude_defaults=True), dims=dims, space=space))
     unclosed = [n for n, _ in visited(tree) if n["op"].op == "encode" and n["closed"] is None]
     if any(n["at"] < last for n in unclosed):
         j = max(n["at"] for n in unclosed if n["at"] < last)
@@ -262,7 +265,7 @@ def compile_entry(cx: Compiling, path: str, spec: Intervention, plan: Plan, step
              f"close it with {{'op': 'decode', 'featurizer': {ref!r}}} after its edits")
     return Intervention(**spec.model_dump(exclude_defaults=True, exclude={"site", "ops"}), site=site, ops=laid,
                         dims=(["layers"] if address.stacks(site.layers) else []) + dims, **labels,
-                        space=space_of([n["op"] for n in unclosed]), per_call=per_call)
+                        space=space, per_call=per_call)
 
 
 def kept_of(select: dict[str, Selector] | None) -> dict[str, selectors.Kept]:
