@@ -1335,6 +1335,14 @@ def walk(steps: dict[str, Entry], prefix: str = "") -> Iterator[tuple[str, Any]]
                 yield from walk(step.steps, f"{prefix}{name}.")
 
 
+def calls_model(steps: dict[str, Entry]) -> bool:
+    """Whether a run of `steps` needs the model's weights: a forward or a generation, at the root or in a fit's body,
+    or an op step reading the model's own head (`readout`) or its generation config's stop ids (`detokenize`). A
+    document of loads and other op steps needs the tokenizer and the config alone."""
+    return any(step.kind in ("forward", "generate") or step.kind == "op" and step.op in ("readout", "detokenize")
+               for _, step in walk(steps))
+
+
 def declared(plan: Plan, ref: str) -> str:
     """The declared featurizer a reference names: itself, or the one `<fit>.<featurizer>` trains."""
     return ref if ref in plan.featurizers else ref.partition(".")[2]

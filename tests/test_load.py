@@ -14,7 +14,7 @@ import shutil
 from typing import Any, cast
 
 import pytest
-from conftest import BATCH_SIZE, ROOT, TRIP, document, same, stand_in
+from conftest import BATCH_SIZE, ROOT, TRIP, document, plan_of, same, stand_in
 from safetensors import safe_open
 
 from clab import Plan
@@ -479,3 +479,20 @@ def test_a_value_a_reduction_took_out_of_a_featurizers_coordinates_loads(engines
     assert refused(root, {"kind": "load", "from": "out/l0", "value": "harvest.latents"}) == (
         "steps.harvest.value: 'harvest.latents' is in the coordinates of 'sae', a featurizer of out/l0's; load the "
         "value it encodes and encode it here")
+
+
+def test_a_document_of_loads_and_op_steps_loads_no_weights(engines, root):
+    """T10's P5: a document whose steps are a load and op steps calls no model, so a fresh nnterp engine stays the
+    meta shell it loads as (the tokenizer and the config, no weights) and gives the numbers of an engine that has
+    its weights, to the bit; a document with a forward loads them before its first step."""
+    from clab.engines import load as load_engine
+
+    plan = written(root, "mean_of_loaded", loading(corpus("pca_harvest"), {
+        "acts": LOAD, "m": {"kind": "op", "op": "mean", "of": "acts", "over": ["rows", "pos"]}}, ["m"]))
+    fresh = load_engine("nnterp", plan.model)
+    shell: Any = fresh.model
+    filled = fresh.execute(plan, batch_size=BATCH_SIZE)
+    assert not shell.dispatched and filled.run is not None and filled.run.devices == ["meta"]
+    assert same(filled.results["m"], engines("nnterp", plan.model).execute(plan, batch_size=BATCH_SIZE).results["m"])
+    fresh.execute(plan_of("patching"), batch_size=BATCH_SIZE)
+    assert shell.dispatched and not any(p.requires_grad for p in shell.parameters())
