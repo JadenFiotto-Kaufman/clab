@@ -30,7 +30,7 @@ from clab.compile.answers import check_column_ref
 from clab.compile.arguments import (featurizer_kind, kept_labels, layout, mismatch, narrowed_readout_refusal,
                                     references, resolver, space_of, value_record)
 from clab.compile.interventions import bundles_of, compile_entry, entries_with_paths
-from clab.compile.schedule import share_forwards
+from clab.compile.schedule import free_operands, share_forwards
 from clab.compile.state import Compiling
 from clab.compile.uses import check_bundle_sites, check_gate_axes
 from clab.featurizers import KINDS, bundles, labels
@@ -81,7 +81,7 @@ def compile(plan: Plan) -> Plan:
     sweeps = find_sweeps(doc)
     values = {label: get(doc, path)["sweep"] for path, label in sweeps.items()}
     cx = Compiling(doc=doc, root=root, rows=rows, sweeps=sweeps, values=values, featurizers={}, steps={}, axes_of={},
-                   used=set())
+                   used=set(), live=set())
     for name in plan.featurizers:
         cx.featurizers[name] = expand(cx, name, ("featurizers", name),
                                       lambda point, at, name=name: compile_featurizer(cx, point, name, at))
@@ -102,7 +102,8 @@ def compile(plan: Plan) -> Plan:
         if d.template is not None and name not in cx.chats:
             fail(f"data.{name}.template", f"no step reads a chat column of {name!r}, and a template renders a chat "
                  "(a column of {'role', 'content'} messages) only")
-    mark_gathered(cx.steps, cx.used | set(plan.saves))
+    mark_gathered(cx.steps, cx.used | cx.live | set(plan.saves))
+    free_operands(cx.steps, cx.used | set(plan.saves))
     done = Plan(**{**doc, "featurizers": cx.featurizers, "steps": cx.steps, "sites": {}, "interventions": {},
                    "compiled": True, "document": plan.document,
                    "sweeps": {label: {"values": values[label]} for label in values},

@@ -12,7 +12,7 @@ from clab.compile import positions
 from clab.format import address, selectors
 from clab.format.sweeps import agreeing_point, coordinate_text, points, projection
 from clab.plan import (Forward, Intervention, Plan, Site, arguments, entries, entry_of, gathers, gradient_of, horizon,
-                        record_of, writes)
+                        record_of, runnable, writes)
 
 if TYPE_CHECKING:
     from clab.engines import Engine
@@ -32,6 +32,24 @@ def share_forwards(plan: Plan) -> None:
                     step.schedule = {"serving": first[key].at}
                 else:
                     first[key] = step
+
+
+def free_operands(steps: dict, kept: set[str]) -> None:
+    """Which values a forward reads only for its own writes, written into its points' schedules (`freed`, the entries
+    by name, where there is one), as compile decides it: a gathered entry of a forward step that no `grad` entry of the
+    step differentiates and whose name is not in `kept` (every value a save names, or anything but a live operand of
+    its own forward uses: an op step, another step's entry, a fit's objective or the body entries an sae's scalars are
+    over), so that what uses it is the writes of its own forward that take it as a live operand. The run hands each
+    batch's read to those writes and keeps none of it. A fit's body's forwards, and its evals', too."""
+    for name, entry in runnable(steps).items():
+        differentiated = {gradient_of(e) for p in points(entry) for e in entries(p).values()}
+        for point in points(entry):
+            if point.kind == "fit":
+                free_operands(point.steps, kept)
+            freed = [k for k, e in entries(point).items()
+                     if e.gathered and f"{name}.{k}" not in kept and k not in differentiated]
+            if point.kind == "forward" and freed:
+                point.schedule["freed"] = freed
 
 
 # How a run computes a forward's `logits` (`plan.run.readout`, `clab run --readout`), each with what it trades.

@@ -282,9 +282,10 @@ def forward(engine: Engine, plan: Plan, name: str, step: Forward, state: ChainMa
     through `engine.forward` with the point's schedule bound to it (`bind_schedule`, from the half of its binding that
     depends on the step alone, `binding`: `schedule_binding`'s, made once for every batch); each value the forward
     reads (`values_read`, `values_read_by` over the points its run serves, `served`: each gathered entry at each
-    distinct point on its axes among them) joined along rows from its own reads, in the run's row order. A fit gives
-    both once for its every run of the body. Adds to `cost` the model calls it made, one per batch, the prompt tokens
-    they fed, padding included, and the rows' own of them (`real`).
+    distinct point on its axes among them) joined along rows from its own reads, in the run's row order, but one the
+    schedule frees (`freed`: read only for the forward's own writes, which take each batch's read live), of which no
+    batch is kept. A fit gives both once for its every run of the body. Adds to `cost` the model calls it made, one
+    per batch, the prompt tokens they fed, padding included, and the rows' own of them (`real`).
 
     An entry whose `layers` are a slice or picks is one write (when it writes) and one read per layer, the ops
     after its last edit run on each layer's read, stacked layer-first; one whose rows hold different numbers of
@@ -292,7 +293,8 @@ def forward(engine: Engine, plan: Plan, name: str, step: Forward, state: ChainMa
     assert plan.run is not None
     values_read = values_read_by(served) if values_read is None else values_read
     binding = schedule_binding(engine, plan, name, step, values_read) if binding is None else binding
-    parts: dict[tuple[str, tuple], list] = {k: [] for k in values_read}
+    freed = step.schedule.get("freed", [])
+    parts: dict[tuple[str, tuple], list] = {k: [] for k in values_read if k[0] not in freed}
     batched_ids: list[int] = []
     for ids, batch, pads in input_batches(engine, step, state, findings, batch_size, plan.run.padding):
         batched_ids += ids
@@ -307,13 +309,15 @@ def forward(engine: Engine, plan: Plan, name: str, step: Forward, state: ChainMa
         cost["forwards"] += 1
         cost["tokens"] += batch["input_ids"].numel()
         cost["real"] += batch["input_ids"].numel() - sum(pads)
-        for k, (record, own, point) in values_read.items():
+        for k in parts:
+            record, own, point = values_read[k]
             parts[k].append(stack_layers(record, [
                 value_in_prefill(engine, plan, record, got[binds[k + (layer,)][0]["name"]], binds[k + (layer,)][0], ids,
                                  state, point.at, findings, layer)
                 for layer in layers_made_at(record)]))
-    for k, (record, own, _) in values_read.items():
-        join_batches(state, f"{name}.{k[0]}", record, own, parts[k], batched_ids)
+    for k, part in parts.items():
+        record, own, _ = values_read[k]
+        join_batches(state, f"{name}.{k[0]}", record, own, part, batched_ids)
 
 
 def op(engine: Engine, plan: Plan, name: str, step: OpStep, state: ChainMap, batch_size: int, findings: Findings,
