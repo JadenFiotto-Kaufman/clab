@@ -62,8 +62,7 @@ FORMAT = "clab/1"
 KINDS: dict[str, type["Kind"]] = {}
 
 # The ops that reach a featurizer: the method of the kind's each runs, and what it produces on a value, for a
-# kind whose coordinates are on `axis`. A kind serves an op when it defines its method (one with `replace` has
-# `encode` too).
+# kind whose coordinates are on `axis`.
 OPS: dict[str, dict[str, str]] = {
     "encode": {"method": "encode", "produces": "gives its coordinates, the last axis becoming {axis}"},
     "decode": {"method": "replace", "produces": "writes a change of its coordinates back into the value"},
@@ -95,10 +94,10 @@ class Kind:
     axis: ClassVar[str] = "features"
     header: ClassVar[tuple[str, ...]] = ()
     drawn: ClassVar[tuple[str, ...]] = ()
-    unstated: ClassVar[dict[str, Any]] = {}    # a header field left unstated, where the kind decides what it is
+    unstated: ClassVar[dict[str, Any]] = {}
     scalars: ClassVar[tuple[str, ...]] = ()
-    over_encodes: ClassVar[tuple[str, ...]] = ()   # the scalars over what the body's encodes saw (`seen`)
-    counts: ClassVar[tuple[str, ...]] = ()     # fields that count directions of the value: at most its width
+    over_encodes: ClassVar[tuple[str, ...]] = ()
+    counts: ClassVar[tuple[str, ...]] = ()
     # Whether `apply`'s `with` is the kind's input, which may be read at another site of the same forward (an
     # adapter's): held to the value's rows and positions alone, and recorded in its bundle's header. Otherwise a
     # `with` is an operand of the value under Ops' one rule, as `swap`'s is (a gate's, which it interpolates toward).
@@ -258,4 +257,4 @@ def make(kind: str, fields: dict[str, Any], width: int, bundle: dict[str, Tensor
 
 
 # The kinds register in this order, and `describe` and FORMAT.md list them in it.
-from clab.featurizers import subspace, gate, pca, sae, linear, lora, bundles  # noqa: E402,F401,I001  (the kinds register in this order)
+from clab.featurizers import subspace, gate, pca, sae, linear, lora, bundles  # noqa: E402,F401,I001
