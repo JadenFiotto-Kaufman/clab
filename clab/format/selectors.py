@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import re
 import sys
-from typing import Annotated, Any, Union, cast
+from typing import Annotated, Any, Union
 
 from pydantic import BeforeValidator
 
@@ -169,7 +169,7 @@ def selected(where: str, axis: str, selector: Selector, n: int, what: str) -> No
     written = keys(selector) if keyed(selector) else [selector] if isinstance(selector, int) else \
         selector if isinstance(selector, list) else []
     try:
-        got = cast(list[int], kept({axis: selector}, {axis: n})[axis])      # indices: an offset is not checked here
+        got = keys(selector) if axis == "key" else select(selector, n)
     except ValueError as e:
         raise ValueError(f"{where}: select {axis}: {e}") from None
     if any(not -n <= i < n for i in written) or any(i >= n for i in got):
