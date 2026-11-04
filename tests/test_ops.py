@@ -1,7 +1,9 @@
 """The implemented ops on plain tensors, and the site machinery that runs an entry's records at a site."""
 
 import math
+import warnings
 
+import numpy
 import pytest
 import torch
 
@@ -22,7 +24,7 @@ DIMS = ["rows", "pos", "hidden_size"]
 def test_every_op_is_listed_once_in_order_under_its_own_name():
     assert list(ops.OPS) == ["swap", "add", "sub", "scale", "renormalize", "normalize", "project_out", "decode",
                              "apply", "noise", "clamp", "readout", "encode", "grad", "mean", "sum", "min", "max", "std",
-                             "count", "norm", "dot", "entropy", "pca", "match", "logit_diff", "token_prob",
+                             "median", "count", "norm", "dot", "entropy", "pca", "match", "logit_diff", "token_prob",
                              "token_logit", "cross_entropy", "contains", "kl", "js", "top_k", "argmax", "detokenize",
                              "abs", "exp", "log", "sign", "sqrt", "square", "neg", "mul", "div", "pow", "eq", "ne",
                              "gt", "ge", "lt", "le", "cosine"]
@@ -35,8 +37,8 @@ def test_each_op_declares_its_group_and_bundle():
     assert {n for n, g in groups.items() if g == "edits"} == {"swap", "add", "sub", "scale", "renormalize",
                                                                "normalize", "project_out", "decode", "apply", "noise",
                                                                "clamp"}
-    assert {n for n, g in groups.items() if g == "reductions"} == {"mean", "sum", "min", "max", "std", "count", "norm",
-                                                                    "dot", "entropy", "pca"}
+    assert {n for n, g in groups.items() if g == "reductions"} == {"mean", "sum", "min", "max", "std", "median",
+                                                                    "count", "norm", "dot", "entropy", "pca"}
     assert {n for n, g in groups.items() if g == "transforms"} == {"readout", "encode", "grad", "top_k", "argmax",
                                                                     "detokenize", "abs", "exp", "log", "sign", "sqrt",
                                                                     "square", "neg", "mul", "div", "pow", "eq", "ne",
@@ -593,6 +595,48 @@ def test_max_mirrors_min_each_keeping_an_infinity_and_std_is_the_sample_standard
     torch.testing.assert_close(reductions.std(X, DIMS), X.std((0, 1)))
     assert ops.out_dims("std", DIMS, {}) == ["hidden_size"] and ops.out_dims("max", DIMS, {"over": ["pos"]}) == \
         ["rows", "hidden_size"]
+
+
+def test_median_is_numpys_over_the_values_there_and_the_mean_of_the_middle_two_at_an_even_count():
+    """Over one axis and several, at odd and even counts of the values there, on random values with NaNs and signed
+    zeros: the bits of numpy's `nanmedian` of the float32 values, a zero's sign included (+0.0, where the sort alone
+    would keep a -0.0), a `layers` axis kept by default; NaN where none is, and on no values at all; ids with their
+    hole -1 taken as missing; float32 from bfloat16, its two middle ones averaged in float32."""
+    def numpy_median(x: torch.Tensor, axes: tuple[int, ...]) -> torch.Tensor:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)         # an all-NaN slice: NaN, as the op gives
+            return torch.from_numpy(numpy.asarray(numpy.nanmedian(x.numpy(), axis=axes), dtype=numpy.float32))
+
+    def bits(x: torch.Tensor) -> torch.Tensor:                     # NaN as one pattern, every other value's bits
+        return x.nan_to_num(nan=7.0, posinf=8.0, neginf=9.0).view(torch.int32)
+    generator = torch.Generator().manual_seed(1)
+    layered = ["layers", "rows", "pos", "hidden_size"]
+    x = torch.randn(3, 6, 4, 5, generator=generator)
+    x[torch.rand(x.shape, generator=generator) < 0.3] = NAN
+    zeros = torch.rand(x.shape, generator=generator) < 0.15
+    x[zeros] = torch.where(torch.rand(x.shape, generator=generator) < 0.5, -0.0, 0.0)[zeros]
+    x[1, 2] = NAN                                                      # row 2 missing at layer 1
+    x[2, 0, 1] = torch.tensor([-0.0, -0.0, NAN, 0.0, NAN])            # three there, the middle sorted -0.0
+    for over, axes in ((None, (1, 2)), (["pos"], (2,)), (["hidden_size"], (3,)),
+                       (["rows", "pos", "hidden_size"], (1, 2, 3)), (layered, (0, 1, 2, 3))):
+        got = reductions.median(x, layered, over)
+        assert torch.equal(bits(got), bits(numpy_median(x, axes))), over
+        assert list(got.shape) == [x.shape[i] for i in range(4) if i not in axes], over
+    assert (reductions.median(x, layered, ["hidden_size"]) == 0).sum() > 0     # zero medians were compared
+    held = (~x.isnan()).sum(2)
+    assert {int(n) % 2 for n in held.flatten()} == {0, 1}              # odd and even counts over pos alike
+    assert reductions.median(x, layered, ["pos"])[1, 2].isnan().all()     # row 2 has none there at layer 1
+    d = ["rows", "pos"]
+    assert same(reductions.median(torch.tensor([[3.0, 1.0, 2.0], [4.0, 1.0, NAN], [NAN, NAN, NAN]]), d, ["pos"]),
+                torch.tensor([2.0, 2.5, NAN]))                         # torch.median would give 1.0 on row 1
+    assert reductions.median(torch.zeros(0, 3), d).isnan().item() and \
+        reductions.median(torch.zeros(2, 0), d, ["pos"]).isnan().all()
+    assert reductions.median(torch.tensor([[3, -1, 7, 2]]), d).item() == 3.0          # 2, 3, 7: the hole left out
+    assert reductions.median(X.bfloat16(), DIMS).dtype == torch.float32
+    pair = torch.tensor([[1.0, 1.0078125]]).bfloat16()               # two adjacent bfloat16 values
+    assert reductions.median(pair, d).item() == 1.00390625             # their mean in float32; in bfloat16, 1.0
+    assert ops.out_dims("median", layered, {}) == ["layers", "hidden_size"]
+    assert ops.out_dims("median", DIMS, {"over": ["pos"]}) == ["rows", "hidden_size"]
 
 
 def test_norm_and_dot_reduce_over_hidden_size_unless_over_names_other_axes():
