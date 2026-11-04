@@ -197,8 +197,7 @@ class NnterpEngine:
     def forward(self, batch: dict[str, Tensor], bound: dict[str, Any]) -> dict[str, Tensor]:
         """One trace over the batch, its one forward call done as `visited` says up to the schedule's stop site
         where the engine `stops`, then its gradients taken (`batches.differentiate`, under `torch.enable_grad()` with
-        the forward where the bound schedule has any), and the forward ended there (nnsight's `tracer.stop()`; the
-        ndif engine says why it does not)."""
+        the forward where the bound schedule has any), and the forward ended there (nnsight's `tracer.stop()`)."""
         got: dict[str, Tensor] = {}
         stop = bound["stop"] if self.stops else None
         with torch.enable_grad() if bound["grad"] else nullcontext():
