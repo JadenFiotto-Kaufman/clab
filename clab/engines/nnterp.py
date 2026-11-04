@@ -40,7 +40,7 @@ from clab.engines import engine, standard
 from clab.engines.standard import build, envoy, inputs, loading, nnterp_name, placing, served, stops
 from clab.format.address import COMPONENTS
 from clab.format.sweeps import points
-from clab.plan import QUANTIZED, Model, Plan, calls_model, walk
+from clab.plan import QUANTIZED, Model, Plan, calls_model
 from clab.steps import batches
 from clab.steps.batches import acting_at_call, stamped_at_call
 
@@ -86,20 +86,10 @@ class NnterpEngine:
         refused by name there before anything runs, since a value the ranks shard has its gradient in pieces
         (`gradless`, which `steps.start_run` reads). Under a
         remote session a load's value travels in the request, inside the plan, and a document whose loads hold more
-        than `LOADED` bytes of tensors is refused by name before anything is sent; it does not come home, where the
-        client keeps its own."""
+        than `steps.LOADED` bytes of tensors is refused by name before anything is sent (`steps.start_run`); it does
+        not come home, where the client keeps its own."""
         started = steps.start_run(self, plan, batch_size, padding, readout)
         ranks = self.options.get("tp", 1)
-        carried: dict[str, int] = {}
-        for name, step in walk(plan.steps) if self.remote else ():
-            if step.kind == "load":
-                carried[name] = carried.get(name, 0) + nbytes(step.loaded)
-        if sum(carried.values()) > LOADED:
-            raise ValueError(f"{', '.join(carried)}: the values this document loads hold "
-                             f"{sum(carried.values()) / 2**20:.1f} MiB of tensors (" + ", ".join(
-                                 f"{n} {b / 2**20:.1f} MiB" for n, b in carried.items()) + f"), and a request carries "
-                             f"at most {LOADED // 2**20} MiB inside its plan; run it where the file is, on the nnterp "
-                             "or hooks engine")
         if ranks > 1:
             seed = [int(torch.randint(2**62, ()))]
             torch.distributed.broadcast_object_list(seed, src=0)
@@ -268,18 +258,6 @@ class NnterpEngine:
     def readout(self, hidden: Tensor) -> Tensor:
         """nnterp's `project_on_vocab`: the final norm, the head, and whatever the model does after the head."""
         return self.model.project_on_vocab(hidden)
-
-
-# The bytes of loaded tensors a request to a session elsewhere carries inside its plan, over every `load` of the
-# document (`Load.loaded`): a cached operand for a large model fits, and a harvest of many rows runs where its file is.
-LOADED = 512 * 2**20
-
-
-def nbytes(value: Any) -> int:
-    """The bytes of every tensor in a value, all the way down."""
-    if isinstance(value, Tensor):
-        return value.numel() * value.element_size()
-    return sum(nbytes(v) for v in value.values()) if isinstance(value, dict) else 0
 
 
 def sharded(model: Model, tp: int, device: str) -> dict[str, Any]:

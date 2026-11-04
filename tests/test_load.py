@@ -263,8 +263,8 @@ def test_a_request_carries_at_most_512_mib_of_loaded_values(engines, root, monke
     """A document whose loads hold more than 512 MiB of tensors (stubbed: the tiny model's harvest holds a few KiB)
     is refused by name before anything is sent, under either `remote`, with each load's size; the nnterp engine,
     where the file is, runs it."""
-    from clab.engines import nnterp
-    monkeypatch.setattr(nnterp, "nbytes", lambda value: 600 * 2**20)
+    from clab import steps
+    monkeypatch.setattr(steps, "nbytes", lambda value: 600 * 2**20)
     for remote in (True, "local"):
         plan = from_cache(root)
         with pytest.raises(ValueError) as e:

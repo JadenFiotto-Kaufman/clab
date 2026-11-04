@@ -31,7 +31,7 @@ An engine then holds `name`, `spec` (the model block), `model` (anything with `.
 
 `execute(plan, *, batch_size=8, padding="dataset", readout="full")`, its batch size, padding and readout keyword-only, is the single entry point, and the only method an engine that runs a plan without `clab.steps` must have; it returns the filled plan. An engine that runs through `clab.steps` does three things:
 
-1. `clab/steps/__init__.py` `start_run`: refuses an uncompiled plan, a batch size below one row, a padding `clab/format/data.py` `PADDINGS` does not name, a readout `clab/compile/schedule.py` `READOUTS` does not name, a plan whose `model` block differs in any key from the one the engine loaded (the message names each key that differs, with both values), or a step's `grad` entry where the engine declares `gradless` (`<step>.<entry>: <gradless>`), and starts `plan.run` with the engine, batch size, padding, readout, device and options.
+1. `clab/steps/__init__.py` `start_run`: refuses an uncompiled plan, a batch size below one row, a padding `clab/format/data.py` `PADDINGS` does not name, a readout `clab/compile/schedule.py` `READOUTS` does not name, a plan whose `model` block differs in any key from the one the engine loaded (the message names each key that differs, with both values), a step's `grad` entry where the engine declares `gradless` (`<step>.<entry>: <gradless>`), or, where the engine's `remote` is set, a document whose loads hold more than `LOADED` bytes of tensors, which a request carries inside its plan, and starts `plan.run` with the engine, batch size, padding, readout, device and options.
 2. `clab/steps/__init__.py` `run`, inside the engine's one session if it has one.
 3. `plan.run.seconds` set from `start_run`'s start time.
 
@@ -85,6 +85,7 @@ An engine refuses what it cannot do, by name, before any forward:
 - a model-block key: `build` (`OWNED`), or the loader; a checkpoint the loader cannot get: `build`, as `model.key`;
 - a `device` or a `dtype` it cannot place or hold: `loading` (`fp8` without a GPU of compute capability 8.9 or later, a bitsandbytes format without bitsandbytes);
 - an option value it cannot honor: its constructor raises `ValueError` naming it (`device: the ndif engine cannot honor 'cuda:0': the server places the model`);
+- a document whose loads hold more tensors than a request carries, where its session is `remote`: `start_run`, before anything is sent;
 - a `grad` entry it cannot take (under `tp`, whose sharded value's gradient the ranks would hold in pieces; on vLLM): `gradless`, which `start_run` turns into `<step>.<entry>: <gradless>` before the session opens;
 - a component: `unserved`, which preflight turns into `<step>.<entry>: the <engine> engine does not serve <component>: <reason>`, as the hooks engine does for a value nnterp reads inside a module's forward;
 - a position or a length it cannot serve: `last_only` and `longest`, which preflight turns into `<step>.<entry>: the <engine> engine serves <component> at the prompt's last position alone (<reason>); ...` and `<step>: <input>'s longest row has <n> tokens ..., past the <longest> the <engine> engine serves ...`, as the vllm engine's head and `max_len` are;

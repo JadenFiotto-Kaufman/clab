@@ -56,8 +56,10 @@ def start_run(engine: Engine, plan: Plan, batch_size: int, padding: str = "datas
     engine's declarations alone (a compiled plan, for this engine's checkpoint, at a batch size of one row or more, a
     padding `data.PADDINGS` names and a readout `schedule.READOUTS` names; no `grad` entry where the engine refuses
     one, `engine.gradless` saying why, as the refusal does after the entry's name; an engine without it, or with
-    None, takes them), and the run record it starts: the engine, the batch size, padding and readout, the device
-    and the options it loaded with; returns the start time."""
+    None, takes them; and where the engine's session is `remote`, which sends the plan elsewhere with its loads'
+    values inside, no more than `LOADED` bytes of tensors over the document's loads, refused before anything is sent),
+    and the run record it starts: the engine, the batch size, padding and readout, the device and the options it
+    loaded with; returns the start time."""
     if not plan.compiled:
         raise ValueError("plan is not compiled; call plan.compile()")
     check_run_options(batch_size, padding, readout)
@@ -70,9 +72,31 @@ def start_run(engine: Engine, plan: Plan, batch_size: int, padding: str = "datas
     for name, step in walk(plan.steps) if gradless else ():
         for key in [k for k, e in entries(step).items() if gradient_of(e) is not None][:1]:
             raise ValueError(f"{name}.{key}: {gradless}")
+    carried: dict[str, int] = {}
+    for name, step in walk(plan.steps) if engine.remote else ():
+        if step.kind == "load":
+            carried[name] = carried.get(name, 0) + nbytes(step.loaded)
+    if sum(carried.values()) > LOADED:
+        raise ValueError(f"{', '.join(carried)}: the values this document loads hold "
+                         f"{sum(carried.values()) / 2**20:.1f} MiB of tensors (" + ", ".join(
+                             f"{n} {b / 2**20:.1f} MiB" for n, b in carried.items()) + f"), and a request carries "
+                         f"at most {LOADED // 2**20} MiB inside its plan; run it where the file is, on the nnterp "
+                         "or hooks engine")
     plan.run = Run(engine=engine.name, batch_size=batch_size, padding=padding, readout=readout, device=engine.device,
                    options=engine.options, started=time.strftime("%Y-%m-%dT%H:%M:%S"))
     return time.time()
+
+
+# The bytes of loaded tensors a request to a session elsewhere carries inside its plan, over every `load` of the
+# document (`Load.loaded`): a cached operand for a large model fits, and a harvest of many rows runs where its file is.
+LOADED = 512 * 2**20
+
+
+def nbytes(value: Any) -> int:
+    """The bytes of every tensor in a value, all the way down."""
+    if isinstance(value, Tensor):
+        return value.numel() * value.element_size()
+    return sum(nbytes(v) for v in value.values()) if isinstance(value, dict) else 0
 
 
 def check_run_options(batch_size: int, padding: str, readout: str = "full") -> None:
