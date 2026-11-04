@@ -4,13 +4,15 @@ featurizer), the layout of its result, and the one rule an operand keeps against
 import inspect
 import json
 from collections.abc import Callable, Mapping
-from typing import Any
+from typing import Any, cast
 
 from clab import featurizers, ops
+from clab.compile import positions
 from clab.compile.answers import check_column_ref, check_text_ref, is_literal
 from clab.compile.state import Compiling
 from clab.format import address, data, registry, selectors
-from clab.plan import Labelled, Op, OpStep, Plan, arguments, fail, kind_of, produced, record_of, trained_featurizers
+from clab.plan import (Intervention, Labelled, Op, OpStep, Plan, arguments, fail, kind_of, produced, record_of,
+                       trained_featurizers)
 
 
 def narrowed_readout_refusal(what: str) -> str:
@@ -154,7 +156,7 @@ def check_featurizer_ref(cx: Compiling, value: object, path: str) -> None:
 
 
 def mismatch(ours: Labelled, theirs: Labelled, name: str, key: str, written: str, mine: str, write: bool,
-             forward: bool, adapter: bool) -> str | None:
+             forward: bool, adapter: bool, reads: Callable[[str], Intervention]) -> str | None:
     """Why the value `written` names, laid out `theirs`, cannot be operand `key` of op `name` on the value `mine`
     names, laid out `ours`, at one point; None where it can. The rule is Ops' one rule (`ops.ABOUT`): an operand
     may leave out any axis of the value it meets, which it then broadcasts over; every axis it has is the value's,
@@ -165,10 +167,14 @@ def mismatch(ours: Labelled, theirs: Labelled, name: str, key: str, written: str
     one, `plan.adapts`) is compared on its rows and positions alone. `write` says the op is one of an
     entry's up to its last edit (what the messages call the value), `forward` that the operand is an entry of the
     value's own forward (a ragged pair there is compared row by row by `check_operands`, once preflight has the
-    rows). A label preflight has yet to resolve (`[]`) is compared then. The coordinates are compared first, since
-    two values in different coordinates differ in their last axis too, and that is the reason. A column scored as
-    `Tokens` is first held to a whole vocabulary axis, which no site's `select` (`kept`) or probe's `encode` with a
-    `select` (`space`) narrowed: its ids are of the whole vocabulary, where index i of a selection is not id i."""
+    rows). A label preflight has yet to resolve (`[]`) is compared then, and so is a width: `reads` gives the entry a
+    value's `read` names, and where its `pos` leaves the width to the rows (`positions.pending_width`, a scope's in
+    the prefill), a width of None is pending until that entry holds its rows' `positions` (in preflight, or at
+    compile already for a load's read, which carries them from its run), and then says the rows disagree. The
+    coordinates are compared first, since two values in different coordinates differ in their last axis too, and
+    that is the reason. A column scored as `Tokens` is first held to a whole vocabulary axis, which no site's
+    `select` (`kept`) or probe's `encode` with a `select` (`space`) narrowed: its ids are of the whole vocabulary,
+    where index i of a selection is not id i."""
     narrowed = next((a for a in ops.VOCABULARY if a in (ours.dims or []) and (
         a in ours.kept or ours.space and "select" in ours.space[-1])), None) \
         if ops.parameters(name)[key].annotation == ops.Tokens else None
@@ -210,12 +216,24 @@ def mismatch(ours: Labelled, theirs: Labelled, name: str, key: str, written: str
         return (f"{mine} has a row per example of {ours.dataset!r} and {written!r} of {theirs.dataset!r}; an op "
                 "takes one dataset's rows")
     if "pos" in their_axes and theirs.read != ours.read:
-        if (theirs.width is None or ours.width is None) and not forward:
-            ragged = repr(written) if theirs.width is None else f"the value {name!r} {verb}"
-            return (f"{ragged} holds a different number of positions on each row, which pair with no other "
-                    "value's; read both at a static index ('index': -1, or '-3:', in the pos, beside its scope if it "
-                    "has one), or over decode calls at a frame of a static number of them with an index of static "
-                    "width ({'frame': '1:4', 'index': ':3'})")
+        # Each side whose width is open, the operand first: the value it meets is named as what the operand meets.
+        for side, ragged, counted in ((theirs, repr(written), repr(written)),
+                                      (ours, f"the value {name!r} {verb}",
+                                       f"{written!r} meets the value {name!r} {verb}, which")):
+            if side.width is not None or forward:
+                continue
+            read = reads(side.read) if side.read is not None else None
+            if read is None or not positions.pending_width(positions.parse(read.pos)):
+                return (f"{ragged} holds a different number of positions on each row, which pair with no other "
+                        "value's; read both at a static index without a scope ('index': -1, or '-3:'), at one "
+                        "occurrence of a scope in the prefill, not until, whose rows give its width, or over decode "
+                        "calls at a frame of a static number of them with an index of static width ({'frame': '1:4', "
+                        "'index': ':3'})")
+            resolved = read.positions.get(cast(str, read.dataset))
+            if resolved is not None:                # the rows are known (preflight's, a load's), and they disagree
+                return (f"{counted} holds {row_counts(resolved)}; a scoped read pairs with another forward's value "
+                        "when every row's scope holds the same number of tokens: pick one with 'index' (-1, or '-2:'), "
+                        "or reduce it")
         if theirs.width is not None and ours.width is not None and theirs.width != ours.width:
             return (f"{written!r} holds {theirs.width} position(s) per row and the value {name!r} {verb} holds "
                     f"{ours.width}; position i {'scores against' if group == 'metrics' else 'meets'} position i, so "
@@ -241,3 +259,26 @@ def mismatch(ours: Labelled, theirs: Labelled, name: str, key: str, written: str
         return (f"{written!r} holds {f'every {axis}' if held is None else f'{axis} {held}'}, and {whose} holds "
                 f"{'every one' if own is None else own}; {why}: {fix}")
     return None
+
+
+def row_counts(resolved: list) -> str:
+    """How many positions each row holds, by count in the order the rows first hold it: `1 position on rows 0-7 and 2
+    positions on row 8`, a row a read reached at no position holding 0, and past four runs of rows a count's rows
+    as their first three runs and how many there are."""
+    rows: dict[int, list[int]] = {}
+    for row, p in enumerate(resolved):
+        rows.setdefault(len(p) if isinstance(p, list) else 0, []).append(row)
+
+    def named(of: list[int]) -> str:
+        runs: list[list[int]] = []
+        for row in of:
+            if runs and row == runs[-1][-1] + 1:
+                runs[-1].append(row)
+            else:
+                runs.append([row])
+        spans = [f"{r[0]}-{r[-1]}" if len(r) > 1 else str(r[0]) for r in runs]
+        if len(spans) > 4:
+            spans = spans[:3] + [f"… ({len(of)} rows)"]
+        return ("row " if len(of) == 1 else "rows ") + ", ".join(spans)
+    counts = [f"{n} position{'s' * (n != 1)} on {named(of)}" for n, of in rows.items()]
+    return ", ".join(counts[:-1]) + " and " + counts[-1] if len(counts) > 1 else counts[0]

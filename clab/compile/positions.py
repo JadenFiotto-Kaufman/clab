@@ -39,14 +39,26 @@ def parse(pos: Swept[int | Pos]) -> dict:
 
 
 def width(pos: dict) -> int | None:
-    """A record's width on every row, or None when rows differ: its frame names a static number of calls, its
-    index has a static width, and a scope, if any, is one occurrence in the prefill, not `until` (which runs from
-    the frame's first token to it)."""
+    """A record's width on every row as its `pos` alone fixes it, which compile writes, or None where it does not:
+    its frame names a static number of calls, its index has a static width, and a scope, if any, is one occurrence
+    in the prefill, not `until` (which runs from the frame's first token to it). Where it is None, preflight writes
+    for a prefill record the number every row's positions hold, where they agree. Only a pairing with another
+    forward's value needs that one number, and compile refuses one over a None but where the scope alone leaves it
+    so (`pending_width`: one occurrence in the prefill, not `until`, its tokens counted by an index of no static
+    width, `":"` among them), which the rows decide."""
     scope = pos["scope"]
     if fixed(pos["frame"]) is None or scope and (not prefill_only(pos) or fixed(scope.get("occurrence", 0)) != 1
                                                  or scope.get("until")):
         return None
     return fixed(pos["index"])
+
+
+def pending_width(pos: dict) -> bool:
+    """Whether a record's width is the rows' to confirm, in preflight, where its `pos` alone does not fix it: one
+    occurrence of a scope in the prefill, not `until`, whose tokens an index of no static width counts (`width`)."""
+    scope = pos["scope"]
+    return bool(scope) and prefill_only(pos) and fixed(scope.get("occurrence", 0)) == 1 and not scope.get("until") \
+        and width(pos) is None
 
 
 def reach(pos: dict, horizon: int | None = None) -> tuple[bool, list[int] | None, bool]:

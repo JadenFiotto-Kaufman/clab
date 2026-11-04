@@ -398,6 +398,83 @@ def test_an_operand_of_another_width_is_refused():
         edited("window_patch", change).compile()
 
 
+def test_a_write_with_a_static_width_refuses_an_operand_whose_rows_disagree(engines):
+    """entity_mean_ablation's harvest is a whole-entity scope, three positions on the Thursday row and one on the
+    others; swapped into a window of three it would write NaN where a row has fewer, so preflight refuses it once
+    the rows are known, naming them, as into a whole-entity write on another forward; the mean over it is one vector
+    and lands anywhere."""
+    def change(pos, d):
+        d["steps"]["ablated"]["interventions"]["ablate"]["pos"] = pos
+        d["steps"]["ablated"]["interventions"]["ablate"]["ops"] = [{"op": "swap", "with": "harvest.acts"}]
+    for pos in ({"index": "-3:"}, {"scope": {"column": "prompts.entity"}, "index": ":"}):
+        text, forwards = refused(engines, edited("entity_mean_ablation", lambda d: change(pos, d)).compile())
+        assert text == "ablated.ablate: operand 'harvest.acts' holds 3 positions on row 0 and 1 position on rows 1-3; " \
+            "a scoped read pairs with another forward's value when every row's scope holds the same number of " \
+            "tokens: pick one with 'index' (-1, or '-2:'), or reduce it" and forwards == 0, text
+
+
+def test_a_whole_scope_operand_is_refused_by_preflight_naming_the_rows_that_differ(engines):
+    """T9's repro: entity_patch with both entity reads over their whole scope (its `index` dropped) compiles, since
+    only the rows say how many tokens each row's entity is; preflight refuses it before any forward, naming the
+    counterfactual's rows and their counts (' Thursday' three tokens on row 2) and the `'index'` that keeps the
+    scope. On rows whose entities are each one token the same reads run (`documents/entity_patch_scope.json`)."""
+    def whole(d):
+        for step, entry in (("counterfactual", "v_cf"), ("patched", "patch")):
+            del d["steps"][step]["interventions"][entry]["pos"]["index"]
+    plan = edited("entity_patch", whole).compile()
+    assert points(plan.steps["patched"])[0].interventions["patch"].width is None
+    for kind in ("nnterp", "hooks"):
+        text, forwards = refused(engines, plan, kind)
+        assert text == "patched.patch: operand 'counterfactual.v_cf' holds 1 position on rows 0-1, 3 and 3 positions " \
+            "on row 2; a scoped read pairs with another forward's value when every row's scope holds the same " \
+            "number of tokens: pick one with 'index' (-1, or '-2:'), or reduce it" and forwards == 0, text
+
+
+def test_a_whole_scope_write_is_named_as_what_its_operand_meets(engines):
+    """entity_patch with the write over its whole entity (three tokens on the Thursday row) and its operand at the
+    counterfactual's last entity token: preflight names the operand, and the write's own value as what it meets,
+    with the write's rows; a `cosine` step whose scored value is such a scope says the same of what it scores."""
+    def whole_write(d):
+        del d["steps"]["patched"]["interventions"]["patch"]["pos"]["index"]
+    text, forwards = refused(engines, edited("entity_patch", whole_write).compile())
+    assert text == "patched.patch: operand 'counterfactual.v_cf' meets the value 'swap' acts on, which holds 3 " \
+        "positions on row 0 and 1 position on rows 1-3; a scoped read pairs with another forward's value when every " \
+        "row's scope holds the same number of tokens: pick one with 'index' (-1, or '-2:'), or reduce it" and \
+        forwards == 0, text
+
+    def scored(d):
+        whole_write(d)
+        d["steps"]["patched"]["interventions"]["patch"]["ops"] = []
+        d["steps"]["counterfactual"]["interventions"]["v_cf"]["pos"] = -1
+        d["steps"]["similarity"] = {"kind": "op", "op": "cosine", "of": "patched.patch", "with": "counterfactual.v_cf"}
+        d["saves"] = ["similarity"]
+    text, forwards = refused(engines, edited("entity_patch", scored).compile())
+    assert text.startswith("similarity: operand 'counterfactual.v_cf' meets the value 'cosine' scores, which holds 3 "
+                           "positions on row 0 and 1 position on rows 1-3; ") and forwards == 0, text
+
+
+def test_the_rows_of_a_scope_that_disagree_are_named_by_count():
+    """Each count with its rows, in the order the rows first hold it, a run of rows as its ends; a row reached at no
+    position holds 0; past four runs a count's rows are its first three runs and how many there are."""
+    from clab.compile.arguments import row_counts
+    assert row_counts([[4]] * 8 + [[4, 5]]) == "1 position on rows 0-7 and 2 positions on row 8"
+    assert row_counts([[3], [4, 5, 6], "alignment_missing", [3]]) == \
+        "1 position on rows 0, 3, 3 positions on row 1 and 0 positions on row 2"
+    assert row_counts([[1, 2] if r % 2 else [1] for r in range(12)]) == \
+        "1 position on rows 0, 2, 4, … (6 rows) and 2 positions on rows 1, 3, 5, … (6 rows)"
+
+
+def test_a_whole_scope_operand_of_another_confirmed_width_is_refused_by_preflight(engines):
+    """entity_patch_scope's counterfactual entity is one token on every row, which preflight confirms; into a
+    write three positions wide it is refused there, as two static widths are at compile."""
+    plan = edited("entity_patch_scope",
+                  lambda d: d["steps"]["patched"]["interventions"]["patch"].update(pos={"index": "-3:"})).compile()
+    text, forwards = refused(engines, plan)
+    assert text == "patched.patch: operand 'counterfactual.v_cf' holds 1 position(s) per row and the value 'swap' " \
+        "acts on holds 3; position i meets position i, so both are read at as many (a pos axis does not broadcast)" \
+        and forwards == 0, text
+
+
 def test_a_pattern_from_an_input_of_other_lengths_is_refused(engines):
     def change(d):
         d["data"]["pairs"] = {"path": "weekdays/train"}
@@ -531,35 +608,6 @@ def test_a_forwards_frame_is_any_selector_that_picks_its_one_call(engines):
             assert same(run(frame, operand), base), frame
 
 
-def test_a_write_with_a_static_width_refuses_an_operand_without_one():
-    """entity_mean_ablation's harvest holds three positions on the Thursday row and one on the others; swapped
-    into a window of three it would write NaN where a row has fewer, so it is refused, as into a window read
-    the same way on another forward; the mean over it is one vector and lands anywhere."""
-    def change(pos, d):
-        d["steps"]["ablated"]["interventions"]["ablate"]["pos"] = pos
-        d["steps"]["ablated"]["interventions"]["ablate"]["ops"] = [{"op": "swap", "with": "harvest.acts"}]
-    for pos in ({"index": "-3:"}, {"scope": {"column": "prompts.entity"}, "index": ":"}):
-        with pytest.raises(PlanError, match=r"ablate\.ops\[0\]\.with: 'harvest\.acts' holds a different number of "
-                                            r"positions on each row, which pair with no other value's; read both at a "
-                                            r"static index"):
-            edited("entity_mean_ablation", lambda d: change(pos, d)).compile()
-
-
-def test_a_whole_scope_operand_is_told_the_index_that_keeps_its_scope():
-    """T9's repro: entity_patch with both entity reads over their whole scope (its `index` dropped) is ragged,
-    and the refusal names `'index': -1` inside the pos, beside its scope, where it said `pos -1`, which drops the
-    scope; the document as written, with that index, compiles."""
-    def whole(d):
-        for step, entry in (("counterfactual", "v_cf"), ("patched", "patch")):
-            del d["steps"][step]["interventions"][entry]["pos"]["index"]
-    with pytest.raises(PlanError, match=r"^steps\.patched\.interventions\.patch\.ops\[0\]\.with: "
-                                        r"'counterfactual\.v_cf' holds a different number of positions on each row, "
-                                        r"which pair with no other value's; read both at a static index \('index': -1, "
-                                        r"or '-3:', in the pos, beside its scope if it has one\), or over decode calls"):
-        edited("entity_patch", whole).compile()
-    edited("entity_patch", lambda d: None).compile()
-
-
 def test_a_metric_over_decode_frame_reads_is_told_a_frame_a_decode_read_can_satisfy():
     """Two reads over every decode call have no static width; the advice names a static index in the prefill and,
     for a decode read, a frame of a static number of calls with an index of static width, which lines up."""
@@ -572,9 +620,10 @@ def test_a_metric_over_decode_frame_reads_is_told_a_frame_a_decode_read_can_sati
         return apply
     with pytest.raises(PlanError, match=r"steps\.kl\.against at frame=0: 'counterfactual\.b' holds a different number of "
                                         r"positions on each row, which pair with no other value's; read both at a static "
-                                        r"index \('index': -1, or '-3:', in the pos, beside its scope if it has one\), "
-                                        r"or over decode calls at a frame of a static number of them with an index of "
-                                        r"static width \(\{'frame': '1:4', 'index': ':3'\}\)$"):
+                                        r"index without a scope \('index': -1, or '-3:'\), at one occurrence of a scope "
+                                        r"in the prefill, not until, whose rows give its width, or over decode calls at "
+                                        r"a frame of a static number of them with an index of static width "
+                                        r"\(\{'frame': '1:4', 'index': ':3'\}\)$"):
         edited("generate_probe", change({"frame": "1:", "index": ":"})).compile()
     compiled = edited("generate_probe", change({"frame": "1:4", "index": ":3"})).compile()
     assert points(compiled.steps["kl"])[0].width == 3

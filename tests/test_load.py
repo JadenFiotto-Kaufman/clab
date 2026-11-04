@@ -212,6 +212,28 @@ def test_a_loaded_counterfactual_patches_as_the_read_it_was(engines, root, kind)
     assert same(filled.results["iia"], load(os.path.join(root, "out", "patching")).results["iia"])
 
 
+def test_a_loaded_whole_scope_whose_rows_disagree_is_refused_at_compile_with_their_counts(engines, root):
+    """A run saves entity_patch's counterfactual read over its whole scope, three tokens on its Thursday row and one
+    on the others, which pairs with nothing there. Loaded as the write's operand, its rows' positions come with it,
+    so compile already knows the counts and refuses the pair with them, as preflight does an unloaded read's."""
+    def whole(doc):
+        doc["steps"] = {"counterfactual": doc["steps"]["counterfactual"]}
+        del doc["steps"]["counterfactual"]["interventions"]["v_cf"]["pos"]["index"]
+        doc["saves"] = ["counterfactual.v_cf"]
+    ran(engines, root, "whole_scope", corpus("entity_patch", whole))
+
+    def change(doc):
+        doc["steps"]["patched"]["interventions"]["patch"]["ops"][0]["with"] = "counterfactual"
+        doc["steps"]["counterfactual"] = {"kind": "load", "from": "out/whole_scope", "value": "counterfactual.v_cf"}
+        doc["saves"] = ["iia"]
+    with pytest.raises(PlanError) as e:
+        written(root, "patched_from_whole_scope", corpus("entity_patch", change))
+    assert str(e.value) == (
+        "steps.patched.interventions.patch.ops[0].with: 'counterfactual' holds 1 position on rows 0-1, 3 and 3 "
+        "positions on row 2; a scoped read pairs with another forward's value when every row's scope holds the same "
+        "number of tokens: pick one with 'index' (-1, or '-2:'), or reduce it")
+
+
 def test_a_loaded_chat_read_renders_with_the_runs_template(engines, root, monkeypatch):
     """A read of chats loads where the dataset renders them with the template the run did, and `table` labels it
     with the tokens of those renderings; another template is refused, since the rows' digest does not cover it."""

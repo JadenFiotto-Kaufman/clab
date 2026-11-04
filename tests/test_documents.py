@@ -287,6 +287,25 @@ def test_a_column_scope_is_the_rows_own_text(filled):
     assert cf == ["▁Saturday", "▁Sunday", "day", "▁Friday"]
 
 
+def test_a_whole_scope_of_one_token_on_every_row_pairs_and_is_its_last_token_to_the_bit(engines, filled):
+    """entity_patch_scope.json reads each entity over its whole scope, which compile leaves to the rows and preflight
+    confirms one token wide on every row of weekdays_aligned; with `'index': -1` beside each scope, as
+    entity_patch.json reads them, it lands at the same positions and saves the same values to the bit, on each
+    engine."""
+    def last(d):
+        for step, entry in (("counterfactual", "v_cf"), ("patched", "patch")):
+            d["steps"][step]["interventions"][entry]["pos"]["index"] = -1
+    indexed = edited("entity_patch_scope", last).compile()
+    assert points(plan_of("entity_patch_scope").steps["patched"])[0].interventions["patch"].width is None
+    for kind in ("nnterp", "hooks"):
+        before, after = engines(kind, indexed.model).execute(indexed, batch_size=BATCH_SIZE), \
+            filled["entity_patch_scope", kind]
+        assert same(after.results, before.results) and placed(after) == placed(before), kind
+        assert [points(after.steps[s])[0].interventions[e].width for s, e in
+                (("counterfactual", "v_cf"), ("patched", "patch"))] == [1, 1]
+    assert placed(after)["patched.patch"] == [[4]] * 6
+
+
 def test_a_read_of_every_token_of_a_scope_is_as_wide_as_the_widest_row(engines, filled):
     """entity_mean_ablation.json's harvest: every token of each row's entity, three for Thursday, one otherwise,
     NaN past a row's own; the mean is over those six vectors, and pca_harvest.json's is over the 34 tokens

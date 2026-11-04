@@ -511,13 +511,18 @@ class Pos(Record):
     A record has a static width (the same number of positions on every row, `(rows, pos, ...)`) when its frame
     names a static number of calls (an int, picks, or a slice with a static width, not `":"` or `"1:"`), its
     index has a static width (an int, picks, or a slice whose two ends count from the same side: `"-4:-1"`,
-    `"-3:"`, `"2:5"`; see `selectors.fixed`), and a `column`/`text` scope, if it has one, is one occurrence in
-    the prefill and not `until`; otherwise its rows hold different numbers of positions, and the value is as wide
-    as the widest row, NaN past a row's own. In the prefill (`frame: 0`) an occurrence a row does not have, or a
-    static index that does not fit, is refused by name before any forward: the data decided. Anywhere else it is a
-    result, as is a call the row never reached, and as is an index that picks none of a row's tokens (`"5:"` on a
-    shorter row), in the prefill too: the row is `alignment_missing`, NaN all the way, and a write there is refused
-    by name, since it has no token to write.
+    `"-3:"`, `"2:5"`; see `selectors.fixed`), and a scope, if it has one, is one occurrence in the prefill and not
+    `until`; compile writes it. Any other record's width is open at compile, and a prefill record's is the number
+    every row's positions hold where preflight resolves them and they agree; where rows hold different numbers the
+    value is as wide as the widest row, NaN past a row's own. Only pairing with another forward's value needs the
+    width to be one number: compile refuses the pair wherever the `pos` leaves it open, except for a scope of one
+    occurrence in the prefill, not `until` (the whole scope, or an index of no static width over it), which its rows
+    decide; where they disagree it is refused by name, with each count's rows, in preflight, or at compile for a
+    loaded read, which carries its rows' positions. In the prefill (`frame: 0`) an occurrence a row does not have,
+    or a static index that does not fit, is refused by name before any forward: the data decided. Anywhere else it
+    is a result, as is a call the row never reached, and as is an index that picks none of a row's tokens (`"5:"`
+    on a shorter row), in the prefill too: the row is `alignment_missing`, NaN all the way, and a write there is
+    refused by name, since it has no token to write.
     """
     frame: Swept[Selector] = 0
     scope: Scope | None = None
@@ -578,9 +583,12 @@ class Labelled(Record):
     read: str | None = derived(None, "the entry whose value this is, or descends from through op steps, whose "
                                      "positions it holds where it has a `pos` axis; null for a value no read made")
     width: int | None = derived(None, "how many positions the value holds on every row, where it has a `pos` axis "
-                                      "and that is one number: the static width its read's `pos` names, confirmed "
-                                      "from the positions preflight resolves; null where rows hold different numbers "
-                                      "of positions, or there is no `pos` axis")
+                                      "and that is one number: the static width its read's `pos` names, which "
+                                      "compile writes, or, where the `pos` leaves it open, the number every row's "
+                                      "positions hold where they are resolved (a prefill read's by preflight, a "
+                                      "loaded read's by its run) and agree; null where rows hold different numbers "
+                                      "of positions, where none are resolved yet, or there is no `pos` axis. Only "
+                                      "pairing with another forward's value needs it to be one number")
     kept: dict[str, selectors.Kept] = derived({}, "the indices a site's `select` keeps on each axis it selects, in "
                                                   "their order (`key`: the keys it picks, or `{\"offset\": [...]}`, "
                                                   "those relative to each query), an op step's those of the value it "

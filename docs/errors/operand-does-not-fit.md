@@ -8,7 +8,7 @@ sources: [clab/compile/arguments.py, clab/compile/interventions.py, clab/compile
 
 # An Operand Does Not Fit
 
-An operand is a named value an op takes beside the value it acts on: `swap`'s and `add`'s `with`, `scale`'s `factor`, `kl`'s `against`, `cosine`'s `with`. clab refuses an operand that cannot meet that value element for element: at compile where the document decides it (`clab/compile/arguments.py` `mismatch`, and for an operand from the write's own forward `clab/compile/interventions.py` `compile_entry`), and at preflight where the model's order and the tokenized rows do (`unreached_site_refusal` in `clab/compile/schedule.py`, and `check_operands` and `check_window` in `clab/compile/interventions.py`).
+An operand is a named value an op takes beside the value it acts on: `swap`'s and `add`'s `with`, `scale`'s `factor`, `kl`'s `against`, `cosine`'s `with`. clab refuses an operand that cannot meet that value element for element: at compile where the document decides it (`clab/compile/arguments.py` `mismatch`, and for an operand from the write's own forward `clab/compile/interventions.py` `compile_entry`), and at preflight where the model's order and the tokenized rows do (`unreached_site_refusal` in `clab/compile/schedule.py`; `check_operands` and `check_window` in `clab/compile/interventions.py`; and `mismatch` again once the rows have said each scope's width, from `clab/compile/preflight.py` `prepare`).
 
 ## What an operand may be
 
@@ -33,13 +33,23 @@ The operand has an axis the value does not: here it was read at the head and is 
 ## `… holds a different number of positions on each row`
 
 ```text
-steps.patched.interventions.patch.ops[0].with: 'counterfactual.v_cf' holds a different number of positions on each row, which pair with no other value's; read both at a static index ('index': -1, or '-3:', in the pos, beside its scope if it has one), or over decode calls at a frame of a static number of them with an index of static width ({'frame': '1:4', 'index': ':3'})
+steps.patched.interventions.patch.ops[0].with: 'counterfactual.v_cf' holds a different number of positions on each row, which pair with no other value's; read both at a static index without a scope ('index': -1, or '-3:'), at one occurrence of a scope in the prefill, not until, whose rows give its width, or over decode calls at a frame of a static number of them with an index of static width ({'frame': '1:4', 'index': ':3'})
 steps.patched.interventions.patch.ops[0].with: the value 'swap' acts on holds a different number of positions on each row, …
 ```
 
-In the first the operand is ragged, in the second the write is: a per-position value from another forward has nothing to pair with on a row whose count differs. A scope with the default index `":"` is ragged (`{"scope": {"text": " is"}}` covers however many tokens the text has on each row), and so are an open slice (`"2:"`) and a frame of every decode call. Give the write and the read a static width (`"index": -1`, or `"index": "-3:"` beside the scope), or reduce the operand to one vector first: a `mean` step's vector, which has no `pos` axis, broadcasts over a ragged write. [positions.md](../usage/positions.md) says which `pos` forms are static.
+In the first the operand is ragged, in the second the write is: a per-position value from another forward has nothing to pair with on a row whose count differs. Compile refuses the pair wherever a side's `pos` leaves its width open, whatever the prompts hold: here the read was `{"index": ":"}`, and so are an open slice (`"2:"`) without a scope, several occurrences of a scope, an `until` scope, a scope beyond the prefill, a frame of every decode call and a decode call read with an open index (`{"frame": 3}`). An index does not help a scope of those kinds, which holds a different number of positions per row whatever its index. One occurrence of a scope in the prefill, not `until`, is not refused here, since its rows say how many positions it holds ([the next section](#-a-scoped-read-pairs-with-another-forwards-value-when-every-rows-scope-holds-the-same-number-of-tokens)). Read both at a static index without a scope (`"index": -1`, `"index": "-3:"`), at one occurrence of a scope in the prefill, or reduce the operand to one vector first: a `mean` step's vector, which has no `pos` axis, broadcasts over a ragged write. [positions.md](../usage/positions.md#static-width-or-ragged) says which `pos` forms are static.
 
 A read at a decode call holds 0 or 1 positions per row, since a row may stop before that call, so it has no static width: `kl` or `js` with it on either side, against another decode read or a prefill read, is refused with the first message. Score a decode read on its own instead, with `argmax` or a metric against a one-token answer column.
+
+## `… a scoped read pairs with another forward's value when every row's scope holds the same number of tokens`
+
+```text
+patched.patch: operand 'counterfactual.v_cf' holds 1 position on rows 0-1, 3 and 3 positions on row 2; a scoped read pairs with another forward's value when every row's scope holds the same number of tokens: pick one with 'index' (-1, or '-2:'), or reduce it
+patched.patch: operand 'counterfactual.v_cf' meets the value 'swap' acts on, which holds 3 positions on row 0 and 1 position on rows 1-3; …
+steps.patched.interventions.patch.ops[0].with: 'counterfactual' holds 1 position on rows 0-1, 3 and 3 positions on row 2; …
+```
+
+A scope of one occurrence in the prefill, not `until`, with no `index` or one of no fixed number, holds on each row as many positions as its index picks among the row's tokens of the text, which only the tokenizer knows, so preflight counts them before any forward. Where every row holds as many, that is the read's width and it pairs as a static one does: `documents/entity_patch_scope.json`, whose entities are each one token, gives what the same reads with `"index": -1` give, to the bit. In the first message, `documents/entity_patch.json` without its `index` on `weekdays/train`, ` Thursday` is three tokens on row 2 of the counterfactual and every other entity one. In the second the write's own scope is the one whose rows differ, its operand read at `-1`. The third is a loaded read (a `load` step's): its rows' positions came with it from its run, so compile refuses it already, with the document path and no `operand`. Pick the tokens with `index` (`-1`, the last; `"-2:"`, the last two, which a row with fewer refuses), or reduce the scope over `pos` first. Where the rows agree on a width the other side does not have, the refusal is the next section's.
 
 ## `… has a pos axis, and this write lands beyond the prefill …`
 
@@ -56,7 +66,7 @@ steps.patched.interventions.patch.ops[0].with: 'counterfactual.v_cf' holds 10 po
 steps.k.against: 'counterfactual.logits' holds 2 position(s) per row and the value 'kl' scores holds 1; position i scores against position i, so both are read at as many (a pos axis does not broadcast)
 ```
 
-Both have a static width, and the widths differ: here the read was `{"index": "0:10"}` (or `"-2:"`) and the write or the scored read `pos: -1`. Read both at as many positions.
+Both have a width, and the widths differ: here the read was `{"index": "0:10"}` (or `"-2:"`) and the write or the scored read `pos: -1`. Read both at as many positions. Where both widths are static the plan's compile refuses it; where one is a whole scope's, preflight does once the rows have confirmed it, prefixed with the entry (`patched.patch: operand 'counterfactual.v_cf' holds 1 position(s) per row and the value 'swap' acts on holds 3; …`).
 
 ## `a select list is positional`
 

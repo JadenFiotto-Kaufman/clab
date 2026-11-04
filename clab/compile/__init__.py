@@ -503,7 +503,8 @@ def compile_op(cx: Compiling, path: str, name: str, spec: OpStep, plan: Plan, at
     assert of.dims is not None
     operands = references(spec.op, args, resolver(cx, path, "classes" in of.dims, at))
     for key, (written, theirs) in operands.items():
-        why = mismatch(of, theirs, spec.op, key, written, repr(spec.of), False, False, adapts(plan, spec))
+        why = mismatch(of, theirs, spec.op, key, written, repr(spec.of), False, False, adapts(plan, spec),
+                       lambda read: entry_of(cx.steps, read, at)[1])
         if why:
             fail(f"{path}.{key}", why)
     if spec.op == "readout" and of.read is not None:        # the one stream check, an entry's readout's too
