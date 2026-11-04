@@ -445,7 +445,8 @@ read as `test` (its inputs, columns and scopes), then the body over the data it 
 another renders its chats with its own `template`, so the two have the same one). The body's forwards, and an
 eval's, run in batches of `batch_size`, whatever the run's batch size, padded as the run's `padding` says
 (under `sorted`, a minibatch's own rows longest first). `epochs: 0` trains nothing: the featurizers are scored
-as drawn (an untrained lora is the identity exactly, a null control), and each history is empty, `[0]`.
+as drawn (an untrained lora or affine is the identity exactly, a null control), and each history is empty,
+`[0]`.
 
 The body is a scope of its own that sees every value produced before the fit; a trained featurizer's name
 there is `<fit>.<featurizer>`, the one being trained, which compile writes for its bare name. A value made
@@ -693,7 +694,7 @@ stays missing: NaN.
 | `normalize` | — | keeps the layout | Each vector divided by its norm, of the entries that are there (`present`); a vector whose norm is zero is left as it is, as `renormalize` leaves one. |
 | `project_out` | `direction: Value` | keeps the layout | Each vector less its component along `direction`, which is normalised first (its length does not matter), over the entries both have (`present`); a zero `direction` has no component to remove, and leaves each vector as it is. |
 | `decode` | `featurizer: Featurizer` | the layout its `encode` had | Closes the entry's most recent `encode` not yet closed, which is of `featurizer`: the value from before that `encode`, the change of its coordinates written back as a delta (`replace`), so an op between them that changes no coordinate changes nothing and a sparse autoencoder's error term survives. The pair runs as one, the ops between on the coordinates (`batches.apply_bound_ops`). |
-| `apply` | `featurizer: Featurizer`, `with: Value = null` | keeps the layout | `featurizer`'s own version of the value, in its layout: a subspace's projection, a dictionary's reconstruction without its error term, a gate's masked value, an adapter's adapted value. `with` is an adapter's input where that is read at another site of the same forward (a lora's), or the value a gate interpolates toward, `h·m + with·(1−m)` (an operand as `swap`'s is, exact where a unit is on and where it is off); a kind whose `apply` takes none refuses it. |
+| `apply` | `featurizer: Featurizer`, `with: Value = null` | keeps the layout | `featurizer`'s own version of the value, in its layout: a subspace's projection, a dictionary's reconstruction without its error term, a gate's masked value, an adapter's adapted value, an affine map's `h + h W + b`. `with` is an adapter's input where that is read at another site of the same forward (a lora's), or the value a gate interpolates toward, `h·m + with·(1−m)` (an operand as `swap`'s is, exact where a unit is on and where it is off); a kind whose `apply` takes none refuses it. |
 | `noise` | `scale: Value`, `seed: int = 0` | keeps the layout | `of + scale * noise`, the noise standard normal and drawn per example: the noise at a row's position is one draw of the value's other axes from a CPU generator seeded by `seed`, the row's place in its dataset and the token's position alone (in a step over a value that holds no positions, its index along `pos`), then moved to the value's device. So batch size, sweep point and forward call never change it, no two rows or positions share one, a write across layers draws the same bits at each of them (as one entry per layer with one seed does), and a document draws the same bits on any device. A value with no rows is one draw from `seed`. |
 | `clamp` | `min: float or null = null`, `max: float or null = null` | keeps the layout | Each element clamped to `[min, max]`; at least one of them given. |
 
@@ -796,8 +797,8 @@ its coordinates of a value `h` (the last axis becomes the kind's axis: `features
 `decode` writes a change of them back into `h` as a delta (`replace`), so an op between them that changes
 nothing changes nothing to the bit, and a sparse autoencoder's error term is kept exactly; and `apply` gives
 its version of `h` in `h`'s own layout (a subspace's projection, a dictionary's reconstruction, a gate's
-masked value or, given `with`, its interpolation toward that value, an adapter's adapted value). A fit's
-objective may name a featurizer's scalar as `<featurizer>.<scalar>` (a gate's
+masked value or, given `with`, its interpolation toward that value, an adapter's adapted value, an affine map's
+`h + h W + b`). A fit's objective may name a featurizer's scalar as `<featurizer>.<scalar>` (a gate's
 `mask` is the mean of its soft mask; an sae's `reconstruction` and `l1` are over the coordinates the body read of
 it in that run of the body, its `encode`s no `decode` closes, which the instance keeps while a fit trains it). Its
 math runs on the value's device and dtype, with autocast off: a model served in bfloat16 under autocast leaves a
@@ -929,6 +930,17 @@ from `seed`: `A` standard normal over sqrt(width), `B` zero, so it starts as the
 no coordinates, so its one op is `apply`.
 
 Ops: `apply`(with: Value or null = null) gives its version of the value, in the value's own layout: `h + (alpha/rank) (x A) B`: `x` is `h`, or `with` (a value at the same positions, from another site of the same forward: an o_proj adapter reads `attention_premix` and applies at `attention_output`), its axes after the positions flattened into the adapter's width. The addition lands on the live value.
+
+### `affine`
+
+- `file_path: str or null = null`
+
+An affine map of the last axis onto itself, `h + h W + b`, `W` `[width, width]` and `b` `[width]`: loaded
+from its bundle, or one a fit trains, drawn with both zero, so it starts as the identity exactly and an
+`epochs: 0` fit of it is a null to the bit. It draws nothing at random, so it takes no `seed`; it has no
+coordinates, so its one op is `apply`, which takes no `with`. A tuned lens's translator is one.
+
+Ops: `apply` gives its version of the value, in the value's own layout: `h + h W + b`.
 
 ## Engines and run options
 

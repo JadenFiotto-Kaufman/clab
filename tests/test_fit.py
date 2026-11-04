@@ -1687,3 +1687,46 @@ def test_a_loras_with_stays_its_input_and_a_gates_is_an_operand(engines):
                                         r"selection holds every one"):
         head_gates(other_heads)
     assert featurizers.KINDS["lora"].adapts and not featurizers.KINDS["gate"].adapts
+
+
+def affine_train(*changes) -> Plan:
+    """lora_train with its adapter an affine map (`h + h W + b` at layer 0's output, every position), and a clean
+    forward over the held-out prompts after the fit, its logits saved beside the held-out eval's."""
+    def change(d):
+        d["featurizers"]["lora"] = {"kind": "affine"}
+        d["steps"]["clean"] = {"kind": "forward", "input": "test.input",
+                               "interventions": {"logits": {"site": "head", "pos": -1}}}
+        d["saves"] += ["clean.logits", "fit.held_out.adapted.logits"]
+    return edited("lora_train", chain(change, *changes)).compile()
+
+
+def test_an_untrained_affine_is_the_clean_forward_to_the_bit(engines):
+    """`W` and `b` start at zero: at `epochs: 0` the held-out eval's adapted logits are a clean forward's, to the bit,
+    and the bundle is zero."""
+    plan = affine_train(lambda d: d["steps"]["fit"].update(epochs=0))
+    values = engines("hooks", plan.model).execute(plan, batch_size=BATCH_SIZE).results
+    assert torch.equal(values["fit.held_out.adapted.logits"], values["clean.logits"])
+    assert not values["fit.lora"]["W"].any() and not values["fit.lora"]["b"].any()
+
+
+def test_an_affine_trains_the_same_on_every_engine_and_loads_as_it_was_trained(engines, tmp_path):
+    """lora_train through an affine: its ce falls, `W` and `b` move, nnterp, hooks and ndif under `remote="local"`
+    give the same numbers to the bit; lora_apply loading the bundle it saved gives the held-out eval's adapted
+    logits to the bit."""
+    values = engines("hooks", affine_train().model).execute(affine_train(), batch_size=BATCH_SIZE).results
+    ce = values["fit.history.ce"]
+    assert ce.shape == (20,) and ce[-1] < ce[0]
+    assert values["fit.lora"]["W"].shape == (16, 16) and values["fit.lora"]["W"].any() and values["fit.lora"]["b"].any()
+    assert same(engines("nnterp", affine_train().model).execute(affine_train(), batch_size=BATCH_SIZE).results, values)
+    there = engines("ndif", affine_train().model, remote="local").execute(affine_train(), batch_size=BATCH_SIZE)
+    assert same(there.results, values)
+    root = corpus_copy(tmp_path)
+    engine = engines("hooks", affine_train().model)
+    engine.execute(affine_train(), batch_size=BATCH_SIZE).dump(os.path.join(root, "documents", "artifacts"))
+    with open(os.path.join(root, "documents", "lora_apply.json")) as f:
+        doc = json.load(f)
+    doc["featurizers"]["lora"]["kind"] = "affine"
+    doc["saves"].append("adapted.logits")
+    plan = Plan(**doc, document=os.path.join(root, "documents", "lora_apply.json")).compile()
+    assert same(engine.execute(plan, batch_size=BATCH_SIZE).results["adapted.logits"],
+                values["fit.held_out.adapted.logits"])

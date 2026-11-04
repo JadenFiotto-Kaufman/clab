@@ -16,6 +16,7 @@ from test_fit import TINY, corpus_copy
 
 from clab import Plan, featurizers, ops
 from clab.docs import describe
+from clab.featurizers.affine import Affine
 from clab.featurizers.gate import Gate
 from clab.format.sweeps import points
 from clab.plan import PlanError
@@ -51,6 +52,20 @@ def test_apply_is_each_kinds_version_of_the_value():
     assert torch.equal(gate.call("apply", H, {}), H * (gate.theta > 0).float())
     gate.training = True
     assert torch.equal(gate.call("apply", H, {}), H * torch.sigmoid(gate.theta))
+
+
+def test_an_affine_is_h_plus_h_w_plus_b_and_the_identity_as_drawn():
+    """An affine's `apply` is `h + h W + b`; drawn, `W` and `b` are zero, whatever seed a fit would give it, and it is
+    the identity to the bit; it takes no `seed` of its own."""
+    W, b = torch.randn(16, 16, generator=G), torch.randn(16, generator=G)
+    loaded = featurizers.make("affine", {"file_path": "x"}, 16, {"W": W, "b": b}, None, None)
+    assert torch.equal(ops.call("apply", H, {"featurizer": loaded}), H + H @ W + b)
+    drawn = featurizers.make("affine", {}, 16, None, 7, None)
+    assert isinstance(drawn, Affine)
+    assert drawn.W.shape == (16, 16) and drawn.b.shape == (16,) and not drawn.W.any() and not drawn.b.any()
+    assert torch.equal(ops.call("apply", H, {"featurizer": drawn}), H)
+    with pytest.raises(ValueError, match=r"^'affine' takes no 'seed'; its arguments: file_path$"):
+        featurizers.check("affine", {"seed": 0})
 
 
 HEADS = ["rows", "pos", "num_heads", "head_dim"]
@@ -177,7 +192,7 @@ def test_encode_is_the_coordinates_on_the_kinds_axis_and_select_keeps_some():
         assert ops.out_dims("encode", DIMS, {}, kind) == ["rows", "pos", "features"]
     assert ops.out_dims("encode", DIMS, {}, "linear") == ["rows", "pos", "classes"]
     assert [featurizers.KINDS[k].ops() for k in featurizers.KINDS] == [
-        ["encode", "decode", "apply"]] * 4 + [["encode"], ["apply"]]
+        ["encode", "decode", "apply"]] * 4 + [["encode"], ["apply"], ["apply"]]
 
 
 @pytest.mark.parametrize("select", [{"feature": 1}, [0, 1], 3, {"features": 1, "classes": 0}])

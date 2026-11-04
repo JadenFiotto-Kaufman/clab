@@ -987,7 +987,8 @@ class Fit(Record):
     another renders its chats with its own `template`, so the two have the same one). The body's forwards, and an
     eval's, run in batches of `batch_size`, whatever the run's batch size, padded as the run's `padding` says
     (under `sorted`, a minibatch's own rows longest first). `epochs: 0` trains nothing: the featurizers are scored
-    as drawn (an untrained lora is the identity exactly, a null control), and each history is empty, `[0]`.
+    as drawn (an untrained lora or affine is the identity exactly, a null control), and each history is empty,
+    `[0]`.
 
     The body is a scope of its own that sees every value produced before the fit; a trained featurizer's name
     there is `<fit>.<featurizer>`, the one being trained, which compile writes for its bare name. A value made

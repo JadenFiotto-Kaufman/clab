@@ -43,7 +43,10 @@ def every_kind() -> dict[str, featurizers.Kind]:
                                        ["a", "b", "c"]),
             "lora": featurizers.make("lora", {"file_path": "x"}, 16, {"A": torch.randn(16, 4, generator=G),
                                                                         "B": torch.randn(4, 16, generator=G)},
-                                     None, None, {"rank": "4", "alpha": "8"})}
+                                     None, None, {"rank": "4", "alpha": "8"}),
+            "affine": featurizers.make("affine", {"file_path": "x"}, 16, {"W": torch.randn(16, 16, generator=G),
+                                                                            "b": torch.randn(16, generator=G)},
+                                       None, None)}
 
 
 def outputs(f: featurizers.Kind, h: torch.Tensor) -> list[torch.Tensor]:
@@ -199,7 +202,7 @@ def test_a_subspace_from_a_published_file_or_a_bundle_of_other_tensors_is_refuse
 
 def test_an_unknown_kind_is_refused_naming_the_kinds():
     with pytest.raises(PlanError, match=r"^featurizers\.rot: unknown featurizer kind 'rotation'; valid: subspace, "
-                                        r"gate, pca, sae, linear, lora$"):
+                                        r"gate, pca, sae, linear, lora, affine$"):
         edited("das_apply", lambda d: d["featurizers"]["rot"].update(kind="rotation"))
 
 
