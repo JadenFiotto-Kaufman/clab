@@ -273,7 +273,7 @@ def test_an_of_no_gradient_passes_through_is_refused_at_compile(ops, message):
         edited(NAME, change).compile()
 
 
-@pytest.mark.parametrize("kind, ranks", [("nnterp", r"\(0, 10\) against \(2, 3\)"), ("hooks", "11 against 24")])
+@pytest.mark.parametrize("kind, ranks", [("nnterp", r"\(0, 11\) against \(2, 3\)"), ("hooks", "11 against 24")])
 def test_a_gradient_of_an_earlier_site_is_refused_with_the_ranks(engines, kind, ranks):
     """`of` read where the forward has not yet reached the entry's site has no gradient there; preflight refuses it
     by the engine's ranks, whether or not anything uses the gradient."""
