@@ -12,7 +12,7 @@ Up: [docs/index.md](../index.md) — all sections.
 
 Start here when the run finished, nothing was refused, and the numbers look wrong. For a refusal, look its message up in [index.md](index.md).
 
-Most of these show up when you read back what the run recorded: where each read and write landed (each entry's `positions` in the manifest's `steps`, the entry lines of `clab show`, the `pos` and `pos_token` columns of `clab table`), how many rows each value holds, and the sweep axes each result depends on, which `clab show` lists ([output.md](../usage/output.md)).
+Most of these show up when you read back what the run recorded: where each read and write landed (each entry's `positions`, which `Plan.load` puts back in place from the manifest's shared `positions`, the entry lines of `clab show`, the `pos` and `pos_token` columns of `clab table`), how many rows each value holds, and the sweep axes each result depends on, which `clab show` lists ([output.md](../usage/output.md)).
 
 ## Positions and selections
 

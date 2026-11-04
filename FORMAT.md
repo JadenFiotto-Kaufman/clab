@@ -1200,7 +1200,10 @@ value depends on, so that a result links back to the step that made it and says 
 records the document's path relative to the corpus root, and each dataset's `n_rows`. The plan's `steps` hold
 each record with its labels and, on every read and write, the positions it resolved to per row, which `table` uses
 to label positions, and each forward's and generation's `schedule`, which forward served each point and what it
-did; its `featurizers` each one's width; its `run` holds the batch size, `padding` and `readout` it ran at (the
+did. The manifest holds each distinct list of positions per row once, in its top-level `positions`, and a record's
+`positions` names its list there by index under its dataset (`{"train": 0}`), so records that resolved alike share
+one; a record holding its list itself, as a manifest an older clab wrote does, reads as well. The plan's
+`featurizers` hold each one's width; its `run` holds the batch size, `padding` and `readout` it ran at (the
 padding and the readout even where they are the defaults), the thread count torch computed with (`threads`), the
 model's sizes, and what each run of each step cost (`costs`: its seconds, its peak memory on each CUDA device, its
 model calls, the tokens they fed, padding included, and of those the rows' own, `real`, and the points it served).

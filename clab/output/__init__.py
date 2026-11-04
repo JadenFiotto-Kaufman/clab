@@ -19,7 +19,10 @@ value depends on, so that a result links back to the step that made it and says 
 records the document's path relative to the corpus root, and each dataset's `n_rows`. The plan's `steps` hold
 each record with its labels and, on every read and write, the positions it resolved to per row, which `table` uses
 to label positions, and each forward's and generation's `schedule`, which forward served each point and what it
-did; its `featurizers` each one's width; its `run` holds the batch size, `padding` and `readout` it ran at (the
+did. The manifest holds each distinct list of positions per row once, in its top-level `positions`, and a record's
+`positions` names its list there by index under its dataset (`{"train": 0}`), so records that resolved alike share
+one; a record holding its list itself, as a manifest an older clab wrote does, reads as well. The plan's
+`featurizers` hold each one's width; its `run` holds the batch size, `padding` and `readout` it ran at (the
 padding and the readout even where they are the defaults), the thread count torch computed with (`threads`), the
 model's sizes, and what each run of each step cost (`costs`: its seconds, its peak memory on each CUDA device, its
 model calls, the tokens they fed, padding included, and of those the rows' own, `real`, and the points it served).
@@ -31,7 +34,7 @@ into `run.tokens`.
 
 import json
 import os
-from typing import Any, Literal
+from typing import Any, Iterator, Literal
 
 import torch
 from safetensors.torch import load_file, save
@@ -42,8 +45,8 @@ from clab.compile import dataset_rows
 from clab.compile.uses import uses
 from clab.featurizers import bundles, labels
 from clab.format.sweeps import agreeing_point, coordinate, coordinate_text, points
-from clab.plan import (Intervention, Labelled, Plan, Run, Site, Step, arguments, entry_of, kind_of, made_by, projections,
-                       record_of, saved_value_axes, scope)
+from clab.plan import (Intervention, Labelled, Plan, Run, Site, Step, arguments, entries, entry_of, kind_of, made_by,
+                       projections, record_of, saved_value_axes, scope, walk)
 from clab.plan import name as named
 
 # The labels a result's manifest record carries beside `dims`, each where the value has one.
@@ -82,10 +85,32 @@ def dump(plan: Plan, out: str) -> None:
     for d in manifest["data"].values():
         if "path" in d:
             d.pop("rows", None)             # a loaded plan's are not there
+    table: list[list] = []                  # each distinct list of positions per row, once
+    for entry in held_entries(manifest["steps"]):
+        for dataset, given in entry.get("positions", {}).items():
+            index = next((i for i, p in enumerate(table) if p == given), len(table))
+            table += [given] if index == len(table) else []
+            entry["positions"][dataset] = index
+    text = pretty_json({**manifest, "results": described})
+    if table:                               # the shared positions last, each list of them on a line of its own
+        lines = ",\n".join(f"  {json.dumps(p, ensure_ascii=False)}" for p in table)
+        text = text.removesuffix("\n}") + ',\n "positions": [\n' + lines + "\n ]\n}"
     with open(os.path.join(out, "manifest.json"), "w") as f:
-        f.write(pretty_json({**manifest, "results": described}) + "\n")
+        f.write(text + "\n")
     with open(os.path.join(out, "tokens.json"), "w") as f:
         f.write(pretty_json(run.tokens) + "\n")
+
+
+def held_entries(steps: dict[str, Any]) -> Iterator[dict[str, Any]]:
+    """Every read and write a manifest's `steps` hold, as JSON: each point's entries, a `load`'s read's, a fit's
+    body's and its evals'."""
+    for entry in steps.values():
+        for step in points(entry):
+            yield from step.get("interventions", {}).values()
+            yield from step.get("source", {}).get("interventions", {}).values()
+            yield from held_entries(step.get("steps", {}))
+            for evaluated in step.get("evals", {}).values():
+                yield from held_entries(evaluated)
 
 
 def pretty_json(value: Any, level: int = 0) -> str:
@@ -163,6 +188,11 @@ def shape_or_dtype(value: Any, what: Literal["shape", "dtype"]) -> list[int] | s
 def load(out: str) -> Plan:
     held, described = manifest(out)
     plan = Plan(**held)
+    shared: list[list] = []                 # records whose positions are equal hold one list, as the run's alike did
+    for record in recorded(plan.steps):
+        for dataset, given in record.positions.items():
+            record.positions[dataset] = next((p for p in shared if p == given), given)
+            shared += [given] if record.positions[dataset] is given else []
     tokens = os.path.join(out, "tokens.json")
     if plan.run is not None and os.path.exists(tokens):
         with open(tokens) as f:
@@ -178,11 +208,22 @@ def load(out: str) -> Plan:
     return plan
 
 
+def recorded(steps: dict[str, Any]) -> Iterator[Intervention]:
+    """Every read and write of a plan's `steps`, the records `held_entries` finds in its manifest: each point's
+    entries, a `load`'s read's, a fit's evals' and its body's."""
+    for _, step in walk(steps):
+        hosts = [step, getattr(step, "source", None), *(s for e in getattr(step, "evals", {}).values()
+                                                         for s in e.values())]
+        for host in hosts:
+            yield from entries(host).values() if host is not None else ()
+
+
 def manifest(out: str) -> tuple[dict[str, Any], dict[str, Any]]:
-    """The manifest of the run at `out`, as JSON, and apart from it its `results`: each saved value's record by
-    name. One an older clab wrote is refused by name: whose value records have no `axes` (it cannot say which sweeps
-    a value depends on, and taken as unswept a swept value's points would load as one), or whose fit has an `eval`
-    and no `evals` (it holds no record of an eval's values)."""
+    """The manifest of the run at `out`, as JSON, each record's `positions` its lists (an index into the
+    manifest's `positions` the list there, records of one index holding one list), and apart from it its `results`:
+    each saved value's record by name. One an older clab wrote is refused by name: whose value records have no
+    `axes` (it cannot say which sweeps a value depends on, and taken as unswept a swept value's points would load as
+    one), or whose fit has an `eval` and no `evals` (it holds no record of an eval's values)."""
     try:
         with open(os.path.join(out, "manifest.json")) as f:
             held = json.load(f)
@@ -195,6 +236,10 @@ def manifest(out: str) -> tuple[dict[str, Any], dict[str, Any]]:
         if any(p.get("kind") == "fit" and p.get("eval") and "evals" not in p for p in points(entry)):
             raise ValueError(f"{out}/manifest.json predates a fit's evals as steps ('evals'), so its fit {name!r} "
                              "does not hold its evals' records; rerun the document that wrote it")
+    table = held.pop("positions", [])
+    for entry in held_entries(held.get("steps", {})):
+        for dataset, given in entry.get("positions", {}).items():
+            entry["positions"][dataset] = table[given] if isinstance(given, int) else given
     return held, held.pop("results")
 
 

@@ -1,10 +1,13 @@
 """`table`: saved values as rows, several joined on the keys they share (their sweep axes by coordinate, their
 axis columns), and what has no rows to table."""
 
+import json
+
 import pytest
-from conftest import BATCH_SIZE, document
+from conftest import BATCH_SIZE, ROOT, document, same
 
 from clab import Plan
+from clab.plan import entries
 
 TINY = {"key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
         "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998", "dtype": "float32"}
@@ -165,3 +168,28 @@ def test_a_swept_fits_history_tables_each_points_own_epochs(engines):
     history = filled.results["fit.history.ce"]
     assert filled.table("fit.history.ce") == [{"at": {"epochs": 2}, "epochs": epoch, "value": history[2][epoch].item()}
                                               for epoch in (0, 1)]
+
+
+def test_reads_that_resolved_alike_share_one_positions_list_in_the_manifest(engines, tmp_path, monkeypatch):
+    """Two reads at one `pos` and a third at another: the manifest holds the two distinct positions lists once
+    each, in its `positions`, each read naming its list by index; read back, every read's positions are the ran
+    plan's, the two at one `pos` hold one list again, and the table is the ran plan's."""
+    def at(layer: int, pos) -> dict:
+        return {"site": {"component": "layer_output", "layers": layer}, "pos": pos}
+    filled = run(engines, plan(
+        steps={"f": {"kind": "forward", "input": "pairs.input", "interventions": {
+            "a": at(0, {"index": "1:"}), "b": at(1, {"index": "1:"}), "c": at(1, -1)}}},
+        saves=["f.a", "f.b", "f.c"]))
+    filled.dump(str(tmp_path))
+    with open(tmp_path / "manifest.json") as f:
+        held = json.load(f)
+    ran = entries(filled.steps["f"])
+    assert {k: e["positions"] for k, e in held["steps"]["f"]["interventions"].items()} == \
+        {"a": {"pairs": 0}, "b": {"pairs": 0}, "c": {"pairs": 1}}
+    assert held["positions"] == [ran["a"].positions["pairs"], ran["c"].positions["pairs"]]
+    monkeypatch.chdir(ROOT)                 # a loaded plan's corpus root is where it is read
+    back = Plan.load(str(tmp_path))
+    got = entries(back.steps["f"])
+    assert all(same(got[k].positions, ran[k].positions) for k in ran)
+    assert got["a"].positions["pairs"] is got["b"].positions["pairs"] is not got["c"].positions["pairs"]
+    assert back.table("f.a", "f.b") == filled.table("f.a", "f.b") and back.table("f.c") == filled.table("f.c")

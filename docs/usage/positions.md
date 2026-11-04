@@ -12,7 +12,7 @@ An entry's `pos` says which token positions of each row it reads or writes at it
 
 ## Check where it landed
 
-Every read and write records the positions it resolved to on every row, saved or not, on its own record: `positions`, under the dataset whose rows they are (in the manifest, on each entry of `steps`). `clab show` prints them one line per entry; look before you trust a number:
+Every read and write records the positions it resolved to on every row, saved or not, on its own record: `positions`, under the dataset whose rows they are (in the manifest, each entry of `steps` names its list by index in the top-level `positions`, which holds each distinct list once). `clab show` prints them one line per entry; look before you trust a number:
 
 ```python
 from clab import Plan

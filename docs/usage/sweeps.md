@@ -103,7 +103,7 @@ A forward or generation depends on the step's options and its writes alone. Poin
 
 `clab show` prints one cost row per forward with the points it served (`all 4 points`). A value is made once per distinct point on the sweep axes it depends on (its `axes`), so a read that does not depend on a step's sweep is one value, not identical copies. A step that uses nothing swept runs once, and its value serves every point.
 
-A large grid costs outside the forwards too. The manifest holds every point's records, with their positions per row and their schedule: on the corpus Llama a grid of 800 points over 4 rows writes a manifest of about 3 MB, and the size grows with the rows. Compile time grows faster than the number of points: 200 points compile in 0.4 s, 800 in 1.9 s and 3,200 in 12 s. Split a very large grid into documents by layer range.
+A large grid costs outside the forwards too. The manifest holds every point's records, with their positions per row (each distinct list once) and their schedule: on the corpus Llama a grid of 800 points over 4 rows writes a manifest of about 3 MB, and the size grows with the rows. Compile time grows faster than the number of points: 200 points compile in 0.4 s, 800 in 1.9 s and 3,200 in 12 s. Split a very large grid into documents by layer range.
 
 ## Widen the read instead
 

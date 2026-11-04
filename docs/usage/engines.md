@@ -39,7 +39,7 @@ Two runs agree to the bit when their value files do. Every file in the output di
 for f in out/nnterp/*; do [ "${f##*/}" = manifest.json ] || cmp "$f" "out/hooks/${f##*/}"; done
 ```
 
-`cmp` prints nothing where the files match, NaN rows and JSON values included. That every read and write landed alike is in the records: the manifests' `steps`, which hold each entry's `positions` and each forward's schedule, are equal (`json.load(open("out/nnterp/manifest.json"))["steps"] == json.load(open("out/hooks/manifest.json"))["steps"]`, as on `patching.json`, `head_patching.json` and `generated_answer.json`). Compare runs made at one batch size, padding and thread count ([running.md](running.md#batch-size-and-reproducibility)).
+`cmp` prints nothing where the files match, NaN rows and JSON values included. That every read and write landed alike is in the records: the manifests' `steps`, which hold each entry's `positions` and each forward's schedule, are equal as the directory's one reader gives them, each entry's positions in place (`manifest("out/nnterp")[0]["steps"] == manifest("out/hooks")[0]["steps"]`, with `manifest` from `clab.output`, as on `patching.json`, `head_patching.json` and `generated_answer.json`). Compare runs made at one batch size, padding and thread count ([running.md](running.md#batch-size-and-reproducibility)).
 
 What hooks cannot reach is a value read *inside* a module's forward: on a Llama, the attention interior (`attention_queries`, `attention_keys`, `attention_values`, `attention_scores`, `attention_probabilities`, `attention_head_outputs`). Which components are interior depends on the model family; the refusal says where nnterp reads the value:
 
