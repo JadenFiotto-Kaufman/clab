@@ -244,8 +244,8 @@ def point_header(plan: Plan, name: str, step: Step) -> dict[str, str] | None:
     """A bundle's header, when the value is one (at `step`, the point that made it), written from the records: an
     op step's whose op declares the featurizer kind its bundle is for, made at the site of the read it was taken
     over, as wide as that read's feature axis; or a fit's trained featurizer, made at the first site it is used at,
-    as wide as its record says (`Featurizer.width`). Either way the read's selection is the one its record keeps
-    (`kept`)."""
+    as wide as its record says (`Featurizer.width`), its layers, for one over them, those its record keeps. Either way
+    the read's selection is the one its record keeps (`kept`)."""
     assert plan.run is not None
     member = name.partition(".")[2]
     if step.kind == "op" and ops.DECLARED[step.op]["bundle"]:
@@ -261,7 +261,7 @@ def point_header(plan: Plan, name: str, step: Step) -> dict[str, str] | None:
         used = uses(plan)[member]
         where, read, _, o, _ = next((u for u in used if all(step.at.get(k) == i for k, i in u[2].items())), used[0])
         given = arguments(o).get("with") if featurizers.KINDS[kind].adapts else None    # an adapter's input site
-        site, width, kept = site_as_recorded(read), trained.width, trained.kept
+        site, width, kept = site_as_recorded(read, trained.kept.get("layers")), trained.width, trained.kept
         reads = site_as_recorded(entry_of(scope(plan, where), given, step.at)[1]) if given else None
     else:
         return None
@@ -270,10 +270,11 @@ def point_header(plan: Plan, name: str, step: Step) -> dict[str, str] | None:
     return bundles.header(kind, fields, plan.model, classes, site, width, named(plan), reads, kept, read.kept)
 
 
-def site_as_recorded(read: Labelled) -> Site:
-    """A read's site with the layers its record says it was made at, counted from the first, as a header records
-    them: one int for one layer, a list for several."""
+def site_as_recorded(read: Labelled, layers: list[int] | None = None) -> Site:
+    """A read's site with the layers its record says it was made at (or `layers`, a featurizer over them's own, in the
+    order its tensors lay them out), counted from the first, as a header records them: one int for one layer, a list
+    for several."""
     assert isinstance(read, Intervention)
-    site, made = read.site, read.layers
+    site, made = read.site, read.layers if layers is None else layers
     assert isinstance(site, Site)
     return site if made is None else site.model_copy(update={"layers": made[0] if len(made) == 1 else made})

@@ -24,8 +24,8 @@ def find_sweeps(document: dict) -> dict[tuple, str]:
     or a scope's occurrence, not the object.
 
     A sweep may stand for any value except under `description`, `model` and `data` (a dataset's rows are compiled
-    once, and a step reads them by name), on a name, a kind, a `file_path`, or a gate's `over` (a featurizer has one
-    width at every point). One label is one axis: sweeps with one label, by default or given, and the same values
+    once, and a step reads them by name), on a name, a kind, a `file_path`, or a featurizer's `over` (a featurizer has
+    one layout at every point). One label is one axis: sweeps with one label, by default or given, and the same values
     pair their points (zip), as one sweep reached from two places does (a swept site two steps use); sweeps with one
     label and different values are refused, and sweeps with different labels cross. So a read's `layers` swept
     `{"sweep": [0, 1, 2], "label": "src"}` and a write's `{"sweep": [0, 1, 2], "label": "dst"}` are a 3×3 grid in
@@ -54,14 +54,13 @@ def find_sweeps(document: dict) -> dict[tuple, str]:
         if isinstance(value, dict) and "sweep" in value and set(value) <= {"sweep", "label"}:
             where = ".".join(map(str, path))
             field = next(k for k in reversed(path) if isinstance(k, str))
-            over = path[0] == "featurizers" and path[2:3] == ("over",)        # a gate's axes, or one of them
+            over = path[0] == "featurizers" and path[2:3] == ("over",)        # a featurizer's axes, or one of them
             if path[0] in ("description", "model", "data") or field in UNSWEPT or over:
                 raise ValueError(f"{where}: a sweep cannot stand for {'over' if over else field!r}"
                                  + ("; a dataset's rows are compiled once, and a step reads them by name: write one "
                                     "dataset per value" if path[0] == "data" else
                                     f"; a run loads one model: write one document per {field}" if path[0] == "model"
-                                    else "; a featurizer has one width at every point, and a gate's over lays its "
-                                    "units out: declare one gate per value" if over else ""))
+                                    else over_reason(document, path[1]) if over else ""))
             given = value.get("label")
             label = field if given is None else given
             if given is not None and not (isinstance(label, str) and re.fullmatch(r"\w+", label)):
@@ -88,6 +87,20 @@ def find_sweeps(document: dict) -> dict[tuple, str]:
 
     walk(document, ())
     return labels
+
+
+def over_reason(document: Mapping[str, Any], name: str) -> str:
+    """Why a sweep cannot stand for featurizer `name`'s `over`, said of the kind the document declares: a gate's lays
+    its units out and sets its width, and a kind that stacks its tensors over the axes (an affine's) holds a slice per
+    index of them; either way a featurizer has one layout at every point."""
+    from clab.featurizers import KINDS
+    declared = (document.get("featurizers") or {}).get(name)
+    kind = declared.get("kind") if isinstance(declared, dict) else None
+    if kind in KINDS and KINDS[kind].stacked:
+        return (f"; a featurizer has one layout at every point, and {'an' if kind[0] in 'aeiou' else 'a'} {kind}'s "
+                f"over stacks a map per index of its axes: declare one {kind} per value")
+    return ("; a featurizer has one width at every point, and a gate's over lays its units out: declare one gate per "
+            "value")
 
 
 def check_scalars(where: str, field: str, values: Any) -> None:

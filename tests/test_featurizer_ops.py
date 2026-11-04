@@ -64,8 +64,29 @@ def test_an_affine_is_h_plus_h_w_plus_b_and_the_identity_as_drawn():
     assert isinstance(drawn, Affine)
     assert drawn.W.shape == (16, 16) and drawn.b.shape == (16,) and not drawn.W.any() and not drawn.b.any()
     assert torch.equal(ops.call("apply", H, {"featurizer": drawn}), H)
-    with pytest.raises(ValueError, match=r"^'affine' takes no 'seed'; its arguments: file_path$"):
+    with pytest.raises(ValueError, match=r"^'affine' takes no 'seed'; its arguments: over, file_path$"):
         featurizers.check("affine", {"seed": 0})
+
+
+def test_an_affine_over_layers_takes_each_layers_map_by_its_id():
+    """`W` `[layers, width, width]` and `b` `[layers, width]`, its layers labelled 0, 2 and 3: at one layer `apply` is
+    that layer's map by its label, to the bit; on a value with a `layers` axis of its own, each of its layers' maps in
+    that value's order (a batched matmul, so to float32 rounding); drawn, every map is zero and it is the identity
+    to the bit on both."""
+    W, b = torch.randn(3, 16, 16, generator=G), torch.randn(3, 16, generator=G)
+    kept = {"layers": [0, 2, 3]}
+    f = featurizers.make("affine", {"over": ["layers"]}, 16, {"W": W, "b": b}, None, None, kept=kept)
+    for layer, row in ((0, 0), (2, 1), (3, 2)):
+        assert torch.equal(ops.call("apply", H, {"featurizer": f}, dims=DIMS, layers=layer), H + H @ W[row] + b[row])
+    stacked = torch.randn(2, 3, 2, 16, generator=G)
+    torch.testing.assert_close(ops.call("apply", stacked, {"featurizer": f}, dims=["layers", *DIMS], layers=[3, 0]),
+                               torch.stack([stacked[0] + stacked[0] @ W[2] + b[2],
+                                            stacked[1] + stacked[1] @ W[0] + b[0]]), atol=1e-5, rtol=0)
+    drawn = featurizers.make("affine", {"over": ["layers"]}, 16, None, 0, None, kept=kept)
+    assert isinstance(drawn, Affine) and drawn.W.shape == (3, 16, 16) and drawn.b.shape == (3, 16)
+    assert torch.equal(ops.call("apply", H, {"featurizer": drawn}, dims=DIMS, layers=2), H)
+    assert torch.equal(ops.call("apply", stacked, {"featurizer": drawn}, dims=["layers", *DIMS], layers=[3, 0]),
+                       stacked)
 
 
 HEADS = ["rows", "pos", "num_heads", "head_dim"]

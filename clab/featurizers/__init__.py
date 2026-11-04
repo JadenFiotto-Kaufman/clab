@@ -3,7 +3,8 @@
 A featurizer is a space an entry's ops encode into, or a function on a value. Its kind's signature is its
 contract: the document fields it takes, with `width` (the feature width of the sites it is used at), `bundle`
 and `header` (the tensors and header of the bundle its `file_path` names) supplied by the run, for a probe
-`labels` (its class list), and for a gate over named axes `kept` (the indices its units keep on each of them).
+`labels` (its class list), and for a featurizer over named axes `kept` (the indices it keeps on each of them: a
+gate's units, an affine's layers).
 An instance holds plain tensors, never an `nn.Module`, made where the model is: a declared featurizer before the
 run's first step, one a fit trains at the fit's start. It is drawn from its `seed` (else the seed of the fit that
 trains it, else 0), or loaded from its bundle, which compile reads into the plan; a loaded one is fixed. Three
@@ -19,7 +20,8 @@ it in that run of the body, its `encode`s no `decode` closes, which the instance
 math runs on the value's device and dtype, with autocast off: a model served in bfloat16 under autocast leaves a
 float32 featurizer's float32 math alone.
 
-A bundle is a safetensors file: an instance's `saves` tensors (the first laid out `[width, ...]`) and a header
+A bundle is a safetensors file: an instance's `saves` tensors (the first laid out `[width, ...]`, but for a featurizer
+over axes: a gate's `theta` on the axes it is over, an affine's `W` `[layers, width, width]`) and a header
 saying what made them: the kind and its `header` fields, the model, the site it was used at (`component`,
 `layer`: the one layer, or the list of them, it was made at, counted from the first, and, where the site
 selects, `select`: the indices it kept on each axis it selects, a JSON object), its `width` and the document's
@@ -41,7 +43,9 @@ the body's encodes of it saw, `over_encodes`, which compile refuses on a body wi
 fields that count directions of the value, so are at most its width (`counts`), whether its `apply`'s `with` is
 its input (`adapts`: an adapter's) or an operand of the value (a gate's), and whether its `apply` is elementwise
 (`elementwise`: a gate's), which keeps a missing element of the value missing where any other kind loses its
-whole vector; its constructor makes an instance. The ops it serves are its methods `encode(h)`,
+whole vector, and whether `over` stacks its tensors, one slice per index of the axes it names, its width the
+value's last axis (`stacked`: an affine's), or lays its units out on those axes (a gate's); its constructor
+makes an instance. The ops it serves are its methods `encode(h)`,
 `replace(h, z, new)` (what `decode` runs, so a kind serves `decode` when it has both) and `apply(h, ...)`, a kind
 defining only those it has; the rest is the protocol `Kind` declares, with a default for what a kind need not have.
 """
@@ -103,6 +107,10 @@ class Kind:
     # Whether `apply` is elementwise, each element of its result made from that element of `h` (and of its
     # operands) alone (a gate's), so that it keeps NaN exactly where `h` had it (`call`).
     elementwise: ClassVar[bool] = False
+    # Whether `over` stacks the kind's tensors, one slice per index the axes it names keep, each meeting the value's
+    # last axis as the kind without `over` does (an affine's one map per layer), so that its width is that axis's;
+    # otherwise `over` lays its units out on those axes, and its width is how many units it has (a gate's).
+    stacked: ClassVar[bool] = False
     kind: ClassVar[str]
     # Set by the fit that trains the instance: whether this run of its body trains it (a gate is soft then),
     # and every value the body's encodes of it saw, beside its coordinates, for its scalars.
@@ -135,7 +143,8 @@ class Kind:
 
     @classmethod
     def width(cls, tensors: dict[str, Tensor]) -> int:
-        """The feature width of a bundle's tensors: the first axis of the first one it saves."""
+        """The feature width of a bundle's tensors: the first axis of the first one it saves (a published file's, which
+        no `over` lays out on axes of its own)."""
         return tensors[cls.saves[0]].shape[0]
 
     @classmethod

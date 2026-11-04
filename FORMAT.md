@@ -526,7 +526,7 @@ Fields a document leaves out, which compile (or, for `run`, the engine) fills. C
 - `OpStep`: `at` (the point's index on each sweep axis it varies over)
 - `Fit`: `at` (the point's index on each sweep axis it varies over), `evals` (each eval as the steps it runs, by label, then by body step: the body's steps compiled again at the fit's point, after it, each dataset the substitution names read as the one it maps to, each body name `<fit>.<eval>.<name>` and each trained featurizer `<fit>.<featurizer>`, each step and value on the fit's axes, and a forward's batches of the fit's `batch_size`)
 - `Load`: `at` (the point's index on each sweep axis it varies over), `source` (the read whose positions the value holds, where it holds any: the forward that made it as the source's manifest records it, with that entry alone and its positions under the value's dataset, the entry named as the value's `read` names it (`<this step>.<entry>`)), `loaded` (the value at this point, read from the source's file into a compiled plan that has not run (`loaded_value`), which carries it wherever the run is, in a request too, and the run puts where the model is; never in a document or a manifest)
-- `Featurizer`: `at` (the point's index on each sweep axis it varies over), `bundle` (the tensors of the bundle `file_path` names, checked against its header), `header` (the header of the bundle `file_path` names, which preflight checks the model's width against), `width` (the feature width the featurizer has at the sites it is used at, one for all of them, which preflight finds among the model's sizes (null for one used nowhere; a gate over axes, how many units it has: the product of `kept`'s lengths); a saved bundle's header records it), `kept` (a gate over axes: the indices its units keep on each axis it is over, in `over`'s order (`layers` by model layer), as the sites it is used at select them or its bundle's header records them, which preflight finds; empty for any other featurizer)
+- `Featurizer`: `at` (the point's index on each sweep axis it varies over), `bundle` (the tensors of the bundle `file_path` names, checked against its header), `header` (the header of the bundle `file_path` names, which preflight checks the model's width against), `width` (the feature width the featurizer has at the sites it is used at, one for all of them, which preflight finds among the model's sizes (null for one used nowhere; a gate over axes, how many units it has: the product of `kept`'s lengths, where an affine over layers is as wide as its sites' last axis); a saved bundle's header records it), `kept` (a featurizer over axes (a gate's units, an affine's maps): the indices it keeps on each axis it is over, in `over`'s order (`layers` by model layer), as the sites it is used at select them or its bundle's header records them, which preflight finds; empty for any other featurizer)
 
 ## Ops
 
@@ -788,7 +788,8 @@ Featurizer kinds: the fields each kind takes, what an instance is, and how a val
 A featurizer is a space an entry's ops encode into, or a function on a value. Its kind's signature is its
 contract: the document fields it takes, with `width` (the feature width of the sites it is used at), `bundle`
 and `header` (the tensors and header of the bundle its `file_path` names) supplied by the run, for a probe
-`labels` (its class list), and for a gate over named axes `kept` (the indices its units keep on each of them).
+`labels` (its class list), and for a featurizer over named axes `kept` (the indices it keeps on each of them: a
+gate's units, an affine's layers).
 An instance holds plain tensors, never an `nn.Module`, made where the model is: a declared featurizer before the
 run's first step, one a fit trains at the fit's start. It is drawn from its `seed` (else the seed of the fit that
 trains it, else 0), or loaded from its bundle, which compile reads into the plan; a loaded one is fixed. Three
@@ -804,7 +805,8 @@ it in that run of the body, its `encode`s no `decode` closes, which the instance
 math runs on the value's device and dtype, with autocast off: a model served in bfloat16 under autocast leaves a
 float32 featurizer's float32 math alone.
 
-A bundle is a safetensors file: an instance's `saves` tensors (the first laid out `[width, ...]`) and a header
+A bundle is a safetensors file: an instance's `saves` tensors (the first laid out `[width, ...]`, but for a featurizer
+over axes: a gate's `theta` on the axes it is over, an affine's `W` `[layers, width, width]`) and a header
 saying what made them: the kind and its `header` fields, the model, the site it was used at (`component`,
 `layer`: the one layer, or the list of them, it was made at, counted from the first, and, where the site
 selects, `select`: the indices it kept on each axis it selects, a JSON object), its `width` and the document's
@@ -826,7 +828,9 @@ the body's encodes of it saw, `over_encodes`, which compile refuses on a body wi
 fields that count directions of the value, so are at most its width (`counts`), whether its `apply`'s `with` is
 its input (`adapts`: an adapter's) or an operand of the value (a gate's), and whether its `apply` is elementwise
 (`elementwise`: a gate's), which keeps a missing element of the value missing where any other kind loses its
-whole vector; its constructor makes an instance. The ops it serves are its methods `encode(h)`,
+whole vector, and whether `over` stacks its tensors, one slice per index of the axes it names, its width the
+value's last axis (`stacked`: an affine's), or lays its units out on those axes (a gate's); its constructor
+makes an instance. The ops it serves are its methods `encode(h)`,
 `replace(h, z, new)` (what `decode` runs, so a kind serves `decode` when it has both) and `apply(h, ...)`, a kind
 defining only those it has; the rest is the protocol `Kind` declares, with a default for what a kind need not have.
 
@@ -933,14 +937,19 @@ Ops: `apply`(with: Value or null = null) gives its version of the value, in the 
 
 ### `affine`
 
+- `over: list of str or null = null`
 - `file_path: str or null = null`
 
 An affine map of the last axis onto itself, `h + h W + b`, `W` `[width, width]` and `b` `[width]`: loaded
 from its bundle, or one a fit trains, drawn with both zero, so it starts as the identity exactly and an
 `epochs: 0` fit of it is a null to the bit. It draws nothing at random, so it takes no `seed`; it has no
-coordinates, so its one op is `apply`, which takes no `with`. A tuned lens's translator is one.
+coordinates, so its one op is `apply`, which takes no `with`. With `over: ["layers"]` it holds one map per
+layer of its site's selection, `W` `[layers, width, width]` and `b` `[layers, width]`, its width still the
+last axis: at each layer the value is at, `apply` takes that layer's map by the layer's id. `over` names
+`layers` and no other axis, since a map is a matrix over the last axis. A tuned lens's translators are one
+affine over layers.
 
-Ops: `apply` gives its version of the value, in the value's own layout: `h + h W + b`.
+Ops: `apply` gives its version of the value, in the value's own layout: `h + h W + b`; over layers, with the map of the layer the value is at, by its id, or on a value with a `layers` axis of its own (a step over a read at several layers), each layer's map on that layer's vectors.
 
 ## Engines and run options
 
@@ -1119,8 +1128,8 @@ booleans or lists of them, each point keyed by its value, and hold no sweep: a `
 or a scope's occurrence, not the object.
 
 A sweep may stand for any value except under `description`, `model` and `data` (a dataset's rows are compiled
-once, and a step reads them by name), on a name, a kind, a `file_path`, or a gate's `over` (a featurizer has one
-width at every point). One label is one axis: sweeps with one label, by default or given, and the same values
+once, and a step reads them by name), on a name, a kind, a `file_path`, or a featurizer's `over` (a featurizer has
+one layout at every point). One label is one axis: sweeps with one label, by default or given, and the same values
 pair their points (zip), as one sweep reached from two places does (a swept site two steps use); sweeps with one
 label and different values are refused, and sweeps with different labels cross. So a read's `layers` swept
 `{"sweep": [0, 1, 2], "label": "src"}` and a write's `{"sweep": [0, 1, 2], "label": "dst"}` are a 3×3 grid in

@@ -1,6 +1,6 @@
 ---
 title: Featurizers
-one_liner: "Declaring a featurizer and using it in an entry: the seven kinds, encode, decode and apply, nested brackets, selecting features, a gate over named axes (one unit per head), and loading a published sparse autoencoder with the fields the file cannot state."
+one_liner: "Declaring a featurizer and using it in an entry: the seven kinds, encode, decode and apply, nested brackets, selecting features, a gate over named axes (one unit per head), an affine map per layer, and loading a published sparse autoencoder with the fields the file cannot state."
 tags: [usage, featurizers, encode, decode, apply, sae, subspace]
 related: [docs/usage/fit.md, docs/usage/bundles.md, docs/usage/interventions.md, docs/patterns/trained-subspaces.md, docs/patterns/head-masking.md, docs/patterns/sae.md, docs/patterns/probing.md, docs/patterns/lora.md]
 sources: [clab/featurizers/__init__.py, clab/featurizers/subspace.py, clab/featurizers/gate.py, clab/featurizers/pca.py, clab/featurizers/sae.py, clab/featurizers/linear.py, clab/featurizers/lora.py, clab/featurizers/affine.py, clab/compile/uses.py, clab/compile/__init__.py]
@@ -125,6 +125,15 @@ A gate over axes serves `apply` alone: its units are not the last axis an `encod
 
 An `affine` is `h + h W + b` on the last axis of the value it meets: `W` `[width, width]` and `b` `[width]`, both zero as drawn, so an untrained one is the identity to the bit and an `epochs: 0` fit of it is a null control ([fit.md](fit.md#epochs-0-is-a-null-control)). It draws nothing at random, so it takes no `seed`, and its one op is `apply`, which takes no `with`. Where a `lora` is a low-rank update with no bias, an affine is the full matrix and the bias, `width² + width` numbers: a full-rank `lora` (`rank` = `alpha` = the width) is `h + h A B`, the same map without `b`.
 
+With `over: ["layers"]` it holds one map per layer of its site's selection, `W` `[layers, width, width]` and `b` `[layers, width]`, its width still the site's last axis, and at each layer `apply` meets it takes that layer's map by the layer's id, as a [gate over layers](#a-gate-over-named-axes) takes its slice. One featurizer then trains every layer's map in one fit, from one forward per minibatch, where a sweep of the site's `layers` makes a fit, and its forwards, per layer:
+
+```json
+"featurizers": {"lens": {"kind": "affine", "over": ["layers"]}},
+"sites": {"resid": {"component": "layer_output", "layers": "0:4"}}
+```
+
+`over` names `layers` alone, and other axes are refused (`over: ['num_heads']: an 'affine' is over ['layers'] or nothing, …`), since a map is a matrix over the last axis. The site picks several layers, and every use selects the same ones, in any order, since each layer's map is taken by its id. The bundle's header records `over` and the layers, so a document that loads it may leave `over` out, applies it at any of those layers by id, and is refused at a layer the header does not name. Like any `apply`, inside an entry it writes, and the layers after it see the mapped value; to read a layer through it and leave the forward as it is, make it an `apply` step over a read.
+
 ## Drawn, trained or loaded
 
 A declared featurizer with no `file_path` is drawn before the run's first step, from its `seed` (0 when unset) for the kinds that take one, and needs the fields its kind draws from: `k` for a subspace, `latents` for an sae, `rank` and `alpha` for a lora, `classes` for a probe. `documents/random_subspace.json` sweeps the seed to get three random rank-4 subspaces with no fit at all. A fit draws the featurizers it trains at its own start, from the fit's `seed` unless the featurizer has one; the names a fit gives them are in [fit.md](fit.md#members). With `file_path` the featurizer is loaded and fixed, and the fields the bundle's header records may be left out ([bundles.md](bundles.md)).
@@ -151,6 +160,6 @@ The `site` check compares your use with your claim; it cannot check the claim. W
 - **Serve another kind's ops.** A `linear` probe only encodes; a `lora` and an `affine` only apply; compile refuses the rest by name (`'probe' is a 'linear' featurizer, which has no decode`).
 - **Be drawn as a `pca`.** A `pca` featurizer exists only as the bundle a `pca` op wrote.
 - **Have two widths.** Its width is the last axis of every site it is used at (inside an `encode`, that one's `k`), and one featurizer used at sites of two widths is refused before any forward. `k` is at most that width. A gate over axes has as many units as its axes keep, and every site it is used at selects the same ones.
-- **Be one per layer by itself.** A featurizer used at a site whose `layers` picks several is one featurizer, applied at each; only a gate with `layers` in its `over` has units of its own at each layer. Sweep the site's `layers` for one per layer ([probing.md](../patterns/probing.md) does).
+- **Be one per layer by itself.** A featurizer used at a site whose `layers` picks several is one featurizer, applied at each; only a gate or an affine with `layers` in its `over` has its own units or map at each layer. Sweep the site's `layers` for one per layer ([probing.md](../patterns/probing.md) does).
 - **Be trained once loaded.** A fit refuses to train a featurizer with a `file_path`.
 - **Read across sites in a generate.** A lora's `with` names an entry of the same forward, which only a `forward` step serves ([lora.md](../patterns/lora.md)).
