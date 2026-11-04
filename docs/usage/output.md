@@ -89,7 +89,7 @@ Saturday    3                          If today is Sunday, tomorrow is     Satur
 | `example_id` | the dataset has that column | the row's `example_id` |
 | `row` | the value has a rows axis | the row's index in the dataset, after `split`, `shuffle` and `take` |
 | `layer` | the value has a `layers` axis | the model's layer, not the index along the axis |
-| `pos`, `pos_token` | the value has a positions axis | the position the read resolved to, as `pos` counts (BOS 0, then the prompt, then in a generation the generated tokens), and the token there |
+| `pos`, `pos_token` | the value has a positions axis | the position the read resolved to, as `pos` counts (BOS 0, then the prompt, then in a generation the generated tokens), and the token there; for a `permute`'s value, whose rows hold other rows' positions, `pos` alone, the plain index, and no columns of the read's input |
 | `call` | the read was in a generation | the forward call that holds the position: 0 the prefill, k decode call k |
 | `key`, `key_token` | an attention pattern | each key position and its token, the row's own keys only |
 | dataset columns | always, with rows | the columns the value's chain of steps used: the input, the answers |

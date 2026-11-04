@@ -355,11 +355,15 @@ def op(engine: Engine, plan: Plan, name: str, step: OpStep, state: ChainMap, bat
     """The op over the value `of` names at the rows the run is over (`scope_ids`, else every row of its dataset),
     given each one's dataset row, at the layers `of`'s record says it is at (its `layers` axis's labels, or the one
     layer it was read at), to which an operand's `layers` axis is aligned (`argument_binding`); a `classes` axis's
-    vocabulary is the probe its coordinates are in. `top_k`'s value over a vocabulary's tokens also holds them, decoded.
-    It calls no model, and its value is put at the point's coordinates on its own axes."""
+    vocabulary is the probe its coordinates are in, and the ids a generation stops on are those of the generation that
+    made `of`, through any `permute` of it. `top_k`'s value over a vocabulary's tokens also holds them, decoded,
+    and a `permute`'s record the permutation it drew (`OpStep.permutation`). It calls no model, and its value is put at
+    the point's coordinates on its own axes."""
     of, record = value_at(plan, state, step.of, step.at, scope_ids(state)), record_of(plan.steps, step.of, step.at)
     dims = record.dims or []
     producer = points(runnable(plan.steps)[made_by(plan, step.of)])[0]
+    while isinstance(producer, OpStep) and producer.op == "permute":     # what the value is: a generation's ids too
+        producer = points(runnable(plan.steps)[made_by(plan, producer.of)])[0]
     ids = (scope_ids(state) if scope_ids(state) is not None else list(range(plan.data[record.dataset].n_rows or 0))) \
         if "rows" in dims and record.dataset is not None else None
     rows = None if ids is None else torch.tensor(ids)
@@ -372,6 +376,10 @@ def op(engine: Engine, plan: Plan, name: str, step: OpStep, state: ChainMap, bat
                      eos=stop_ids(engine, producer) if producer.kind == "generate" else engine.eos, rows=rows)
     if step.op == "top_k" and arguments(step).get("over", ops.transforms.RANKED) == ops.transforms.RANKED:
         value["tokens"] = token_strings(engine.tokenizer, value["ids"])
+    if step.op == "permute":        # what it drew, on its record: the dataset row each row's value is
+        order = ops.transforms.permutation(arguments(step)["seed"], of.shape[dims.index("rows")],
+                                           arguments(step).get("derangement", False))
+        step.permutation = order.tolist() if rows is None else rows[order].tolist()
     put(state, name, projection(step.at, step.axes), value)
 
 

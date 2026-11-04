@@ -378,6 +378,25 @@ def test_a_steps_own_eos_token_id_is_where_its_rows_stop(engines):
         assert values.results["answer"].shape == (4, 2) and values.results["text"] == ["Handler"] * 4
 
 
+@pytest.mark.parametrize("kind", ["nnterp", "hooks"])
+def test_a_permuted_generation_detokenizes_at_its_own_eos_and_the_identity_is_the_generation(engines, kind):
+    """A permute keeps what the value is, so detokenize of a permuted generation stops at that generation's own
+    `eos_token_id` (every row says the same, so a seed's text is the same too): under seed null, the null, the text is
+    the generation's own."""
+    def change(d):
+        answer = d["steps"]["answer"]
+        answer["eos_token_id"] = 25148
+        del answer["min_new_tokens"]
+        d["steps"]["text"] = {"kind": "op", "op": "detokenize", "of": "answer"}
+        for name, seed in (("same", None), ("moved", 0)):
+            d["steps"][name] = {"kind": "op", "op": "permute", "of": "answer", "seed": seed}
+            d["steps"][f"{name}_text"] = {"kind": "op", "op": "detokenize", "of": name}
+        d["saves"] = ["text", "same_text", "moved_text"]
+    plan = edited("generated_answer", change).compile()
+    got = run(engines, plan, kind).results
+    assert got["same_text"] == got["text"] == ["Handler"] * 4 and got["moved_text"] == got["text"]
+
+
 def test_the_manifest_holds_each_rows_positions_and_tokens_json_what_it_said(filled, tmp_path):
     """The manifest holds where each read landed per row; `tokens.json` beside it holds the run's tokens, the
     prompt's and what each row generated, which the manifest leaves out and `Plan.load` reads back for `table`."""

@@ -676,3 +676,52 @@ def test_a_quantized_dtype_on_an_ndif_server_is_refused():
     with pytest.raises(ValueError, match="^model.dtype 'nf4': the ndif engine cannot honor it: the server decides how "
                                          "a model's weights are held$"):
         load("ndif", plan.model)
+
+
+def permuting(**steps) -> Callable:
+    """mean_ablation with `steps` added after its harvest, read at the last three positions."""
+    def change(d):
+        d["steps"]["harvest"]["interventions"]["acts"]["pos"] = {"index": "-3:"}
+        d["steps"] = {"harvest": d["steps"]["harvest"], **steps,
+                      **{k: v for k, v in d["steps"].items() if k != "harvest"}}
+    return change
+
+
+def one_row(d):
+    d["data"]["prompts"]["take"] = 1
+
+
+def minibatch_of_one(d):
+    d["featurizers"] = {"lora": {"kind": "lora", "rank": 1, "alpha": 1}}
+    d["steps"]["fit"] = {"kind": "fit", "train": ["lora"], "objective": {"m": 1.0}, "epochs": 1, "batch_size": 3,
+                         "seed": 0, "optimizer": {"name": "sgd", "lr": 0.1}, "steps": {
+                             "run": {"kind": "forward", "input": "prompts.input", "interventions": {"x": {
+                                 "site": "target", "pos": {"index": "-3:"},
+                                 "ops": [{"op": "apply", "featurizer": "fit.lora"}]}}},
+                             "p": {"kind": "op", "op": "permute", "of": "run.x", "seed": 0, "derangement": True},
+                             "m": {"kind": "op", "op": "mean", "of": "p", "over": ["rows", "pos", "hidden_size"]}}}
+
+
+@pytest.mark.parametrize("change, message", [
+    (lambda d: d["steps"]["ablated"]["interventions"]["ablate"]["ops"].insert(0, {"op": "permute", "seed": 0}),
+     r"^steps\.ablated\.interventions\.ablate\.ops\[0\]: permute is no op of an entry, whose ops act on each row's "
+     r"live value: it is a step over a read"),
+    (permuting(top={"kind": "op", "op": "top_k", "of": "harvest.acts", "k": 2, "over": "hidden_size"},
+               p={"kind": "op", "op": "permute", "of": "top", "seed": 0}),
+     r"^steps\.p\.of: 'top' is a top_k's value, which permute does not reorder; a top_k acts row by row, so permute "
+     r"the value it is over \('harvest\.acts'\) and top_k that$"),
+    (permuting(p={"kind": "op", "op": "permute", "of": "harvest.acts", "seed": 0},
+               b={"kind": "op", "op": "pca", "of": "p", "k": 2}),
+     r"^steps\.b\.of: 'p' holds other rows' values \(a permute's\).*which a pca's bundle records: pca the read itself"),
+    (lambda d: (permuting(p={"kind": "op", "op": "permute", "of": "harvest.acts", "seed": 0, "derangement": True})(d),
+                one_row(d)),
+     r"^steps\.p: a derangement moves every row to another, and 'prompts' has 1 row: permute over two rows or more"),
+    (minibatch_of_one,
+     r"^steps\.fit\.steps\.p: a derangement moves every row to another, and over 4 rows in minibatches of 3 the last "
+     r"of each epoch holds one row"),
+])
+def test_a_permute_is_refused_by_name_where_it_cannot_mean_anything(change, message):
+    """As an entry's op, over a value that is no tensor of rows, before a pca, whose bundle records one read's site,
+    and as a derangement over a dataset or a fit's minibatch of one row."""
+    with pytest.raises(PlanError, match=message):
+        edited("mean_ablation", change).compile()

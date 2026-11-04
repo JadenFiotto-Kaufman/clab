@@ -13,6 +13,7 @@ from clab import featurizers
 from clab.format import address, data, selectors
 from clab.format.registry import Featurizer, Text, Value
 from clab.ops import VOCABULARY, op
+from clab.ops.edits import seeded
 from clab.ops.metrics import ranked
 from clab.ops.reductions import floated
 
@@ -101,6 +102,51 @@ def detokenize(of: Tensor, engine: "Engine", eos: list[int], tokens: bool = Fals
             text = text[min(ends):] if ends else text
         out.append(text)
     return out
+
+
+def permutation(seed: int | None, n: int, derangement: bool = False) -> Tensor:
+    """A permutation of `n` rows: the identity where `seed` is null, else drawn by `torch.randperm` from a CPU
+    generator seeded by `seed` alone (`edits.seeded`), so one seed draws the same one on any device and in any run;
+    under `derangement`, drawn again from the same generator until no row is fixed, which makes it a uniform draw
+    among the derangements of `n`, of which there is none below two rows."""
+    if derangement and n < 2:
+        raise ValueError(f"a derangement moves every row to another, and over {n} row{'s' * (n != 1)} there is "
+                         "none; permute over two rows or more, or without derangement")
+    if seed is None:
+        return torch.arange(n)
+    generator = seeded(seed)
+    while True:
+        drawn = torch.randperm(n, generator=generator)
+        if not derangement or not bool((drawn == torch.arange(n)).any()):
+            return drawn
+
+
+def moves(args: dict) -> None:
+    """`permute`'s `derangement` moves every row, and `seed` null is the identity, which moves none."""
+    if args.get("derangement") is True and "seed" in args and args["seed"] is None:
+        raise ValueError("'permute' with seed null is the identity, which moves no row, and a derangement moves "
+                         "every row: give a seed, or leave derangement false")
+
+
+@op("transforms", needs=("rows",), check=moves)
+def permute(of: Tensor, seed: int | None, dims: list[str], derangement: bool = False,
+            rows: Tensor | None = None) -> Tensor:
+    """The value with its rows reordered: row i holds row π(i)'s, π a permutation of the rows the step runs over
+    (every row of the value's dataset, or a fit body's minibatch), drawn from `seed` by a CPU generator and nothing
+    else, so the same seed draws the same π on every device and in every run; with `derangement` (`true`) π leaves
+    no row where it was, and over fewer than two rows there is none. `seed` is written either way: null is the
+    identity, the null control, whose swap into another forward leaves its numbers equal to the clean run's to the
+    bit. An op step, never an op of an entry, whose ops act on each row's live value; a top_k's or a detokenize's
+    value is permuted before that op, which acts row by row. The layout, the dataset and the width are `of`'s, row
+    i still indexing the dataset; each row's positions are π(i)'s, so the value has no `read` (its record's is
+    null): its positions label no row's tokens, a table numbers them by plain index, and it meets a write or an op
+    of another read as a read of another input would, position by position at a static width, a ragged one refused
+    there (it may still be reduced). The step's record holds π (`permutation`: the dataset row whose value each row
+    holds, as the run drew it). In a fit's body each training minibatch draws π over its own rows from the seed
+    alone, so every minibatch of one size pairs its rows the same way, and the record holds the π of the body's last
+    run, the one that scores every training row, which no training step used."""
+    n = len(rows) if rows is not None else of.shape[dims.index("rows")]
+    return of.index_select(dims.index("rows"), permutation(seed, n, derangement).to(of.device))
 
 
 @op("transforms")

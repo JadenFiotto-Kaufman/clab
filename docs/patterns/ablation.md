@@ -1,9 +1,9 @@
 ---
 title: Ablation
-one_liner: "Zero, mean, resample, noise and direction ablation: a mean as an operand across datasets, a ragged mean over an entity's tokens, a direction ablated at every layer, and the hydra effect."
+one_liner: "Zero, mean, resample, noise and direction ablation: resample as a permutation of a read's rows, a mean as an operand across datasets, a ragged mean over an entity's tokens, a direction ablated at every layer, and the hydra effect."
 tags: [patterns, ablation]
 related: [docs/usage/interventions.md, docs/usage/ops.md, docs/patterns/activation-patching.md, docs/patterns/head-and-neuron-patching.md, docs/patterns/attention.md, docs/usage/positions.md]
-sources: [clab/ops/edits.py, clab/ops/reductions.py, clab/compile/arguments.py]
+sources: [clab/ops/edits.py, clab/ops/reductions.py, clab/ops/transforms.py, clab/compile/arguments.py]
 ---
 
 # Ablation
@@ -31,7 +31,7 @@ The clean forward is the baseline and runs on the same rows at the same batch si
 |---|---|---|---|
 | zero | `{"op": "swap", "with": 0.0}` | `documents/zero_ablation.json` | everything, and adds a value the model never produces |
 | mean | `{"op": "swap", "with": "mean"}`, `mean` a step over a harvest | `documents/mean_ablation.json` | what varies across inputs; keeps the typical value |
-| resample | `{"op": "swap", "with": "noise.v_noise"}`, a read on another prompt per row | `documents/hydra_effect.json` | this input's value, replaced by another real input's |
+| resample | `{"op": "swap", "with": "donor"}`, `donor` a `permute` of a read at the site | [below](#resample-by-permuting-the-rows) | this input's value, replaced by another real input's |
 | noise | `{"op": "noise", "scale": 0.5, "seed": 7}` | `documents/noise_write.json` | some of the signal, at a dose |
 | direction | `{"op": "project_out", "direction": "direction"}` | `documents/direction_ablation.json` | one direction, the rest kept |
 
@@ -48,6 +48,26 @@ The harvest-then-ablate chain of `documents/mean_ablation.json`:
 ```
 
 `mean` removes the rows and the position, leaving one `hidden_size` vector, which broadcasts over every row the write selects.
+
+## Resample by permuting the rows
+
+A resample gives each row another row's value at the site. `permute` reorders the rows of a read the document already has, row i holding row π(i)'s, so the donor is an op step and costs no forward:
+
+```json
+"clean": {"kind": "forward", "input": "pairs.input", "interventions": {
+  "z": {"site": "z", "pos": {"index": "0:12"}}, "logits": {"site": "head", "pos": -1}}},
+"donor": {"kind": "op", "op": "permute", "of": "clean.z", "seed": 0, "derangement": true},
+"donor_identity": {"kind": "op", "op": "permute", "of": "clean.z", "seed": null},
+"resampled": {"kind": "forward", "input": "pairs.input", "interventions": {
+  "abl": {"site": "z", "pos": {"index": "0:12"}, "ops": [{"op": "swap", "with": "donor"}]},
+  "logits": {"site": "head", "pos": -1}}}
+```
+
+- **`seed` is always written.** Null is the identity: the same swap with `donor_identity` is the null control, the clean run's numbers to the bit. A seed draws π from itself alone, the same on any device and in any run, and the step's record holds what it drew (`permutation`: the dataset row each row's value is). Sweep `seed` to see how much one draw moves the result.
+- **`derangement: true` leaves no row its own value**, which would be a null inside the average. It needs two rows, in the dataset and, in a fit's body, in every minibatch; fewer is refused by name.
+- **In a fit's body π is drawn per minibatch.** Each training minibatch draws π over its own rows from the seed alone, so every minibatch of one size pairs its rows the same way (with two rows, each row's donor is always its minibatch partner), and the step's record holds the π of the scoring pass over every training row, which no training step used. To pair rows across the whole dataset instead, permute a read made before the fit: the body takes its rows by id, row i's being row π(i)'s.
+- **Positions pair by index.** Row i holds row π(i)'s positions, so the swap meets them as it would a read of another input: both at one static width (`{"index": "0:12"}`, or `"-3:"`), and every prompt one token length where the write covers whole prompts. A ragged read permuted is refused as the operand of another forward; a reduction of it is not. A table of the permuted value numbers its positions by plain index and lists none of the read's input columns, which are other rows'.
+- **π pairs any two rows.** A constraint on which rows pair (a donor with another name, or another template) is data: a column holding each row's donor prompt, read by a forward of its own, as `documents/hydra_effect.json` reads its `resample_input`.
 
 ## A mean from another dataset
 
