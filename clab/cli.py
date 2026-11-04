@@ -11,11 +11,12 @@ head -1`) ends the command quietly.
 
 import argparse
 import csv
-import io
+import itertools
 import json
+import math
 import os
 import sys
-from typing import Any
+from typing import Any, Iterable, Iterator, TextIO
 
 from clab import docs, output
 from clab.compile import positions
@@ -168,31 +169,42 @@ def shaped(shape: Any, swept: bool) -> str:
     return f"{n} points of {len(distinct)} shapes"
 
 
+# Compact JSON, as `json.dumps(value, ensure_ascii=False, separators=(",", ":"))` writes it, with one encoder.
+COMPACT = json.JSONEncoder(ensure_ascii=False, separators=(",", ":")).encode
+
+
 def cell(value: Any) -> str:
-    """A table cell as text: a string as it is, anything else (`at` included) as compact JSON."""
+    """A table cell as text: a string as it is, anything else (`at` included) as compact JSON (an int or a finite
+    float written as JSON writes it, without the encoder)."""
     if isinstance(value, str):
         return value
-    return "" if value is None else json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+    if type(value) is int or type(value) is float and math.isfinite(value):
+        return repr(value)
+    return "" if value is None else COMPACT(value)
 
 
-def aligned(rows: list[list[str]], width: int | None = None) -> list[str]:
+def aligned(rows: Iterable[list[str]], width: int | None = None) -> Iterator[str]:
     """Rows of cells padded into columns, newlines inside a cell written `\\n`; a cell longer than `width` is
-    cut short with an ellipsis."""
-    rows = [[c.replace("\n", "\\n") for c in row] for row in rows]
-    rows = [[c if width is None or len(c) <= width else c[:width - 1] + "…" for c in row] for row in rows]
-    widths = [max(len(row[i]) for row in rows) for i in range(len(rows[0]))]
-    return ["  ".join(c.ljust(w) for c, w in zip(row, widths)).rstrip() for row in rows]
+    cut short with an ellipsis. The cells are held once, and the lines made one at a time."""
+    held = [[c if width is None or len(c) <= width else c[:width - 1] + "…"
+             for c in (text.replace("\n", "\\n") for text in row)] for row in rows]
+    widths = [max(len(row[i]) for row in held) for i in range(len(held[0]))]
+    for row in held:
+        yield "  ".join(c.ljust(w) for c, w in zip(row, widths)).rstrip()
 
 
-def tabulated(rows: list[dict], as_csv: bool) -> str:
-    """`plan.table` rows as text: aligned columns, or CSV with every cell whole."""
-    columns = list(dict.fromkeys(k for row in rows for k in row))
-    cells = [columns] + [[cell(row.get(c)) for c in columns] for row in rows]
+def tabulated(rows: list[dict], as_csv: bool, out: TextIO) -> None:
+    """`plan.table` rows written to `out`: aligned columns, or CSV with every cell whole, a row at a time as each
+    row's cells are made."""
+    columns = list(dict.fromkeys(itertools.chain.from_iterable(rows)))
     if not as_csv:
-        return "\n".join(aligned(cells, 48))
-    buffer = io.StringIO()
-    csv.writer(buffer, lineterminator="\n").writerows(cells)
-    return buffer.getvalue().rstrip("\n")
+        for line in aligned(itertools.chain([columns], ([cell(row.get(c)) for c in columns] for row in rows)), 48):
+            out.write(line + "\n")
+        return
+    writer = csv.writer(out, lineterminator="\n")
+    writer.writerow(columns)
+    for row in rows:
+        writer.writerow(map(cell, map(row.get, columns)))
 
 
 def option(text: str) -> tuple[str, Any]:
@@ -262,7 +274,10 @@ def command(args: argparse.Namespace) -> int:
     if args.command in ("show", "table"):
         try:
             filled = Plan.load(args.out)
-            print(show(filled) if args.command == "show" else tabulated(filled.table(*args.names), args.csv))
+            if args.command == "show":
+                print(show(filled))
+            else:
+                tabulated(filled.table(*args.names), args.csv, sys.stdout)
         except BrokenPipeError:
             raise                           # an OSError, and no refusal: the reader went away, which `main` ends
         except (ValueError, OSError) as e:

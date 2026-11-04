@@ -4,7 +4,7 @@ axis columns), and what has no rows to table."""
 import json
 
 import pytest
-from conftest import BATCH_SIZE, ROOT, document, same
+from conftest import BATCH_SIZE, ROOT, document, edited, same
 
 from clab import Plan
 from clab.plan import entries
@@ -193,3 +193,29 @@ def test_reads_that_resolved_alike_share_one_positions_list_in_the_manifest(engi
     assert all(same(got[k].positions, ran[k].positions) for k in ran)
     assert got["a"].positions["pairs"] is got["b"].positions["pairs"] is not got["c"].positions["pairs"]
     assert back.table("f.a", "f.b") == filled.table("f.a", "f.b") and back.table("f.c") == filled.table("f.c")
+
+
+def test_a_tables_rows_at_its_corners_are_the_ones_written_out_by_hand(engines):
+    """A generation's read over layers 1 then 0 of every token of the word each row said: row 0 said it in one
+    token, row 1 in two (row 0 is shorter than the widest), rows 2 and 3 never (`alignment_missing`). The table is a
+    row per layer, row and position of the row's own, labelled with the model's layer, the token and the call that
+    holds it, and one row, with no value, for each row the read did not reach; each row's keys in this order."""
+    def change(d):
+        d["steps"] = {"answer": {**d["steps"]["answer"], "interventions": {"said": {
+            "site": {"component": "layer_output", "layers": [1, 0]},
+            "pos": {"frame": "1:", "scope": {"column": "prompts.said"}}, "ops": [{"op": "sum", "over": ["hidden_size"]}]}}}}
+        d["saves"] = ["answer.said"]
+    filled = run(engines, edited("generated_answer", change).compile())
+    value = filled.results["answer.said"]
+    assert value.shape == (2, 4, 2)
+    said = [("substr", "If today is Thursday, tomorrow is"), ("energ", "If today is Friday, tomorrow is"),
+            ("Friday", "If today is Saturday, tomorrow is"), ("Saturday", "If today is Sunday, tomorrow is")]
+    expected = []
+    for i, layer in enumerate((1, 0)):
+        def row(r: int, **labels) -> dict:
+            return {"example_id": said[r][0], "layer": layer, "row": r, **labels, "input": said[r][1]}
+        expected += [{**row(0, pos=12, pos_token="▁substr", call=2), "value": value[i, 0, 0].item()},
+                     {**row(1, pos=11, pos_token="▁energ", call=3), "value": value[i, 1, 0].item()},
+                     {**row(1, pos=12, pos_token="calc", call=4), "value": value[i, 1, 1].item()},
+                     {**row(2, alignment_missing=True)}, {**row(3, alignment_missing=True)}]
+    assert [list(t.items()) for t in filled.table("answer.said")] == [list(t.items()) for t in expected]
