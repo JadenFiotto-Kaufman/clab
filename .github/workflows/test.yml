@@ -21,7 +21,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  NNTERP_COMMIT: db80422dc7aa70cbb252affb241892b6c74de730
+  NNTERP_COMMIT: e5d0f8e755c6c04ce7c84eeab2832e2ef8dfce20
   # The transformers the snapshots were made with; `uv sync` installs the newest.
   TRANSFORMERS: "5.20.2"
   # `uv run` would sync the venv again, back to the newest transformers.

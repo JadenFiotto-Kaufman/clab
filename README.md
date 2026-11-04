@@ -145,7 +145,7 @@ It needs Python 3.10 or later; `uv sync` installs nnsight, nnterp, torch and the
 `.venv`, and `uv run clab ...` runs inside it. nnterp 2 comes from a checkout of
 [ndif-team/nnterp](https://github.com/ndif-team/nnterp)'s `v2.0.0` branch, at the path `[tool.uv.sources]` in
 `pyproject.toml` names: point it at yours. The suite runs against nnterp commit
-`db80422dc7aa70cbb252affb241892b6c74de730`, the one CI checks out.
+`e5d0f8e755c6c04ce7c84eeab2832e2ef8dfce20`, the one CI checks out.
 A GPU is optional: the corpus under `documents/` (49 in all) runs on CPU
 on tiny random-weight checkpoints, and the six under `documents/real/` run Llama-3.2-1B, a gated checkpoint,
 and want one. The first run of a document downloads its checkpoint from the Hugging Face hub; after that,
