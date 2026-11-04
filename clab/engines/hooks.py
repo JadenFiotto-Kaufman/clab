@@ -43,7 +43,8 @@ class HooksEngine:
         """The checkpoint `model` pins, as `AutoModelForCausalLM` in its dtype (`loading`) placed by `device`
         (`from_pretrained`'s `device_map` when transformers computes it or the model is quantized, else moved there
         once loaded), with what the meta shell says of it: each component's native module and boundary, and the
-        sizes.
+        sizes; then, on one two-token forward (`order`), where each served site falls in the forward and the
+        layout its boundary holds the value in.
 
         device: one torch device ("cpu", "cuda:0") the model moves to, or "auto", "balanced", ... as its device_map
         """
@@ -61,7 +62,7 @@ class HooksEngine:
         self.model.requires_grad_(False)        # no gradient reaches a weight, so no graph is kept for one
         if not mapped:
             self.model.to(device)
-        self.config["order"] = order(self.model, sites, batches.model_device(self))
+        self.config["order"], self.config["flat"] = order(self.model, sites, batches.model_device(self))
 
     def execute(self, plan: Plan, *, batch_size: int = 8, padding: str = "dataset",
                 readout: str = "full") -> Plan:
@@ -154,26 +155,25 @@ class _Stopped(Exception):
 
 def hook(engine: HooksEngine, component: str, layer: int | None, here: list[dict], got: dict[str, Any],
          calls: list[Tensor], ends: bool) -> RemovableHandle:
-    """A hook at the component's native module that does the site's records `here` in turn, in nnterp's layout:
-    those `acting_at_call` says on the current forward call (`calls` holds each call's `input_ids` so far); then, where
-    it `ends` the forward, raises `_Stopped`."""
+    """A hook at the component's native module that does the site's records `here` in turn, in nnterp's layout (from
+    the boundary's own, as `order` measured it at load: `flat`): those `acting_at_call` says on the current forward call
+    (`calls` holds each call's `input_ids` so far); then, where it `ends` the forward, raises `_Stopped`."""
     reach = engine.config["sites"][component]
     module = engine.model.get_submodule(reach["paths"][layer])
     shape = engine.config["sizes"]["num_heads"], engine.config["sizes"]["head_dim"]
+    flat = engine.config["flat"][component, layer]
 
     def visit(value: Tensor) -> tuple[Tensor, bool]:
         records = acting_at_call(here, len(calls) - 1)
         records = stamped_at_call(records, calls[1:], engine.tokenizer, len(calls) - 1) if len(calls) > 1 else records
-        # A value nnterp holds flat over tokens, [batch * seq, ...], is this call's [batch, seq, ...] rows; else a flat
-        # [batch, seq, hidden] module boundary serves a (heads, head_dim) layout here.
-        tokens = reach["tokens"] and value.dim() == len(COMPONENTS[component]["dims"]) - 1
-        flat = not tokens and len(COMPONENTS[component]["dims"]) == 4 and value.dim() == 3
-        value = (value.unflatten(0, (calls[-1].shape[0], -1)) if tokens else
-                 value.unflatten(-1, shape) if flat else value)
+        # As `order` measured the boundary at load: flat over tokens, [batch * seq, ...], this call's [batch, seq, ...]
+        # rows; flat over heads, a [batch, seq, hidden] boundary serving a (heads, head_dim) layout.
+        value = (value.unflatten(0, (calls[-1].shape[0], -1)) if flat == "tokens" else
+                 value.unflatten(-1, shape) if flat == "heads" else value)
         value, wrote = batches.visit_site(value, component, records, got)
         if ends:
             raise _Stopped
-        return (value.flatten(0, 1) if tokens else value.flatten(-2) if flat else value), wrote
+        return (value.flatten(0, 1) if flat == "tokens" else value.flatten(-2) if flat == "heads" else value), wrote
 
     if reach["boundary"] == "input":
         def pre(module: torch.nn.Module, args: tuple[Any, ...]) -> tuple[Any, ...] | None:
@@ -195,16 +195,22 @@ def hook(engine: HooksEngine, component: str, layer: int | None, here: list[dict
     return module.register_forward_hook(post)
 
 
-def order(model: torch.nn.Module, sites: dict[str, dict[str, Any]], device: str) -> dict[tuple[str, int | None], int]:
-    """When each served component's hook fires in a forward, by `(component, layer)`, measured on a two-token
-    input on `device`, where the model takes its input: components at one module boundary fire together and
-    share a rank."""
-    fired: list[tuple[str, str]] = []
+def order(model: torch.nn.Module, sites: dict[str, dict[str, Any]], device: str) -> tuple[
+        dict[tuple[str, int | None], int], dict[tuple[str, int | None], str | None]]:
+    """When each served component's hook fires in a forward, and the layout its boundary holds the value in, each
+    by `(component, layer)`, both measured on one two-token input on `device`, where the model takes its input.
+    Components at one module boundary fire together and share a rank. The layout, which `hook` reads (`flat`), is
+    "tokens" where nnterp holds the value flat over tokens (`tokens`) and the boundary's tensor is one rank below the
+    component's layout, `[batch * seq, ...]`; "heads" where a layout of four axes, `(heads, head_dim)` last, meets a
+    `[batch, seq, hidden]` boundary; None where the boundary holds the layout itself. One forward measures it: a
+    module boundary's value has the rank its module gives it, the same at any batch shape and at a decode call. A
+    served boundary the forward does not reach is refused by name."""
+    fired: dict[tuple[str, str], int | None] = {}       # each boundary in the order it fires, and its tensor's rank
 
     def noted(key: tuple[str, str]) -> Callable[..., None]:
-        def note(*_: object) -> None:
-            if key not in fired:
-                fired.append(key)
+        def note(module: torch.nn.Module, args: tuple[Any, ...], output: Any = None) -> None:
+            first = output[0] if isinstance(output, tuple) else output
+            fired.setdefault(key, getattr((args[0] if args else None) if key[1] == "input" else first, "ndim", None))
         return note
     handles = []
     for path, boundary in {(p, s["boundary"]) for s in sites.values() for p in s["paths"].values()}:
@@ -217,14 +223,25 @@ def order(model: torch.nn.Module, sites: dict[str, dict[str, Any]], device: str)
     finally:
         for handle in handles:
             handle.remove()
-    return {(c, layer): fired.index((path, s["boundary"])) for c, s in sites.items()
-            for layer, path in s["paths"].items()}
+    boundaries, ranks, layouts = list(fired), {}, {}
+    for c, s in sites.items():
+        n = len(COMPONENTS[c]["dims"])
+        for layer, path in s["paths"].items():
+            key = path, s["boundary"]
+            if key not in fired:
+                raise ValueError(f"{c}{f' layer {layer}' if layer is not None else ''}: the hooks engine's two-token "
+                                 f"forward at load did not reach its module ({path}, its {key[1]}), so it cannot place "
+                                 "it in the forward or measure its layout")
+            ranks[c, layer] = boundaries.index(key)
+            layouts[c, layer] = ("tokens" if s["tokens"] and fired[key] == n - 1 else
+                                 "heads" if n == 4 and fired[key] == 3 else None)
+    return ranks, layouts
 
 
 def reach(shell: StandardizedTransformer, component: str, refused: str | dict[Any, str] | None) -> dict[str, Any]:
     """Each layer's module nnterp's key reads, or why not: the value is inside a forward there, or among a module's
-    call arguments, or nnterp's reason; and whether nnterp holds it flat over tokens there (`tokens`, a
-    `TokenEProperty`)."""
+    call arguments, or nnterp's reason; and whether nnterp may hold it flat over tokens there (`tokens`, a
+    `TokenEProperty`), which `order` measures against the boundary's tensor."""
     from nnterp.components.tokens import TokenEProperty
 
     per_layer, paths, reasons, boundary = COMPONENTS[component]["per_layer"], {}, {}, None

@@ -21,8 +21,9 @@ What vLLM makes different, each refused by name before anything runs, or recorde
 - The attention pattern and the scores are recomputed from the queries and keys: a read is served, a write is
   refused (`execute`); a read of them beyond the prefill, which compile refuses on every engine, a decode call could
   not serve here either.
-- No gradient: a fit and a `grad` entry are refused in `execute`. A quantized `dtype` too: vLLM's quantizations are
-  not bitsandbytes' weights. `attn_implementation` in the model block is dropped: vLLM's attention backend is its own.
+- No gradient: a fit is refused in `execute`, a `grad` entry by `steps.start_run` (`gradless`). A quantized `dtype`
+  too: vLLM's quantizations are not bitsandbytes' weights. `attn_implementation` in the model block is dropped: vLLM's
+  attention backend is its own.
 - The engine serves sequences up to its `max_len` (`longest`, vLLM's `max_model_len`): preflight refuses a step whose
   longest row, plus what a generation adds, does not fit, since vLLM would cut the generation short with no EOS.
 - A forward runs whole (`stops`): nothing ends a request's forward inside the worker.
@@ -64,7 +65,7 @@ from clab import steps
 from clab.engines import engine, standard
 from clab.engines.standard import build, envoy, loading, nnterp_name, stops
 from clab.format.address import COMPONENTS
-from clab.plan import QUANTIZED, Model, Plan, calls_model, entries, gradient_of, walk, writes
+from clab.plan import QUANTIZED, Model, Plan, calls_model, entries, walk, writes
 from clab.steps import batches
 from clab.steps.batches import acting_at_call, stamped_at_call
 
@@ -98,6 +99,8 @@ class VllmEngine:
     remote: bool | str = False      # its traces run in this process
     stops: bool = False             # a request's forward runs whole in the worker
     last_only = {c: "vLLM computes the head at the prompt's last position alone" for c in HEAD}
+    gradless = ("a grad entry takes the model's gradient, which vLLM's kernels do not take; run it on the nnterp or "
+                "hooks engine")
     config: dict[str, Any]          # what it read off the model: its `sizes`, and once the worker is up, `longest`
 
     def __init__(self, model: Model, *, device: str = "cuda:0", tp: int = 1, memory: float = 0.9,
@@ -146,22 +149,20 @@ class VllmEngine:
     def execute(self, plan: Plan, *, batch_size: int = 8, padding: str = "dataset",
                 readout: str = "full") -> Plan:
         """The whole plan in this process, as the hooks engine runs it: what vLLM cannot do refused by name first (a
-        fit, which trains through the model's gradient; a `grad` entry; a write at the recomputed pattern or scores;
-        a generate step whose options vLLM's sampling cannot take, `sampling`), the model `ready` before the clock
-        where the run calls it, then `steps.run` with each batch its own trace, outside any session. Not inside one,
-        as the nnterp engine's is: nnsight marks what a trace saved by object id in a set a session keeps across its
-        traces, and reads that set when it serializes a request, so a row's dict of a later batch that reuses the
-        address of an earlier batch's freed, saved dict would travel home as saved, and the root envoy in it cannot
-        (a run of many batches met that); outside a session each trace clears the set. The run record's `devices`,
-        `dtype` and vLLM's version are then the worker's, which the client's meta tree does not say."""
+        fit, which trains through the model's gradient; a write at the recomputed pattern or scores; a generate step
+        whose options vLLM's sampling cannot take, `sampling`), then a `grad` entry by `steps.start_run` (`gradless`),
+        the model `ready` before the clock where the run calls it, then `steps.run` with each batch its own trace,
+        outside any session. Not inside one, as the nnterp engine's is: nnsight marks what a trace saved by object id
+        in a set a session keeps across its traces, and reads that set when it serializes a request, so a row's dict
+        of a later batch that reuses the address of an earlier batch's freed, saved dict would travel home as saved,
+        and the root envoy in it cannot (a run of many batches met that); outside a session each trace clears the
+        set. The run record's `devices`, `dtype` and vLLM's version are then the worker's, which the client's meta
+        tree does not say."""
         for name, step in walk(plan.steps):
             if step.kind == "fit":
                 raise ValueError(f"{name}: a fit trains through the model's gradient, which vLLM's kernels do not "
                                  "take; run it on the nnterp or hooks engine")
             for key, e in entries(step).items():
-                if gradient_of(e) is not None:
-                    raise ValueError(f"{name}.{key}: a grad entry takes the model's gradient, which vLLM's kernels "
-                                     "do not take; run it on the nnterp or hooks engine")
                 if writes(e) and e.site.component in RECOMPUTED:
                     raise ValueError(f"{name}.{key}: the vllm engine does not write {e.site.component}: vLLM's "
                                      "attention kernel serves nothing between its inputs and its output, so nnterp "
