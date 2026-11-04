@@ -80,7 +80,7 @@ filled = engine.execute(plan, batch_size=8, padding="dataset", readout="full")
 | `model` | the loaded model |
 | `device` | the device asked for; `None` when an NDIF server places the model |
 | `options` | its options after their defaults (`{"tp": 1}`, `{"remote": "local"}`) |
-| `stops` | whether it ends a forward right after the schedule's stop site (nnterp and hooks do; ndif runs every forward whole) |
+| `stops` | whether it ends a forward right after the schedule's stop site (nnterp, hooks and ndif do; vllm runs every forward whole) |
 | `tokenizer` | the checkpoint's tokenizer |
 | `sizes()` | the model's sizes (`num_layers`, `hidden_size`, `num_heads`, ...), which `plan.run.sizes` records |
 

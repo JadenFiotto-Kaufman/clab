@@ -5,11 +5,11 @@ tokens they fed with their padding and the rows' own of them (`real`), and the p
 which come home in the run record; `clab show` prints them. (A generation's are pinned in test_generate.py; the
 points one forward serves in test_shared.py.)
 
-A forward stops right after the schedule's stop site, its deepest, on the nnterp and hooks engines: nothing
-after it runs (a hook on each block, MLP, the final norm and the head watches what does), and every value it reads
-or writes is the whole forward's to the bit. A generation runs whole; a fit's body forward stops where its own
-entries do. The ndif engine runs every forward whole, under `remote="local"` and through the stand-in server. A stopped forward leaves none of its frames (and so none of its
-activations) for the garbage collector.
+A forward stops right after the schedule's stop site, its deepest, on the nnterp, hooks and ndif engines, the last
+under `remote="local"` and through the stand-in server: nothing after it runs (a hook on each block, MLP, the final
+norm and the head watches what does), and every value it reads or writes is the whole forward's to the bit. A
+generation runs whole; a fit's body forward stops where its own entries do. A stopped forward leaves none of its
+frames (and so none of its activations) for the garbage collector.
 """
 
 import gc
@@ -298,7 +298,10 @@ CASES = {
     "a read of the final norm": ({"read": at("final_norm_output")}, through(5) + ["N"], []),
     "a read of the logits": ({"read": at("logits")}, WHOLE, []),
 }
-@pytest.mark.parametrize("kind", ["nnterp", "hooks"])
+ENGINES = {"nnterp": {}, "hooks": {}, "ndif": {"remote": "local"}}
+
+
+@pytest.mark.parametrize("kind", ENGINES)
 @pytest.mark.parametrize("case", CASES)
 def test_a_forward_stops_right_after_its_deepest_site_and_reads_what_the_whole_one_does(engines, kind, case):
     """Each of the step's two batches runs up to its deepest site and no further (block 2 without its MLP after its
@@ -307,7 +310,7 @@ def test_a_forward_stops_right_after_its_deepest_site_and_reads_what_the_whole_o
     a `readout` runs the final norm and the head on the value read."""
     entries, ran_early, after = CASES[case]
     plan = gpt2(entries)
-    filled, ran = counted(engines(kind, plan.model), plan)
+    filled, ran = counted(engines(kind, plan.model, **ENGINES[kind]), plan)
     assert ran == (ran_early + after) * 2 + (WHOLE + after) * 2
     assert same(filled.results["early.read"], filled.results["whole.read"])
 
@@ -355,14 +358,15 @@ def logits_at(pos: Any) -> Plan:
     return edited("gpt2_reach", change).compile()
 
 
-@pytest.mark.parametrize("kind", ["nnterp", "hooks"])
+@pytest.mark.parametrize("kind", ENGINES)
 def test_under_readout_at_reads_the_head_runs_at_the_positions_read_alone(engines, kind):
     """Under the run's readout `at-reads` a read of the logits at each row's last token is done at the last block's
     output, where the forward stops, and read out there: each batch runs every block, then the final norm and the
     head on the one position read (the readout's, `[rows, 1, hidden]`), where the default runs them on every position
     in the model; the logits are the default's to within rounding (the head is a matmul of another shape). A read of
     every position keeps the model's head."""
-    engine = engines(kind, logits_at(-1).model)
+    engine = engines(kind, logits_at(-1).model, **ENGINES[kind])
+    engine.execute(logits_at(-1), batch_size=BATCH_SIZE)       # once, so a meta shell has the modules hooks watch
 
     def run(pos: Any, readout: str) -> tuple[Plan, list[int]]:
         """The run, checked to call every block, the final norm and the head once a batch, and the head's input
@@ -390,8 +394,8 @@ def test_under_readout_at_reads_the_head_runs_at_the_positions_read_alone(engine
 
 def test_under_readout_at_reads_the_engines_agree_to_the_bit(engines):
     """The readout of the last block's output at the positions read is the same on every engine: the nnterp engine's
-    is nnterp's own, the hooks engine's the standard form, and the ndif engine (`remote="local"`) runs its forward
-    whole and reads it out the same way."""
+    is nnterp's own, the hooks engine's the standard form, and the ndif engine (`remote="local"`) stops its forward
+    there as the nnterp engine does and reads it out the same way."""
     plan = logits_at(-1)
     got = [engines(kind, plan.model, **options).execute(logits_at(-1), batch_size=BATCH_SIZE, readout="at-reads")
            for kind, options in (("nnterp", {}), ("hooks", {}), ("ndif", {"remote": "local"}))]
@@ -450,7 +454,7 @@ def test_a_generation_runs_whole_at_every_call(engines, kind):
     assert ran == (through(2) + ["N", "H"]) * 12
 
 
-@pytest.mark.parametrize("kind", ["nnterp", "hooks"])
+@pytest.mark.parametrize("kind", ENGINES)
 def test_a_fit_bodys_forward_stops_at_its_own_deepest_site(engines, kind):
     """sae_train with its harvest in the fit's body, the dictionary's encode in its entry, reads block 0 of the tiny
     Llama's two there: every forward the body makes, training and scoring, runs block 0 alone, and so does its
@@ -462,35 +466,34 @@ def test_a_fit_bodys_forward_stops_at_its_own_deepest_site(engines, kind):
         d["steps"]["fit"]["steps"] = {"harvest": harvest}
         d["saves"].append("fit.train.harvest.acts")
     plan = edited("sae_train", inside).compile()
-    filled, ran = counted(engines(kind, plan.model), plan)
+    filled, ran = counted(engines(kind, plan.model, **ENGINES[kind]), plan)
     assert filled.run is not None and ran == through(1) * 82
     assert [filled.run.costs[s]["forwards"] for s in ("fit", "fit.train.harvest")] == [80, 2]
-    filled, ran = counted(engines(kind, plan.model), plan_of("sae_train"))
+    filled, ran = counted(engines(kind, plan.model, **ENGINES[kind]), plan_of("sae_train"))
     assert filled.run is not None and [filled.run.costs[s]["forwards"] for s in ("harvest", "fit")] == [2, 0]
     assert ran == through(1) * 2
 
 
-def test_the_ndif_engine_runs_every_forward_whole_with_the_same_values(engines, monkeypatch):
-    """Under `remote="local"` and on the stand-in server's model (the nnterp engine's, which the server holds) the
-    ndif engine's forwards run whole, the early step's as the whole one's, and what comes home is the nnterp
-    engine's, which stops."""
+def test_the_stand_in_server_stops_where_the_client_would(engines, monkeypatch):
+    """The server runs the same trace: on its model (the nnterp engine's) nothing after the deepest site runs, and
+    what comes home is the local run's."""
     plan = gpt2(CASES["a write at block 1, then a read at block 3"][0])
     local = engines("nnterp", plan.model).execute(plan, batch_size=BATCH_SIZE)
-    there, ran = counted(engines("ndif", plan.model, remote="local"), plan)
-    assert ran == WHOLE * 4 and same(there.results, local.results)
     with counting(engines("nnterp", plan.model)) as ran:
         came, trip = stand_in(engines, plan, monkeypatch)
-    assert trip == TRIP and ran == WHOLE * 4 and same(came.results, local.results)
+    assert trip == TRIP and ran == through(4) * 2 + WHOLE * 2
+    assert same(came.results, local.results)
 
 
-@pytest.mark.parametrize("kind", ["nnterp", "hooks"])
+@pytest.mark.parametrize("kind", ENGINES)
 def test_a_stopped_forward_leaves_no_frame_for_the_collector(engines, kind):
     """A forward stopped after block 0 on the tiny Llama: once it returns, nothing unreachable holds a frame, the
     model's (whose locals are its activations) or the run's (on a GPU, forwards of 16 rows of 512 tokens stopped at
     Llama-3.2-1B's block 8 that left their frames in cycles ran it out of memory in a dozen; nnsight after 0.8.1 leaves
-    none). The engine has run once, so what it makes once is made."""
+    none). The engine has run once, so what it makes once is made. The ndif engine's forwards stop inside the run's
+    session, so under `remote="local"` the whole of sae_train runs there, its harvest's two forwards each stopped."""
     plan = plan_of("sae_train")
-    engine = engines(kind, plan.model)
+    engine = engines(kind, plan.model, **ENGINES[kind])
     engine.execute(plan, batch_size=BATCH_SIZE)
     batch = {"input_ids": torch.tensor([[1, 5, 6, 7]] * 2), "attention_mask": torch.ones(2, 4, dtype=torch.long),
              "position_ids": torch.arange(4).repeat(2, 1)}
@@ -502,14 +505,18 @@ def test_a_stopped_forward_leaves_no_frame_for_the_collector(engines, kind):
     gc.disable()
     gc.set_debug(gc.DEBUG_SAVEALL)
     try:
-        got = engine.forward(batch, bound)
+        with counting(engine) as ran:
+            if kind == "ndif":
+                engine.execute(plan, batch_size=BATCH_SIZE)
+            else:
+                assert engine.forward(batch, bound)["read"].shape == (2, 1, 16)
         gc.collect()
         frames = [f"{o.f_code.co_filename}:{o.f_code.co_name}" for o in gc.garbage if isinstance(o, types.FrameType)]
     finally:
         gc.set_debug(0)
         gc.garbage.clear()
         gc.enable()
-    assert frames == [] and got["read"].shape == (2, 1, 16)
+    assert frames == [] and ran == through(1) * (2 if kind == "ndif" else 1)
 
 
 def test_records_alike_are_resolved_checked_and_bound_once(monkeypatch):

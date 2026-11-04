@@ -175,7 +175,7 @@ def test_a_read_only_sweep_runs_one_forward_and_each_point_reads_what_its_own_wo
     """Five points that read at five layers (a readout of each), or at five positions: the forward depends on no
     axis and the read on its own (`axes`), so one forward of the four rows in one batch, at the first point, serves
     all five, and the run records it once; the blocks run once, to the deepest point's (each point alone runs to
-    its own; the ndif engine runs every forward whole); each point's value is its own forward's to the bit."""
+    its own); each point's value is its own forward's to the bit."""
     doc = gpt2_doc(READS[axis])
     plan = compiled("gpt2_reach", doc)
     lens = points(plan.steps["lens"])
@@ -184,7 +184,7 @@ def test_a_read_only_sweep_runs_one_forward_and_each_point_reads_what_its_own_wo
     assert axes_of(plan, "lens.read") == [axis]
     engine = engines(kind, plan.model, **ENGINES[kind])
     shared, ran = counted(engine, plan, 4)
-    deepest = [4] * 5 if kind == "ndif" else [0, 1, 2, 3, 4] if axis == "layers" else [2] * 5
+    deepest = [0, 1, 2, 3, 4] if axis == "layers" else [2] * 5
     assert ran == [*range(max(deepest) + 1)]
     first = coordinate_text(plan, lens[0].at)
     assert costs(shared, "lens") == {first: (1, all_points(plan, "lens"))}
