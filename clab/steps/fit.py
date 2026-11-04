@@ -35,7 +35,7 @@ def fit(engine: Engine, plan: Plan, name: str, step: Fit, state: ChainMap, batch
     view, findings = body_view(plan, name, step.at), replace(findings, said={})
     # A compiled point's values are its own, never a sweep.
     epochs, seed, size = cast(int, step.epochs), cast(int, step.seed), cast(int, step.batch_size)
-    trained = {f: instance(plan, spec, cast(int, spec.width), seed, model_device(engine))
+    trained = {f: instance(plan, spec, cast(int, spec.width), seed, model_device(engine), state)
                for f in step.train for spec in [agreeing_point(plan.featurizers[f], step.at)]}
     params = [getattr(f, t).requires_grad_() for f in trained.values() for t in f.trains]
     opt = OPTIMIZERS[step.optimizer.name](params, lr=step.optimizer.lr, weight_decay=step.optimizer.weight_decay)

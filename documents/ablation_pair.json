@@ -1,0 +1,82 @@
+{
+  "description": "Resample and optimal ablation of one attention head on the tiny GPT-2 (5 layers of 4 heads, 8-wide heads), head 1.2's premix at every position of the 12-token counting prompts. Resample: `donor` is the clean read of the head with its rows permuted (seed 0, a derangement: no row keeps its own value), swapped in by `resampled`; `donor_identity` is the same read under seed null, the identity, so `null` is the clean run to the bit. Optimal: the constant `c` starts as `mean`, the head's mean over every row and position, so `mean_ablated`, its untrained apply, is mean ablation to the bit; the fit trains it for 2 epochs to keep each row's logit difference where the clean run had it (`sq`, the squared change), and `optimal` applies the trained one. The weights are random: the numbers show the mechanics, not a circuit.",
+  "model": {
+    "key": "hf-internal-testing/tiny-random-gpt2",
+    "revision": "71034c5d8bde858ff824298bdedc65515b97d2b9",
+    "dtype": "float32"
+  },
+  "data": {"pairs": {"path": "counting/train"}},
+  "sites": {
+    "z": {"component": "attention_premix", "layers": 1, "select": {"num_heads": [2]}},
+    "head": {"component": "lm_head_output"}
+  },
+  "featurizers": {"c": {"kind": "constant", "init": "mean"}},
+  "steps": {
+    "clean": {
+      "kind": "forward",
+      "input": "pairs.input",
+      "interventions": {
+        "z": {"site": "z", "pos": {"index": "0:12"}},
+        "ld": {"site": "head", "pos": -1, "ops": [{"op": "logit_diff", "a": "pairs.base_answer", "b": "pairs.cf_answer"}]}
+      }
+    },
+    "donor": {"kind": "op", "op": "permute", "of": "clean.z", "seed": 0, "derangement": true},
+    "donor_identity": {"kind": "op", "op": "permute", "of": "clean.z", "seed": null},
+    "resampled": {
+      "kind": "forward",
+      "input": "pairs.input",
+      "interventions": {
+        "abl": {"site": "z", "pos": {"index": "0:12"}, "ops": [{"op": "swap", "with": "donor"}]},
+        "ld": {"site": "head", "pos": -1, "ops": [{"op": "logit_diff", "a": "pairs.base_answer", "b": "pairs.cf_answer"}]}
+      }
+    },
+    "null": {
+      "kind": "forward",
+      "input": "pairs.input",
+      "interventions": {
+        "abl": {"site": "z", "pos": {"index": "0:12"}, "ops": [{"op": "swap", "with": "donor_identity"}]},
+        "ld": {"site": "head", "pos": -1, "ops": [{"op": "logit_diff", "a": "pairs.base_answer", "b": "pairs.cf_answer"}]}
+      }
+    },
+    "mean": {"kind": "op", "op": "mean", "of": "clean.z", "over": ["rows", "pos", "num_heads"]},
+    "mean_ablated": {
+      "kind": "forward",
+      "input": "pairs.input",
+      "interventions": {
+        "abl": {"site": "z", "pos": {"index": "0:12"}, "ops": [{"op": "apply", "featurizer": "c"}]},
+        "ld": {"site": "head", "pos": -1, "ops": [{"op": "logit_diff", "a": "pairs.base_answer", "b": "pairs.cf_answer"}]}
+      }
+    },
+    "fit": {
+      "kind": "fit",
+      "train": ["c"],
+      "objective": {"sq": 1.0},
+      "epochs": 2,
+      "batch_size": 2,
+      "seed": 0,
+      "optimizer": {"name": "adam", "lr": 0.01},
+      "steps": {
+        "abl": {
+          "kind": "forward",
+          "input": "pairs.input",
+          "interventions": {
+            "abl": {"site": "z", "pos": {"index": "0:12"}, "ops": [{"op": "apply", "featurizer": "fit.c"}]},
+            "ld": {"site": "head", "pos": -1, "ops": [{"op": "logit_diff", "a": "pairs.base_answer", "b": "pairs.cf_answer"}]}
+          }
+        },
+        "change": {"kind": "op", "op": "sub", "of": "abl.ld", "with": "clean.ld"},
+        "sq": {"kind": "op", "op": "square", "of": "change"}
+      }
+    },
+    "optimal": {
+      "kind": "forward",
+      "input": "pairs.input",
+      "interventions": {
+        "abl": {"site": "z", "pos": {"index": "0:12"}, "ops": [{"op": "apply", "featurizer": "fit.c"}]},
+        "ld": {"site": "head", "pos": -1, "ops": [{"op": "logit_diff", "a": "pairs.base_answer", "b": "pairs.cf_answer"}]}
+      }
+    }
+  },
+  "saves": ["clean.ld", "donor", "resampled.ld", "null.ld", "mean", "mean_ablated.ld", "fit.history.sq", "fit.c",
+            "optimal.ld"]
+}

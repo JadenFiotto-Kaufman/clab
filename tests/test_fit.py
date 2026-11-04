@@ -9,6 +9,7 @@ because `das_apply`, `pca_control`, `sae_train_ablation` and `lora_apply` load w
 import functools
 import json
 import os
+import re
 import shutil
 from typing import cast
 
@@ -38,7 +39,7 @@ from clab.cli import main
 from clab.featurizers.gate import Gate
 from clab.featurizers.subspace import Subspace
 from clab.format.sweeps import points
-from clab.plan import Fit, Model, PlanError, entries
+from clab.plan import Fit, Model, OpStep, PlanError, entries, record_of
 
 TINY = {"key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
         "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998", "dtype": "float32"}
@@ -1909,3 +1910,160 @@ def test_a_drawn_affine_over_layers_applies_at_its_layers_in_any_order(engines, 
 def test_an_affine_over_another_axis_or_at_one_layer_is_refused_at_compile(change, message):
     with pytest.raises(PlanError, match=message):
         tuned_lens(change)
+
+
+def pair(change=None) -> Plan:
+    """documents/ablation_pair.json, with `change` applied to its JSON."""
+    return edited("ablation_pair", change or (lambda d: None)).compile()
+
+
+def forward_of(*ops_: dict) -> dict:
+    """A forward over ablation_pair's prompts whose `abl` runs `ops_` at the head's every position, scoring the logit
+    difference at the last."""
+    return {"kind": "forward", "input": "pairs.input", "interventions": {
+        "abl": {"site": "z", "pos": {"index": "0:12"}, "ops": list(ops_)},
+        "ld": {"site": "head", "pos": -1, "ops": [{"op": "logit_diff", "a": "pairs.base_answer",
+                                                    "b": "pairs.cf_answer"}]}}}
+
+
+@pytest.mark.parametrize("kind", ["nnterp", "hooks", "ndif"])
+def test_the_ablation_pairs_nulls_hold_to_the_bit_and_its_fit_lowers_the_objective(ran, kind):
+    """The identity permutation's swap is the clean run to the bit, and the derangement's record, which the run
+    brought home on every engine, holds the π its seed draws; the constant drawn as the mean is trained to a
+    smaller squared change of the logit difference at each epoch than mean ablation's."""
+    plan = ran["ablation_pair", kind]
+    got = plan.results
+    assert same(got["null.ld"], got["clean.ld"])
+    donor = record_of(plan.steps, "donor", {})
+    assert isinstance(donor, OpStep) and donor.permutation == [2, 3, 0, 1]
+    untrained = ((got["mean_ablated.ld"] - got["clean.ld"]) ** 2).mean()
+    history = got["fit.history.sq"]
+    assert len(history) == 2 and history[1] < history[0] < untrained
+    close(((got["optimal.ld"] - got["clean.ld"]) ** 2).mean(), history[1])
+
+
+@pytest.mark.parametrize("kind", ["nnterp", "hooks"])
+@pytest.mark.parametrize("init, written", [("mean", "mean"), (0, 0.0)], ids=["mean", "zero"])
+def test_an_untrained_constant_is_the_swap_of_its_init_to_the_bit(engines, kind, init, written):
+    """Drawn from `init` and trained for no epoch, or applied bare outside the fit, a constant writes `init` itself:
+    a mean ablation, or a zero ablation, to the bit of the swap that writes it."""
+    def change(d):
+        d["featurizers"]["c"]["init"] = init
+        d["steps"]["fit"]["epochs"] = 0
+        d["steps"]["mean_ablated"]["interventions"]["after"] = {"site": "z", "pos": {"index": "0:12"}}
+        d["steps"]["swapped"] = forward_of({"op": "swap", "with": written})
+        d["saves"] = ["mean", "mean_ablated.ld", "mean_ablated.after", "optimal.ld", "swapped.ld", "fit.c"]
+    plan = pair(change)
+    got = engines(kind, plan.model).execute(plan, batch_size=BATCH_SIZE).results
+    assert same(got["mean_ablated.ld"], got["swapped.ld"]) and same(got["optimal.ld"], got["swapped.ld"])
+    vector = got["mean"] if init == "mean" else torch.zeros(8)
+    assert same(got["fit.c"]["vector"], vector)
+    assert same(got["mean_ablated.after"], vector.expand(4, 12, 1, 8))
+
+
+def harvest_every_layer(d):
+    d["sites"]["every"] = {"component": "attention_premix", "layers": ":", "select": {"num_heads": [2]}}
+    d["steps"] = {"every": {"kind": "forward", "input": "pairs.input", "interventions": {
+        "z": {"site": "every", "pos": {"index": "0:12"}}}},
+        "every_mean": {"kind": "op", "op": "mean", "of": "every.z", "over": ["rows", "pos", "num_heads"]},
+        **d["steps"]}
+    d["featurizers"]["c"]["init"] = "every_mean"
+
+
+def late(d):
+    d["steps"]["late"] = {"kind": "op", "op": "mean", "of": "clean.z", "over": ["rows", "pos", "num_heads"]}
+    d["featurizers"]["c"]["init"] = "late"
+
+
+@pytest.mark.parametrize("change, message", [
+    (lambda d: d["featurizers"]["c"].update(init="clean.z"),
+     r"^featurizers\.c\.init: 'clean\.z' is laid out \['rows', 'pos', 'num_heads', 'head_dim'\], a rows axis, a "
+     r"value per row, and a constant's init is one vector of its width, laid out \['head_dim'\] as mean_ablated\.abl "
+     r"meets the value"),
+    (harvest_every_layer,
+     r"^featurizers\.c\.init: 'every_mean' is laid out \['layers', 'head_dim'\], a layers axis, a value per layer, and "
+     r"a constant's init"),
+    (lambda d: d["steps"]["mean"].update(over=["rows", "pos"]),
+     r"^featurizers\.c\.init: 'mean' is laid out \['num_heads', 'head_dim'\], no 'head_dim' axis alone, and a "
+     r"constant's init"),
+    (lambda d: d["steps"]["mean"].update(over={"sweep": [["rows", "pos", "num_heads"], ["num_heads", "pos", "rows"]],
+                                               "label": "o"}),
+     r"^featurizers\.c\.init: 'mean' depends on the sweep axes \['o'\], and a constant is drawn once per point of its "
+     r"own fields"),
+    (late,
+     r"^featurizers\.c\.init: 'late' is made by step 'late', after step 'mean_ablated', which uses it, and 'c' is "
+     r"drawn from it: make the value in a step before the featurizer's first use"),
+    (lambda d: d["featurizers"]["c"].update(init="nothing"),
+     r"^featurizers\.c\.init: 'nothing' names no value a step makes; known: clean\.z, clean\.ld, donor"),
+    (lambda d: d["featurizers"]["c"].pop("init"),
+     r"^featurizers\.c: a 'constant' featurizer drawn without a bundle needs 'init'; or load one with 'file_path'$"),
+    (lambda d: (d["sites"]["z"].update(select={"num_heads": [1, 2]}), d["steps"]["mean"].update(over=["rows", "pos"])),
+     r"^featurizers\.c\.init: 'mean' is laid out \['num_heads', 'head_dim'\], no 'head_dim' axis alone, and a constant's "
+     r"init is one vector of its width, laid out \['head_dim'\] as mean_ablated\.abl meets the value: one vector is shared "
+     r"by every num_heads the site keeps, so for each one's own, declare a site per num_heads \(a select of one\)"),
+])
+def test_a_constants_init_is_refused_at_compile_unless_one_vector_made_before_its_first_use(change, message):
+    with pytest.raises(PlanError, match=message):
+        pair(change)
+
+
+def test_a_trained_constant_saved_and_loaded_applies_as_the_trained_one_did(engines, tmp_path):
+    """The bundle holds `vector` and the header of the head it was trained at; loaded and applied, it gives the
+    trained one's numbers to the bit, and an `init` beside its `file_path` is refused."""
+    root = corpus_copy(tmp_path)
+    trained = pair()
+    engine = engines("hooks", trained.model)
+    filled = engine.execute(trained, batch_size=BATCH_SIZE)
+    filled.dump(os.path.join(root, "documents", "artifacts"))
+    file = "documents/artifacts/fit.c.safetensors"
+    assert load_file(os.path.join(root, file)).keys() == {"vector"}
+
+    def loaded(init: str | int | None = None):
+        with open(os.path.join(DOCUMENTS, "ablation_pair.json")) as f:
+            d = json.load(f)
+        d["featurizers"]["c"] = {"kind": "constant", "file_path": file, **({"init": init} if init is not None else {})}
+        d["steps"] = {"clean": d["steps"]["clean"], "optimal": forward_of({"op": "apply", "featurizer": "c"})}
+        d["saves"] = ["optimal.ld"]
+        return Plan(**d, document=os.path.join(root, "documents", "ablation_pair.json")).compile()
+    plan = loaded()
+    assert (points(plan.featurizers["c"])[0].header or {})["select"] == '{"num_heads": [2]}'
+    assert same(engine.execute(plan, batch_size=BATCH_SIZE).results["optimal.ld"], filled.results["optimal.ld"])
+    for init in ("clean.ld", 0):
+        with pytest.raises(PlanError, match=r"^featurizers\.c\.init: a constant loaded from file_path is its bundle's, "
+                                            r"and init draws one: write one of them$"):
+            loaded(init)
+
+
+def selected_mean(read: str | int, use: str | list[int]) -> Plan:
+    """mean_ablation with its mean read at `layer_output` keeping `hidden_size` `read`, as a constant's init, applied
+    where the site keeps `use`, and read back after the write."""
+    def change(d):
+        d["sites"]["r"] = {"component": "layer_output", "layers": 0, "select": {"hidden_size": read}}
+        d["sites"]["w"] = {"component": "layer_output", "layers": 0, "select": {"hidden_size": use}}
+        d["featurizers"] = {"c": {"kind": "constant", "init": "mean"}}
+        d["steps"]["harvest"]["interventions"]["acts"]["site"] = "r"
+        d["steps"]["ablated"]["interventions"]["ablate"] = {"site": "w", "pos": -1,
+                                                            "ops": [{"op": "apply", "featurizer": "c"}]}
+        d["steps"]["ablated"]["interventions"]["after"] = {"site": "w", "pos": -1}
+        d["saves"] = ["mean", "ablated.after"]
+    return edited("mean_ablation", change).compile()
+
+
+@pytest.mark.parametrize("read, held", [("-1:", "[15], 1 wide"), ("-2:", "[14, 15], 2 wide")])
+def test_a_constants_init_at_another_selection_is_refused_once_the_model_resolves_it(engines, read, held):
+    """A selection counted from the end is the model's to resolve, so preflight compares the init's indices with the
+    use's: fewer of them is refused by name before any forward, where it would write one unit's mean over four or
+    fail to make the instance."""
+    plan = selected_mean(read, "-4:")
+    with pytest.raises(ValueError, match=rf"^ablated\.ablate: featurizer 'c' is drawn from 'mean' \(init\), which keeps "
+                                         rf"hidden_size {re.escape(held)}, and is applied here to a value keeping "
+                                         r"hidden_size \[12, 13, 14, 15\], 4 wide; a constant's init lies unit for unit on the value it is "
+                                         r"written into: make 'mean' from a read at this use's select$"):
+        engines("hooks", plan.model).execute(plan, batch_size=BATCH_SIZE)
+
+
+def test_a_constants_init_at_the_same_indices_spelled_otherwise_is_its_mean_written_whole(engines):
+    """`-4:` and `[12, 13, 14, 15]` are one selection once the model's 16 resolve them, so the mean is written whole."""
+    plan = selected_mean("-4:", [12, 13, 14, 15])
+    got = engines("hooks", plan.model).execute(plan, batch_size=BATCH_SIZE).results
+    assert same(got["ablated.after"], got["mean"].expand(4, 1, 4))

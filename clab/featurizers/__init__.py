@@ -6,7 +6,8 @@ and `header` (the tensors and header of the bundle its `file_path` names) suppli
 `labels` (its class list), and for a featurizer over named axes `kept` (the indices it keeps on each of them: a
 gate's units, an affine's layers).
 An instance holds plain tensors, never an `nn.Module`, made where the model is: a declared featurizer before the
-run's first step, one a fit trains at the fit's start. It is drawn from its `seed` (else the seed of the fit that
+run's first step (one with a field that names a value, a constant's `init`, once the step that made the value has
+run), one a fit trains at the fit's start. It is drawn from its `seed` (else the seed of the fit that
 trains it, else 0), or loaded from its bundle, which compile reads into the plan; a loaded one is fixed. Three
 ops reach it: `encode` gives
 its coordinates of a value `h` (the last axis becomes the kind's axis: `features`, or a probe's `classes`),
@@ -262,4 +263,4 @@ def make(kind: str, fields: dict[str, Any], width: int, bundle: dict[str, Tensor
 
 
 # The kinds register in this order, and `describe` and FORMAT.md list them in it.
-from clab.featurizers import subspace, gate, pca, sae, linear, lora, affine, bundles  # noqa: E402,F401,I001
+from clab.featurizers import subspace, gate, pca, sae, linear, lora, affine, constant, bundles  # noqa: E402,F401,I001

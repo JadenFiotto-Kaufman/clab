@@ -20,7 +20,7 @@ Exact names: the generated spec first, then the command line, the Python API and
 - [derived fields](../../FORMAT.md#derived-fields) — the fields a document leaves out, which compile, preflight and the run fill in: each value's layout, labels and sweep `axes`, each entry's `positions`, each forward's `schedule`.
 - [ops](../../FORMAT.md#ops) — every op's arguments and what it does to the axes, grouped as metrics, reductions, edits and transforms.
 - [components](../../FORMAT.md#components) — every component a site can name, its layout, and the axes `select` narrows.
-- [featurizer kinds](../../FORMAT.md#featurizer-kinds) — the seven kinds, the fields each takes, and what its ops do.
+- [featurizer kinds](../../FORMAT.md#featurizer-kinds) — the eight kinds, the fields each takes, and what its ops do.
 - [engines and run options](../../FORMAT.md#engines-and-run-options) — the engine protocol, `nnterp`, `hooks` and `ndif`, and each engine's options, `nnterp`'s `tp` among them.
 - [names and scoping](../../FORMAT.md#names-and-scoping) — how a reference resolves, what a scope sees, and which dataset a value's rows belong to.
 - [sweeps](../../FORMAT.md#sweeps) — where a sweep may stand, labels, zip and cross, points and coordinates, the axes each value depends on, and which points share one forward.

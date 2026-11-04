@@ -33,7 +33,7 @@ Find the part of the document you are writing or the stage of the run you are at
 
 ## Featurizers and training
 
-- [featurizers](featurizers.md) — Declaring a featurizer and using it in an entry: the seven kinds, encode, decode and apply, nested brackets, selecting features, and loading a published sparse autoencoder with the fields the file cannot state.
+- [featurizers](featurizers.md) — Declaring a featurizer and using it in an entry: the eight kinds, encode, decode and apply, nested brackets, selecting features, and loading a published sparse autoencoder with the fields the file cannot state.
 - [fit](fit.md) — Training a featurizer inside a run: train, objective, optimizer, epochs and minibatches, early stopping, eval substitutions, the history and members a fit produces, and epochs 0 as a null control.
 - [bundles](bundles.md) — Saving a trained or harvested featurizer and loading it in another document: the files a run writes, file_path, the header checks at compile and before any forward, the two-document workflow, and reading back a run that loads one.
 

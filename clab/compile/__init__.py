@@ -32,7 +32,7 @@ from clab.compile.arguments import (featurizer_kind, kept_labels, layout, mismat
 from clab.compile.interventions import bundles_of, compile_entry, entries_with_paths
 from clab.compile.schedule import share_forwards
 from clab.compile.state import Compiling
-from clab.compile.uses import check_bundle_sites, check_gate_axes
+from clab.compile.uses import check_bundle_sites, check_gate_axes, check_named_values
 from clab.featurizers import KINDS, bundles, labels
 from clab.format import data, registry
 from clab.format.sweeps import agreeing_point, coordinate_spelling, find_sweeps
@@ -110,6 +110,7 @@ def compile(plan: Plan) -> Plan:
                                 "sha256": data.digest(rows[n]), "n_rows": len(rows[n])} for n in rows}})
     check_bundle_sites(done)
     check_gate_axes(done)
+    check_named_values(done)
     share_forwards(done)
     return done
 
@@ -668,6 +669,11 @@ def compile_featurizer(cx: Compiling, plan: Plan, name: str, at: dict[str, int])
     if fields.get("file_path") is None and missing:
         fail(path, f"a {f.kind!r} featurizer drawn without a bundle needs {' and '.join(map(repr, missing))}; or "
              "load one with 'file_path'")
+    # A field it is drawn from that its bundle's header does not record (a constant's `init`) says nothing of a bundle.
+    unrecorded = [k for k in KINDS[f.kind].drawn if k not in KINDS[f.kind].header and fields.get(k) is not None]
+    if fields.get("file_path") is not None and unrecorded:
+        fail(f"{path}.{unrecorded[0]}", f"a {f.kind} loaded from file_path is its bundle's, and {unrecorded[0]} draws "
+             "one: write one of them")
     record = {**f.model_dump(exclude_defaults=True), "at": at}
     if isinstance(fields.get("site"), str):         # the site it was trained at, inlined as an entry's is
         if fields["site"] not in plan.sites:

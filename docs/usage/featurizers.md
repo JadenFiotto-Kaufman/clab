@@ -1,9 +1,9 @@
 ---
 title: Featurizers
-one_liner: "Declaring a featurizer and using it in an entry: the seven kinds, encode, decode and apply, nested brackets, selecting features, a gate over named axes (one unit per head), an affine map per layer, and loading a published sparse autoencoder with the fields the file cannot state."
+one_liner: "Declaring a featurizer and using it in an entry: the eight kinds, encode, decode and apply, nested brackets, selecting features, a gate over named axes (one unit per head), an affine map per layer, and loading a published sparse autoencoder with the fields the file cannot state."
 tags: [usage, featurizers, encode, decode, apply, sae, subspace]
 related: [docs/usage/fit.md, docs/usage/bundles.md, docs/usage/interventions.md, docs/patterns/trained-subspaces.md, docs/patterns/head-masking.md, docs/patterns/sae.md, docs/patterns/probing.md, docs/patterns/lora.md]
-sources: [clab/featurizers/__init__.py, clab/featurizers/subspace.py, clab/featurizers/gate.py, clab/featurizers/pca.py, clab/featurizers/sae.py, clab/featurizers/linear.py, clab/featurizers/lora.py, clab/featurizers/affine.py, clab/compile/uses.py, clab/compile/__init__.py]
+sources: [clab/featurizers/__init__.py, clab/featurizers/subspace.py, clab/featurizers/gate.py, clab/featurizers/pca.py, clab/featurizers/sae.py, clab/featurizers/linear.py, clab/featurizers/lora.py, clab/featurizers/affine.py, clab/featurizers/constant.py, clab/compile/uses.py, clab/compile/__init__.py]
 ---
 
 # Featurizers
@@ -19,6 +19,7 @@ A featurizer is a space or a function you declare once under the root key `featu
 | [`linear`](../../FORMAT.md#linear) | a probe whose coordinates are its classes | drawn at zero and trained, or a bundle | `encode` |
 | [`lora`](../../FORMAT.md#lora) | a low-rank adapter | drawn as the identity and trained, or a bundle | `apply` |
 | [`affine`](../../FORMAT.md#affine) | an affine map of the last axis onto itself, `h + h W + b` | drawn as the identity and trained, or a bundle | `apply` |
+| [`constant`](../../FORMAT.md#constant) | one vector written in place of the value at every row and position | drawn as `init` (a number, or a value one vector wide, such as a mean) and trained, or a bundle | `apply` |
 
 ## The canonical entry
 
@@ -55,7 +56,7 @@ An entry uses a featurizer in one of three shapes:
 
 - **`[encode f]` reads coordinates.** The entry's value is `[rows, pos, k]`, its last axis `features` (a probe's: `classes`). Nothing is written. `counterfactual.v_cf` above is one.
 - **`[encode f, <edits>, decode f]` edits coordinates and writes the change back.** The ops between the pair act on the coordinates; `decode` adds the change of coordinates to the original value as a delta. So `[encode f, decode f]` with nothing between is the identity to the bit, and what the space does not hold (a subspace's complement, a sparse autoencoder's error term) passes through untouched.
-- **`[apply f]` replaces the value with the featurizer's own version of it**: a subspace's projection, a gate's masked value, an adapter's adapted value, a dictionary's reconstruction without its error term. It is an edit, so it writes back. Splicing an `sae` in with `apply` moves the site's value by exactly its error term, and so the model's output, with no edit at all. A gate's `apply` with `with` interpolates toward that value instead ([below](#a-gate-over-named-axes)).
+- **`[apply f]` replaces the value with the featurizer's own version of it**: a subspace's projection, a gate's masked value, an adapter's adapted value, a dictionary's reconstruction without its error term, a constant's vector. It is an edit, so it writes back. Splicing an `sae` in with `apply` moves the site's value by exactly its error term, and so the model's output, with no edit at all. A gate's `apply` with `with` interpolates toward that value instead ([below](#a-gate-over-named-axes)).
 
 `[encode f, decode f]` leaves the logits bit-identical to a clean forward for every kind that decodes (a drawn subspace and gate, a loaded `pca`, three loaded `sae`s, one of them a published JumpReLU, at every position of the prompt), and so does an `sae` bracket holding `{"op": "scale", "factor": 1.0}`.
 
@@ -136,7 +137,7 @@ With `over: ["layers"]` it holds one map per layer of its site's selection, `W` 
 
 ## Drawn, trained or loaded
 
-A declared featurizer with no `file_path` is drawn before the run's first step, from its `seed` (0 when unset) for the kinds that take one, and needs the fields its kind draws from: `k` for a subspace, `latents` for an sae, `rank` and `alpha` for a lora, `classes` for a probe. `documents/random_subspace.json` sweeps the seed to get three random rank-4 subspaces with no fit at all. A fit draws the featurizers it trains at its own start, from the fit's `seed` unless the featurizer has one; the names a fit gives them are in [fit.md](fit.md#members). With `file_path` the featurizer is loaded and fixed, and the fields the bundle's header records may be left out ([bundles.md](bundles.md)).
+A declared featurizer with no `file_path` is drawn before the run's first step, from its `seed` (0 when unset) for the kinds that take one, and needs the fields its kind draws from: `k` for a subspace, `latents` for an sae, `rank` and `alpha` for a lora, `classes` for a probe, `init` for a constant. A constant whose `init` names a value is drawn once the step that makes it has run, so compile holds that step before the constant's first use and before the fit that trains it, and the value to one vector of the site's width on no sweep axis ([ablation.md](../patterns/ablation.md#the-optimal-constant)). `documents/random_subspace.json` sweeps the seed to get three random rank-4 subspaces with no fit at all. A fit draws the featurizers it trains at its own start, from the fit's `seed` unless the featurizer has one; the names a fit gives them are in [fit.md](fit.md#members). With `file_path` the featurizer is loaded and fixed, and the fields the bundle's header records may be left out ([bundles.md](bundles.md)).
 
 ## Loading a published sparse autoencoder
 
@@ -157,7 +158,7 @@ The `site` check compares your use with your claim; it cannot check the claim. W
 
 ## What a featurizer cannot do
 
-- **Serve another kind's ops.** A `linear` probe only encodes; a `lora` and an `affine` only apply; compile refuses the rest by name (`'probe' is a 'linear' featurizer, which has no decode`).
+- **Serve another kind's ops.** A `linear` probe only encodes; a `lora`, an `affine` and a `constant` only apply; compile refuses the rest by name (`'probe' is a 'linear' featurizer, which has no decode`).
 - **Be drawn as a `pca`.** A `pca` featurizer exists only as the bundle a `pca` op wrote.
 - **Have two widths.** Its width is the last axis of every site it is used at (inside an `encode`, that one's `k`), and one featurizer used at sites of two widths is refused before any forward. `k` is at most that width. A gate over axes has as many units as its axes keep, and every site it is used at selects the same ones.
 - **Be one per layer by itself.** A featurizer used at a site whose `layers` picks several is one featurizer, applied at each; only a gate or an affine with `layers` in its `over` has its own units or map at each layer. Sweep the site's `layers` for one per layer ([probing.md](../patterns/probing.md) does).

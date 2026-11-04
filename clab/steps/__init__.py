@@ -35,7 +35,7 @@ from clab.compile import dataset_rows
 from clab.compile.preflight import preflight
 from clab.compile.schedule import READOUTS, values_read_by
 from clab.compile.state import Findings
-from clab.compile.uses import instance
+from clab.compile.uses import instance, named_values
 from clab.format import data
 from clab.format.sweeps import agreeing_point, coordinate, coordinate_text, lookup, projection, put
 from clab.plan import (Forward, Load, OpStep, Plan, Run, arguments, entries, gradient_of, made_by, points, projections,
@@ -126,10 +126,11 @@ def run(engine: Engine, plan: Plan, batch_size: int) -> None:
     assert plan.run is not None
     plan.run.versions, plan.run.sizes, plan.run.threads = versions(), engine.sizes(), torch.get_num_threads()
     findings = preflight(engine, plan)
-    state = state_at_start(plan, model_device(engine))
-    devices, costs = engine.cuda, {}
+    state: ChainMap = ChainMap()
+    device, devices, costs = model_device(engine), engine.cuda, {}
     with torch.no_grad():
         for name in runnable(plan.steps):
+            make_featurizers(plan, state, device)
             for step, served in serving(plan, name):
                 cost: dict[str, Any] = {"seconds": 0.0, "memory": None, "forwards": 0, "tokens": 0, "real": 0,
                                         **({"serves": [coordinate_text(plan, p.at) for p in served]}
@@ -251,15 +252,17 @@ def dtypes_and_devices(model: Parameterized) -> tuple[list[str], list[str]]:
     return list(dtypes), list(devices)
 
 
-def state_at_start(plan: Plan, device: str) -> ChainMap:
-    """The run's state at its start: each declared featurizer used at a site (its record says its `width` there),
-    at each of its points, made where the model is (`device`)."""
-    state: ChainMap = ChainMap()
+def make_featurizers(plan: Plan, state: ChainMap, device: str) -> None:
+    """Each declared featurizer used at a site (its record says its `width` there), at each of its points, made where
+    the model is (`device`) into the run's `state` once what it is drawn from is there: before the run's first step,
+    or, with a field that names a value (a constant's `init`), before the first step after the one that made it,
+    which compile puts before the featurizer's first use (`uses.check_named_values`). `run` calls it before each step;
+    one made already stays as it is."""
     for name, entry in plan.featurizers.items():
         for spec in points(entry):
-            if spec.width is not None:
-                put(state, name, spec.at, instance(plan, spec, spec.width, None, device))
-    return state
+            made = tuple(spec.at.items()) in state.get(name, {})
+            if spec.width is not None and not made and all(ref in state for ref in named_values(spec).values()):
+                put(state, name, spec.at, instance(plan, spec, spec.width, None, device, state))
 
 
 def detached_cpu_clone(value: Any) -> Any:

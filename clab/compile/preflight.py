@@ -15,7 +15,7 @@ from clab.compile.interventions import check_operands, read_positions, refuse_un
 from clab.compile.positions import prefill_positions
 from clab.compile.schedule import write_schedule
 from clab.compile.state import Findings
-from clab.compile.uses import write_widths
+from clab.compile.uses import check_named_widths, write_widths
 from clab.format import address, data, selectors
 from clab.format.selectors import Selector, picked, selected
 from clab.plan import (
@@ -68,8 +68,9 @@ def preflight(engine: Engine, plan: Plan) -> Findings:
     `encode`, that one's coordinates'), at a width its bundle's header does not say (or, with no header, whose
     tensors are not as wide), with a field that counts more directions than that width (`counts`), at another
     layer than the one it says it was trained at, reading its input elsewhere than its bundle was made reading it
-    (`check_input_site`), or encoded with a `select` outside its features or keeping none of them; and a trained
-    featurizer used at no site. A write whose operand its own forward reads at a site the engine reaches no earlier
+    (`check_input_site`), or encoded with a `select` outside its features or keeping none of them; a featurizer drawn
+    from a value (a constant's `init`) that keeps other indices of its axis than a use does (`check_named_widths`);
+    and a trained featurizer used at no site. A write whose operand its own forward reads at a site the engine reaches no earlier
     than the write's is refused where the schedule is written. A refusal inside a fit's body names the fit, and one
     in an eval its eval step (`<fit>.<eval>.<step>`).
     """
@@ -80,6 +81,7 @@ def preflight(engine: Engine, plan: Plan) -> Findings:
     findings = Findings()
     prepare(engine, plan, plan.steps, classes, findings)
     write_widths(engine, plan)
+    check_named_widths(engine, plan)
     return findings
 
 
