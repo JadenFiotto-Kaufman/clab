@@ -175,15 +175,20 @@ RANKED = "vocab_size"
 def ranking(dims: list[str], args: dict, kind: str | None = None) -> list[str]:
     """removes the axis `over` names, which it ranks: by default `vocab_size`"""
     over = args.get("over", RANKED)
-    if over not in dims:
-        hint = f' ("over": {json.dumps(dims[-1])})' if dims else ""
-        raise ValueError(f"it ranks the value's {over!r} axis, and the value is laid out {dims}; 'over' names the "
-                         f"axis it ranks, one the value has{hint}")
-    return [a for a in dims if a != over]
+    axes = over if isinstance(over, list) else [over]
+    if not axes or len(set(axes)) != len(axes):
+        raise ValueError(f"over {over!r}: a list of axes names each axis it ranks once")
+    for axis in axes:
+        if axis not in dims:
+            hint = f' ("over": {json.dumps(dims[-1])})' if dims else ""
+            raise ValueError(f"it ranks the value's {axis!r} axis, and the value is laid out {dims}; 'over' names "
+                             f"the axis it ranks, one the value has{hint}")
+    return [a for a in dims if a not in axes]
 
 
 def ranking_k(dims: list[str], args: dict, kind: str | None) -> list[str]:
-    """removes the axis `over` names, which it ranks (by default `vocab_size`), and adds `k`"""
+    """removes the axis `over` names, which it ranks (by default `vocab_size`), or every axis a list of them names,
+    and adds `k`"""
     return ranking(dims, args) + ["k"]
 
 
@@ -196,20 +201,35 @@ def picked(x: Tensor, k: int) -> tuple[Tensor, Tensor]:
 
 
 @op("transforms", layout=ranking_k, positionwise=True)
-def top_k(of: Tensor, k: int, dims: list[str], over: str = RANKED) -> dict[str, Tensor]:
+def top_k(of: Tensor, k: int, dims: list[str], over: str | list[str] = RANKED
+          ) -> dict[str, Tensor | dict[str, Tensor]]:
     """The `k` largest along the axis `over` names, the largest first: `ids`, their indices along it, and over a
     vocabulary (`vocab_size`, a probe's `classes`) `probs`, their float32 softmax over it, over another axis
     `values`, the ranked values as the value has them. By default the most likely tokens, ranked by their logits
     (as a step, its value also holds their `tokens`, decoded); over `features`, a featurizer's coordinates after
     an `encode`. Along a ragged axis (a pattern's `key`) the entries that are there are ranked, and a pick past
-    them is id -1. An exact tie goes to the lower index (`ranked`), so `top_k`'s first is `argmax`'s."""
-    x = of.movedim(dims.index(over), -1)
-    ids, gone = picked(x, k)
-    if over in VOCABULARY:
-        second = {"probs": x.float().masked_fill(x.isnan(), -math.inf).softmax(-1).gather(-1, ids)}
+    them is id -1. An exact tie goes to the lower index (`ranked`), so `top_k`'s first is `argmax`'s.
+
+    Over a list of axes (`["rows", "pos"]`), as a step, the `k` largest of all their entries together, every one
+    of those axes removed: `ids` is then an object of each axis's index of each pick, by the axis's name (`{"rows":
+    ..., "pos": ...}`, each `[..., k]`; a list of one axis gives it too), beside `values`, or `probs` where one of the axes is a vocabulary (each
+    pick's softmax over it, and, over `vocab_size`, the `tokens`, decoded). It ranks the entries as one axis laid
+    out in the order the list names them, so an exact tie goes to the lower index along the first, then the next;
+    a missing (NaN) entry is ranked below every other, and a pick past those there is -1 on every axis."""
+    axes = over if isinstance(over, list) else [over]
+    x = of.movedim([dims.index(a) for a in axes], list(range(of.dim() - len(axes), of.dim())))
+    sizes = x.shape[of.dim() - len(axes):]
+    flat = x.reshape(*x.shape[:of.dim() - len(axes)], -1)
+    ids, gone = picked(flat, k)
+    vocabulary = next((a for a in axes if a in VOCABULARY), None)
+    if vocabulary is not None:
+        logits = x.float().masked_fill(x.isnan(), -math.inf).softmax(axes.index(vocabulary) - len(axes))
+        second = {"probs": logits.reshape(flat.shape).gather(-1, ids)}
     else:
-        second = {"values": x.gather(-1, ids)}
-    return {"ids": ids.masked_fill(gone, -1), **{k: v.masked_fill(gone, float("nan")) for k, v in second.items()}}
+        second = {"values": flat.gather(-1, ids)}
+    picks = {a: (ids // math.prod(sizes[j + 1:]) % sizes[j]).masked_fill(gone, -1) for j, a in enumerate(axes)} \
+        if isinstance(over, list) else ids.masked_fill(gone, -1)
+    return {"ids": picks, **{k: v.masked_fill(gone, float("nan")) for k, v in second.items()}}
 
 
 @op("transforms", layout=ranking, positionwise=True)

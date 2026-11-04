@@ -111,6 +111,9 @@ def layout(path: str, name: str, args: dict, dims: list[str], where: str, kind: 
         out = ops.out_dims(name, dims, {**{k: p.default for k, p in ops.parameters(name).items()}, **args}, kind)
     except ValueError as e:
         fail(path, str(e))
+    if where != "step" and name == "top_k" and isinstance(args.get("over"), list):
+        fail(path, "a top_k over a list of axes gives an index per axis of each pick, which an entry's batches do "
+             "not join; make it a step after the forward")
     if where != "step" and "rows" in dims and "rows" not in out:
         fail(path, f"{name!r} aggregates over rows, and inside an entry it sees one batch; " + (
             "this entry writes it back, so make it an op step before the forward, over a read of the rows it "

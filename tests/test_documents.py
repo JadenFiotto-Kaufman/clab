@@ -352,6 +352,37 @@ def test_top_k_saves_its_tokens_as_text(filled, engines, tmp_path):
     assert row["value"]["tokens"] == top3["tokens"][0][0] and row["pos_token"] == "▁is"
 
 
+def test_a_top_k_over_a_list_of_axes_saves_an_index_per_axis_and_loads_back(engines, tmp_path, capsys, monkeypatch):
+    """A `top_k` over `["rows", "pos"]` is `ids`, an object of one tensor per ranked axis, beside `values`: its file
+    holds `ids/pos`, `ids/rows` and `values`, the manifest records each one's shape and dtype, `Plan.load` gives
+    the value back with its `ids` in the order `over` names them, `clab show` prints its shape, a dump of the
+    loaded plan is the same bytes, and the table of the loaded plan is the run's."""
+    def change(d):
+        d["steps"]["counterfactual"]["interventions"]["h"] = {
+            "site": "target", "pos": {"index": ":"}, "ops": [{"op": "sum", "over": ["hidden_size"]}]}
+        d["steps"]["top"] = {"kind": "op", "op": "top_k", "of": "counterfactual.h", "k": 3, "over": ["rows", "pos"]}
+        d["saves"] = ["top"]
+    from safetensors import safe_open
+    plan = edited("patching", change).compile()
+    filled = engines("nnterp", plan.model).execute(plan, batch_size=BATCH_SIZE)
+    filled.dump(str(tmp_path))
+    with safe_open(str(tmp_path / "top.safetensors"), "pt") as f:
+        assert sorted(f.keys()) == ["ids/pos", "ids/rows", "values"]
+    described = json.loads((tmp_path / "manifest.json").read_text())["results"]["top"]
+    assert described["dims"] == ["k"] and described["shape"] == {"ids": {"rows": [3], "pos": [3]}, "values": [3]}
+    assert described["dtype"] == {"ids": {"rows": "int64", "pos": "int64"}, "values": "float32"}
+    back = Plan.load(str(tmp_path))
+    assert same(back.results["top"], filled.results["top"]) and list(back.results["top"]["ids"]) == ["rows", "pos"]
+    assert main(["show", str(tmp_path)]) == 0
+    assert capsys.readouterr().out.splitlines()[-1].split() == ["top", "top", "k", "—",
+                                                                 '{"ids":{"rows":[3],"pos":[3]},"values":[3]}']
+    back.dump(str(tmp_path / "again"))      # dump, load, dump: the same bytes
+    for file in ("manifest.json", "top.safetensors", "tokens.json"):
+        assert (tmp_path / "again" / file).read_bytes() == (tmp_path / file).read_bytes(), file
+    monkeypatch.chdir(ROOT)                 # a loaded plan's corpus root is where it is read
+    assert [list(t.items()) for t in back.table("top")] == [list(t.items()) for t in filled.table("top")]
+
+
 def test_a_swept_value_is_keyed_by_coordinate(filled, tmp_path):
     plan = filled["pos_sweep", "hooks"]
     assert list(plan.results["iia"]) == [-1, -2, -3] and plan.results["iia"][-2].shape == (4, 1)

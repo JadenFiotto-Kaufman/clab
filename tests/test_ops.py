@@ -425,6 +425,45 @@ def test_top_k_and_argmax_rank_the_axis_over_names_wherever_it_is():
     assert ops.out_dims("argmax", DIMS, {"over": "hidden_size"}) == ["rows", "pos"]
 
 
+def test_top_k_over_a_list_of_axes_ranks_their_entries_as_one_axis():
+    """Over `["rows", "pos"]` top_k ranks the (row, position) pairs as one axis laid out rows then positions: its
+    values are a `top_k` of the flattened pair's, its `ids` per axis recover where each pick is, and both axes leave
+    the layout. Over a vocabulary among the axes, each pick's `probs` is its softmax over that vocabulary."""
+    x = torch.randn(4, 3, 5)                                           # features, rows, pos
+    d = ["features", "rows", "pos"]
+    got = transforms.top_k(x, 4, d, over=["rows", "pos"])
+    flat = transforms.top_k(x.reshape(4, 15), 4, ["features", "pair"], over="pair")
+    assert set(got) == {"ids", "values"} and list(got["ids"]) == ["rows", "pos"]
+    assert torch.equal(got["values"], flat["values"])
+    assert torch.equal(got["ids"]["rows"] * 5 + got["ids"]["pos"], flat["ids"])
+    assert torch.equal(x[torch.arange(4)[:, None], got["ids"]["rows"], got["ids"]["pos"]], got["values"])
+    assert ops.out_dims("top_k", d, {"k": 4, "over": ["rows", "pos"]}) == ["features", "k"]
+    assert ops.out_dims("top_k", d, {"k": 4, "over": ["pos", "features"]}) == ["rows", "k"]
+    assert torch.equal(transforms.top_k(x, 4, d, over=["pos", "rows"])["values"], got["values"])
+    logits = torch.randn(3, 2, 7)                                       # rows, pos, vocab
+    top = transforms.top_k(logits, 3, ["rows", "pos", "vocab_size"], over=["pos", "vocab_size"])
+    rows = torch.arange(3)[:, None]
+    assert torch.equal(top["probs"], logits.float().softmax(-1)[rows, top["ids"]["pos"], top["ids"]["vocab_size"]])
+    assert torch.equal(logits[rows, top["ids"]["pos"], top["ids"]["vocab_size"]],
+                       logits.reshape(3, 14).topk(3).values)
+    with pytest.raises(ValueError, match=r"^over \['pos', 'pos'\]: a list of axes names each axis it ranks once$"):
+        ops.out_dims("top_k", d, {"k": 1, "over": ["pos", "pos"]})
+    with pytest.raises(ValueError, match=r"^over: \['pos'\] is not str$"):
+        ops.check("argmax", {"over": ["pos"]})
+
+
+def test_top_k_over_a_list_breaks_a_tie_by_the_first_axis_then_the_next_and_ranks_a_missing_entry_last():
+    """An exact tie goes to the lower index along the first axis listed, then the next; a missing (NaN) entry is
+    ranked below every other, and a pick past those there is -1 on every axis, NaN in `values`."""
+    nan = float("nan")
+    x = torch.tensor([[1.0, 2.0, nan], [2.0, nan, nan]])                # rows, pos
+    got = transforms.top_k(x, 5, ["rows", "pos"], over=["rows", "pos"])
+    assert got["ids"]["rows"].tolist() == [0, 1, 0, -1, -1] and got["ids"]["pos"].tolist() == [1, 0, 0, -1, -1]
+    assert got["values"][:3].tolist() == [2.0, 2.0, 1.0] and got["values"][3:].isnan().all()
+    swapped = transforms.top_k(x, 5, ["rows", "pos"], over=["pos", "rows"])
+    assert swapped["ids"]["rows"].tolist() == [1, 0, 0, -1, -1] and swapped["ids"]["pos"].tolist() == [0, 1, 0, -1, -1]
+
+
 class Tokenizer:
     eos_token_id = 0
 

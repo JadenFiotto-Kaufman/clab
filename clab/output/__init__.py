@@ -45,8 +45,8 @@ from clab.compile import dataset_rows
 from clab.compile.uses import uses
 from clab.featurizers import bundles, labels
 from clab.format.sweeps import agreeing_point, coordinate, coordinate_text, points
-from clab.plan import (Intervention, Labelled, Plan, Run, Site, Step, arguments, entries, entry_of, kind_of, made_by,
-                       projections, record_of, saved_value_axes, scope, walk)
+from clab.plan import (Intervention, Labelled, OpStep, Plan, Run, Site, Step, arguments, entries, entry_of, kind_of,
+                       made_by, projections, record_of, saved_value_axes, scope, walk)
 from clab.plan import name as named
 
 # The labels a result's manifest record carries beside `dims`, each where the value has one.
@@ -204,6 +204,12 @@ def load(out: str) -> Plan:
         value = read_saved_value(out, name, d)
         if d["axes"]:
             value = {coordinate(plan, at): value[coordinate_text(plan, at)] for at, _ in projections(plan, name)}
+        for at, p in projections(plan, name):   # a top_k's ids over a list of axes in its order, which the file sorts
+            record = record_of(plan.steps, name, p.at)
+            over = arguments(record).get("over") if isinstance(record, OpStep) and record.op == "top_k" else None
+            if isinstance(over, list):
+                point = value[coordinate(plan, at)] if d["axes"] else value
+                point["ids"] = {a: point["ids"][a] for a in over}
         plan.results[name] = value
     return plan
 

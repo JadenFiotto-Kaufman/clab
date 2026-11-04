@@ -196,13 +196,12 @@ def out_of_memory_refusal(plan: Plan, name: str, at: dict, batch_size: int, stat
 
 
 def value_text(value: Any) -> str | None:
-    """A value's shape, dtype and device as a refusal lists it: a tensor's, a dict's per tensor-valued key
+    """A value's shape, dtype and device as a refusal lists it: a tensor's, a dict's per key that holds tensors
     (`top_k`'s `ids` and `probs`, not its token strings); None for anything else (a featurizer instance)."""
     if isinstance(value, Tensor):
         return f"{list(value.shape)} {str(value.dtype).removeprefix('torch.')} on {value.device}"
-    if isinstance(value, dict) and any(isinstance(v, Tensor) for v in value.values()):
-        return "{" + ", ".join(f"{k} {value_text(v)}" for k, v in value.items() if isinstance(v, Tensor)) + "}"
-    return None
+    held = {k: t for k, v in value.items() if (t := value_text(v))} if isinstance(value, dict) else {}
+    return "{" + ", ".join(f"{k} {t}" for k, t in held.items()) + "}" if held else None
 
 
 def measure_cost(devices: list[str], cost: dict[str, Any], call: Callable[[], None], synced: bool) -> None:
@@ -377,8 +376,10 @@ def op(engine: Engine, plan: Plan, name: str, step: OpStep, state: ChainMap, bat
                                                  dims=dims),
                      engine=engine, dims=dims, layers=acts,
                      eos=stop_ids(engine, producer) if producer.kind == "generate" else engine.eos, rows=rows)
-    if step.op == "top_k" and arguments(step).get("over", ops.transforms.RANKED) == ops.transforms.RANKED:
-        value["tokens"] = token_strings(engine.tokenizer, value["ids"])
+    over = arguments(step).get("over", ops.transforms.RANKED) if step.op == "top_k" else None
+    if over == ops.transforms.RANKED or isinstance(over, list) and ops.transforms.RANKED in over:
+        value["tokens"] = token_strings(engine.tokenizer, value["ids"] if over == ops.transforms.RANKED else
+                                        value["ids"][ops.transforms.RANKED])
     if step.op == "permute":        # what it drew, on its record: the dataset row each row's value is
         order = ops.transforms.permutation(arguments(step)["seed"], of.shape[dims.index("rows")],
                                            arguments(step).get("derangement", False))

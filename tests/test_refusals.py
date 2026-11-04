@@ -725,3 +725,13 @@ def test_a_permute_is_refused_by_name_where_it_cannot_mean_anything(change, mess
     and as a derangement over a dataset or a fit's minibatch of one row."""
     with pytest.raises(PlanError, match=message):
         edited("mean_ablation", change).compile()
+
+
+def test_a_top_k_over_a_list_of_axes_is_a_step_and_refused_inside_an_entry():
+    """Its `ids` are an index per ranked axis of each pick, which an entry's batches do not join."""
+    def change(d):
+        d["steps"]["patched"]["interventions"]["logits"]["ops"] = [{"op": "top_k", "k": 2, "over": ["pos", "vocab_size"]}]
+    with pytest.raises(PlanError, match=r"^steps\.patched\.interventions\.logits\.ops\[0\]: a top_k over a list of axes "
+                                        r"gives an index per axis of each pick, which an entry's batches do not join; "
+                                        r"make it a step after the forward$"):
+        edited("patching", change).compile()
