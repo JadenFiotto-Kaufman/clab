@@ -1059,8 +1059,9 @@ What vLLM makes different, each refused by name before anything runs, or recorde
 - The attention pattern and the scores are recomputed from the queries and keys: a read is served, a write is
   refused (`execute`); a read of them beyond the prefill, which compile refuses on every engine, a decode call could
   not serve here either.
-- No gradient: a fit and a `grad` entry are refused in `execute`. A quantized `dtype` too: vLLM's quantizations are
-  not bitsandbytes' weights. `attn_implementation` in the model block is dropped: vLLM's attention backend is its own.
+- No gradient: a fit is refused in `execute`, a `grad` entry by `steps.start_run` (`gradless`). A quantized `dtype`
+  too: vLLM's quantizations are not bitsandbytes' weights. `attn_implementation` in the model block is dropped: vLLM's
+  attention backend is its own.
 - The engine serves sequences up to its `max_len` (`longest`, vLLM's `max_model_len`): preflight refuses a step whose
   longest row, plus what a generation adds, does not fit, since vLLM would cut the generation short with no EOS.
 - A forward runs whole (`stops`): nothing ends a request's forward inside the worker.

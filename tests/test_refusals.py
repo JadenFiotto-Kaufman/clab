@@ -412,6 +412,17 @@ def test_the_aligned_pattern_dataset_passes_the_check(engines):
     engines("nnterp", plan.model).execute(plan, batch_size=2)
 
 
+def test_a_grad_entry_is_refused_by_name_where_the_engine_takes_no_gradient(engines, monkeypatch):
+    """`start_run` refuses a step's `grad` entry on the client, before the run starts, where the engine declares that
+    it takes no gradient (`gradless`): the nnterp engine's under `tp`, given here by its options alone, so that the
+    refusal runs without torchrun."""
+    plan = plan_of("attribution_patching")
+    monkeypatch.setattr(engines("nnterp", plan.model), "options", {"tp": 2})
+    text, forwards = refused(engines, plan, kind="nnterp")
+    assert text == ("patched.h: the nnterp engine takes no gradient under tp 2, whose ranks hold a sharded value's "
+                    "gradient in pieces; run it at tp 1") and forwards == 0 and plan.run is None
+
+
 @pytest.mark.parametrize("kind", ["nnterp", "hooks", "ndif"])
 @pytest.mark.parametrize("key, why", [("device", r"where the model runs is a run option: --device"),
                                       ("device_map", r"where the model runs is a run option: --device"),

@@ -41,7 +41,10 @@ the model's, or none where the run is remote (the server's process is its own to
 may add, which preflight reads where present: `last_only`, the components it serves at the prompt's last position
 alone, each mapped to the reason (the vllm engine's head), any other prefill position refused by name; and `longest`,
 the longest sequence it serves, prompt and new tokens (the vllm engine's `max_len`), a step whose rows do not fit
-refused by name.
+refused by name. And one `steps.start_run` reads where present, on the client before any session opens: `gradless`,
+why the engine refuses a `grad` entry (the vllm engine's, the nnterp engine's under `tp`; None where it takes them),
+a step's `grad` entry refused by name with it. It does not cover a fit, which the vllm engine refuses in its
+`execute` and the nnterp engine trains under `tp`.
 """
 
 import inspect

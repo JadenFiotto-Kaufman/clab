@@ -40,7 +40,7 @@ from clab.engines import engine, standard
 from clab.engines.standard import build, envoy, inputs, loading, nnterp_name, placing, served, stops
 from clab.format.address import COMPONENTS
 from clab.format.sweeps import points
-from clab.plan import QUANTIZED, Model, Plan, calls_model, entries, gradient_of, walk
+from clab.plan import QUANTIZED, Model, Plan, calls_model, walk
 from clab.steps import batches
 from clab.steps.batches import acting_at_call, stamped_at_call
 
@@ -83,16 +83,13 @@ class NnterpEngine:
         is) are what comes home, into the client's own plan.
         Under `tp` every rank samples from a seed rank 0 draws afresh for the run, so that a sampled generation
         picks the same tokens on every rank, and the run record lists every rank's device; a `grad` entry is
-        refused by name there before anything runs, since a value the ranks shard has its gradient in pieces. Under a
+        refused by name there before anything runs, since a value the ranks shard has its gradient in pieces
+        (`gradless`, which `steps.start_run` reads). Under a
         remote session a load's value travels in the request, inside the plan, and a document whose loads hold more
         than `LOADED` bytes of tensors is refused by name before anything is sent; it does not come home, where the
         client keeps its own."""
         started = steps.start_run(self, plan, batch_size, padding, readout)
         ranks = self.options.get("tp", 1)
-        for name, step in walk(plan.steps) if ranks > 1 else ():
-            for key in [k for k, e in entries(step).items() if gradient_of(e) is not None][:1]:
-                raise ValueError(f"{name}.{key}: the nnterp engine takes no gradient under tp {ranks}, whose ranks "
-                                 "hold a sharded value's gradient in pieces; run it at tp 1")
         carried: dict[str, int] = {}
         for name, step in walk(plan.steps) if self.remote else ():
             if step.kind == "load":
@@ -159,6 +156,15 @@ class NnterpEngine:
                     continue
                 standard.reached(host, value.path(host))[0].source
         self.rank("layer_output", 0)
+
+    @property
+    def gradless(self) -> str | None:
+        """Why the engine refuses a `grad` entry, which `steps.start_run` refuses one with: under `tp` the ranks hold
+        a sharded value's gradient in pieces. None at `tp` 1, where it takes them. A fit, which trains through the
+        model's gradient, runs under `tp` too."""
+        tp = self.options.get("tp", 1)
+        return (f"the nnterp engine takes no gradient under tp {tp}, whose ranks hold a sharded value's gradient in "
+                "pieces; run it at tp 1") if tp > 1 else None
 
     @property
     def tokenizer(self) -> PreTrainedTokenizerBase:

@@ -38,8 +38,8 @@ from clab.compile.state import Findings
 from clab.compile.uses import instance
 from clab.format import data
 from clab.format.sweeps import agreeing_point, coordinate, coordinate_text, lookup, projection, put
-from clab.plan import (Forward, Load, OpStep, Plan, Run, arguments, made_by, points, projections, record_of, runnable,
-                        saved_value_axes, serving)
+from clab.plan import (Forward, Load, OpStep, Plan, Run, arguments, entries, gradient_of, made_by, points, projections,
+                        record_of, runnable, saved_value_axes, serving, walk)
 from clab.steps import fit, generate
 from clab.steps.batches import (argument_binding, bind_arguments, bind_schedule, input_batches, join_batches,
                                 layers_made_at, model_device, schedule_binding, scope_ids, stack_layers, stop_ids,
@@ -52,10 +52,12 @@ if TYPE_CHECKING:
 
 
 def start_run(engine: Engine, plan: Plan, batch_size: int, padding: str = "dataset", readout: str = "full") -> float:
-    """What every engine's `execute` checks first (a compiled plan, for this engine's checkpoint, at a batch size of
-    one row or more, a padding `data.PADDINGS` names and a readout `schedule.READOUTS` names), and the run record it
-    starts: the engine, the batch size, padding and readout, the device and the options it loaded with; returns the
-    start time."""
+    """What every engine's `execute` checks first, on the client before any session opens, from the plan and the
+    engine's declarations alone (a compiled plan, for this engine's checkpoint, at a batch size of one row or more, a
+    padding `data.PADDINGS` names and a readout `schedule.READOUTS` names; no `grad` entry where the engine refuses
+    one, `engine.gradless` saying why, as the refusal does after the entry's name; an engine without it, or with
+    None, takes them), and the run record it starts: the engine, the batch size, padding and readout, the device
+    and the options it loaded with; returns the start time."""
     if not plan.compiled:
         raise ValueError("plan is not compiled; call plan.compile()")
     check_run_options(batch_size, padding, readout)
@@ -64,6 +66,10 @@ def start_run(engine: Engine, plan: Plan, batch_size: int, padding: str = "datas
     if differ:                  # a loader key written null is one left out
         raise ValueError("the plan's model is not the one this engine loaded: " + ", ".join(
             f"{k} {ours.get(k)!r} where the engine's is {theirs.get(k)!r}" for k in differ))
+    gradless = getattr(engine, "gradless", None)
+    for name, step in walk(plan.steps) if gradless else ():
+        for key in [k for k, e in entries(step).items() if gradient_of(e) is not None][:1]:
+            raise ValueError(f"{name}.{key}: {gradless}")
     plan.run = Run(engine=engine.name, batch_size=batch_size, padding=padding, readout=readout, device=engine.device,
                    options=engine.options, started=time.strftime("%Y-%m-%dT%H:%M:%S"))
     return time.time()
