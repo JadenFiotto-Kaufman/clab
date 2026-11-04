@@ -663,7 +663,7 @@ stays missing: NaN.
 | `token_logit` | `token: Tokens` | needs vocab_size or classes; removes its vocabulary axis | The logit of `token`. |
 | `cross_entropy` | `target: Tokens` | needs vocab_size or classes; removes its vocabulary axis | The negative log-probability of `target` (of a class or a set, of its members' summed probability), in nats. |
 | `contains` | `text: Text` | needs rows | 1 where a row's text (a `detokenize`d generation) contains `text`, the row's answer (any member of a set), compared as its reference says, else 0. Every row generated something, so none is missing. |
-| `kl` | `against: Value` | needs vocab_size or classes; removes its vocabulary axis | KL(of ‖ against) between the two next-token distributions, in nats. |
+| `kl` | `against: Value`, `reverse: bool = false` | needs vocab_size or classes; removes its vocabulary axis | KL(of ‖ against) between the two next-token distributions, in nats; with `reverse`, KL(against ‖ of). An operand may leave out an axis the value has and not carry one it lacks, so the side with a `layers` axis (a lens against the model's logits), or the side an entry holds, is `of`; `reverse` sets the direction apart from that. |
 | `js` | `against: Value` | needs vocab_size or classes; removes its vocabulary axis | The Jensen–Shannon divergence between the two distributions, in nats (at most log 2). |
 | `cosine` | `with: Value` | needs hidden_size; removes hidden_size | The cosine similarity of each vector and `with`'s, over `hidden_size`. |
 

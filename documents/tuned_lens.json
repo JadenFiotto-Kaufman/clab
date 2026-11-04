@@ -1,0 +1,55 @@
+{
+  "description": "A tuned lens on the tiny GPT-2 (5 layers, width 32): one affine translator `h + h W + b` per layer for layers 0 to 3, every layer but the last, all four in one featurizer over the layers axis (`over: [\"layers\"]`, `W` `[4, 32, 32]` and `b` `[4, 32]`, both zero at the draw), so each minibatch's one forward trains every layer's translator. The lens only reads: in the fit's body `apply` and `readout` are op steps over the read of `layer_output`, which leave the forward as it is, and each translated layer goes through the model's own final norm and head. Its objective is KL(final ‖ lens), the model's own next-token distribution scored against each layer's, written as `kl` of the lens (the side with the `layers` axis) with `reverse: true`. The logit lens (no translator) is scored on the held-out rows the same way, at the same 15 positions every row has, and `gain` is the tuned lens's held-out mean KL less the logit lens's, at each layer: exactly 0 at `epochs: 0`, where every translator is the identity, and below 0 once it trains. The model is random, so the numbers demonstrate the mechanics and nothing about what a lens learns.",
+  "model": {
+    "key": "hf-internal-testing/tiny-random-gpt2",
+    "revision": "71034c5d8bde858ff824298bdedc65515b97d2b9",
+    "dtype": "float32"
+  },
+  "data": {
+    "train": {"path": "weekdays_full/data", "split": "train", "take": 8},
+    "test": {"path": "weekdays_full/data", "split": "test", "take": 4}
+  },
+  "sites": {
+    "resid": {"component": "layer_output", "layers": "0:4"},
+    "head": {"component": "logits"}
+  },
+  "featurizers": {"lens": {"kind": "affine", "over": ["layers"]}},
+  "steps": {
+    "lfw": {
+      "kind": "forward",
+      "input": "test.input",
+      "interventions": {
+        "ll": {"site": "resid", "pos": {"index": "0:15"}, "ops": [{"op": "readout"}]},
+        "final": {"site": "head", "pos": {"index": "0:15"}}
+      }
+    },
+    "ll_kl": {"kind": "op", "op": "kl", "of": "lfw.ll", "against": "lfw.final", "reverse": true},
+    "ll_mkl": {"kind": "op", "op": "mean", "of": "ll_kl"},
+    "fit": {
+      "kind": "fit",
+      "train": ["lens"],
+      "objective": {"kl": 1.0},
+      "epochs": 2,
+      "batch_size": 2,
+      "seed": 0,
+      "optimizer": {"name": "adam", "lr": 0.01},
+      "eval": {"held_out": {"train": "test"}},
+      "steps": {
+        "run": {
+          "kind": "forward",
+          "input": "train.input",
+          "interventions": {
+            "h": {"site": "resid", "pos": {"index": "0:15"}},
+            "final": {"site": "head", "pos": {"index": "0:15"}}
+          }
+        },
+        "lensed": {"kind": "op", "op": "apply", "featurizer": "fit.lens", "of": "run.h"},
+        "tl": {"kind": "op", "op": "readout", "of": "lensed"},
+        "kl": {"kind": "op", "op": "kl", "of": "tl", "against": "run.final", "reverse": true},
+        "mkl": {"kind": "op", "op": "mean", "of": "kl"}
+      }
+    },
+    "gain": {"kind": "op", "op": "sub", "of": "fit.held_out.mkl", "with": "ll_mkl"}
+  },
+  "saves": ["ll_mkl", "fit.held_out.mkl", "gain", "fit.history.mkl", "fit.lens"]
+}

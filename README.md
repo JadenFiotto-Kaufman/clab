@@ -115,7 +115,7 @@ Each technique has a page with documents that run:
 - [Ablation](docs/patterns/ablation.md): zero, mean, resample, noise and direction ablation.
 - [Expert ablation](docs/patterns/expert-ablation.md): knock out or force away one expert of a mixture of experts, and read its routing, usage and entropy.
 - [Attention](docs/patterns/attention.md): knock out a head or keys, patch a head's pattern, read queries and keys after RoPE.
-- [Logit lens](docs/patterns/logit-lens.md): decode every layer's residual stream in one forward.
+- [Logit lens](docs/patterns/logit-lens.md): decode every layer's residual stream in one forward, or train a tuned lens with a translator per layer.
 - [Steering](docs/patterns/steering.md): add a harvested direction at a dose, sweep the dose, keep it on through generation.
 - [Generation experiments](docs/patterns/generation-experiments.md): score what the model says, its confidence as it says it, and teacher-forced answers.
 - [Trained subspaces](docs/patterns/trained-subspaces.md): DAS and DBM, against PCA and random subspaces of matched rank.
@@ -146,7 +146,7 @@ It needs Python 3.10 or later; `uv sync` installs nnsight, nnterp, torch and the
 [ndif-team/nnterp](https://github.com/ndif-team/nnterp)'s `v2.0.0` branch, at the path `[tool.uv.sources]` in
 `pyproject.toml` names: point it at yours. The suite runs against nnterp commit
 `e5d0f8e755c6c04ce7c84eeab2832e2ef8dfce20`, the one CI checks out.
-A GPU is optional: the corpus under `documents/` (49 in all) runs on CPU
+A GPU is optional: the corpus under `documents/` (50 in all) runs on CPU
 on tiny random-weight checkpoints, and the six under `documents/real/` run Llama-3.2-1B, a gated checkpoint,
 and want one. The first run of a document downloads its checkpoint from the Hugging Face hub; after that,
 `HF_HUB_OFFLINE=1` runs it from the local cache.

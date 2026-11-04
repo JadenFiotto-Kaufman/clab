@@ -1,0 +1,376 @@
+{
+ "description": "A tuned lens on the tiny GPT-2 (5 layers, width 32): one affine translator `h + h W + b` per layer for layers 0 to 3, every layer but the last, all four in one featurizer over the layers axis (`over: [\"layers\"]`, `W` `[4, 32, 32]` and `b` `[4, 32]`, both zero at the draw), so each minibatch's one forward trains every layer's translator. The lens only reads: in the fit's body `apply` and `readout` are op steps over the read of `layer_output`, which leave the forward as it is, and each translated layer goes through the model's own final norm and head. Its objective is KL(final ‖ lens), the model's own next-token distribution scored against each layer's, written as `kl` of the lens (the side with the `layers` axis) with `reverse: true`. The logit lens (no translator) is scored on the held-out rows the same way, at the same 15 positions every row has, and `gain` is the tuned lens's held-out mean KL less the logit lens's, at each layer: exactly 0 at `epochs: 0`, where every translator is the identity, and below 0 once it trains. The model is random, so the numbers demonstrate the mechanics and nothing about what a lens learns.",
+ "model": {
+  "key": "hf-internal-testing/tiny-random-gpt2",
+  "revision": "71034c5d8bde858ff824298bdedc65515b97d2b9"
+ },
+ "data": {
+  "train": {
+   "path": "weekdays_full/data",
+   "split": "train",
+   "take": 8,
+   "sha256": "1231dec90c000d1acbddb980c446031da7e668685a203f8b09b1a89c9ee8758a",
+   "n_rows": 8
+  },
+  "test": {
+   "path": "weekdays_full/data",
+   "split": "test",
+   "take": 4,
+   "sha256": "dfafb3551649ff7e4451fb60796bbd02fe43ef1b2a64175d9bbbc3a78345e631",
+   "n_rows": 4
+  }
+ },
+ "featurizers": {
+  "lens": {
+   "kind": "affine",
+   "over": [
+    "layers"
+   ]
+  }
+ },
+ "steps": {
+  "lfw": {
+   "kind": "forward",
+   "input": "test.input",
+   "interventions": {
+    "ll": {
+     "site": {
+      "component": "layer_output",
+      "layers": "0:4"
+     },
+     "pos": {
+      "index": "0:15"
+     },
+     "ops": [
+      {
+       "op": "readout",
+       "dims": [
+        "rows",
+        "pos",
+        "vocab_size"
+       ]
+      }
+     ],
+     "dims": [
+      "layers",
+      "rows",
+      "pos",
+      "vocab_size"
+     ],
+     "dataset": "test",
+     "layers": [],
+     "read": "lfw.ll",
+     "width": 15,
+     "gathered": true
+    },
+    "final": {
+     "site": {
+      "component": "logits"
+     },
+     "pos": {
+      "index": "0:15"
+     },
+     "dims": [
+      "rows",
+      "pos",
+      "vocab_size"
+     ],
+     "dataset": "test",
+     "read": "lfw.final",
+     "width": 15,
+     "gathered": true
+    }
+   },
+   "dataset": "test",
+   "schedule": {
+    "axes": []
+   }
+  },
+  "ll_kl": {
+   "kind": "op",
+   "op": "kl",
+   "of": "lfw.ll",
+   "against": "lfw.final",
+   "reverse": true,
+   "dims": [
+    "layers",
+    "rows",
+    "pos"
+   ],
+   "dataset": "test",
+   "layers": [],
+   "read": "lfw.ll",
+   "width": 15
+  },
+  "ll_mkl": {
+   "kind": "op",
+   "op": "mean",
+   "of": "ll_kl",
+   "dims": [
+    "layers"
+   ],
+   "dataset": "test",
+   "layers": [],
+   "read": "lfw.ll"
+  },
+  "fit": {
+   "kind": "fit",
+   "train": [
+    "lens"
+   ],
+   "objective": {
+    "kl": 1.0
+   },
+   "epochs": 2,
+   "batch_size": 2,
+   "seed": 0,
+   "optimizer": {
+    "name": "adam",
+    "lr": 0.01
+   },
+   "steps": {
+    "run": {
+     "kind": "forward",
+     "input": "train.input",
+     "interventions": {
+      "h": {
+       "site": {
+        "component": "layer_output",
+        "layers": "0:4"
+       },
+       "pos": {
+        "index": "0:15"
+       },
+       "dims": [
+        "layers",
+        "rows",
+        "pos",
+        "hidden_size"
+       ],
+       "dataset": "train",
+       "layers": [],
+       "read": "run.h",
+       "width": 15,
+       "gathered": true
+      },
+      "final": {
+       "site": {
+        "component": "logits"
+       },
+       "pos": {
+        "index": "0:15"
+       },
+       "dims": [
+        "rows",
+        "pos",
+        "vocab_size"
+       ],
+       "dataset": "train",
+       "read": "run.final",
+       "width": 15,
+       "gathered": true
+      }
+     },
+     "dataset": "train",
+     "schedule": {
+      "axes": []
+     }
+    },
+    "lensed": {
+     "kind": "op",
+     "op": "apply",
+     "of": "run.h",
+     "featurizer": "fit.lens",
+     "dims": [
+      "layers",
+      "rows",
+      "pos",
+      "hidden_size"
+     ],
+     "dataset": "train",
+     "layers": [],
+     "read": "run.h",
+     "width": 15
+    },
+    "tl": {
+     "kind": "op",
+     "op": "readout",
+     "of": "lensed",
+     "dims": [
+      "layers",
+      "rows",
+      "pos",
+      "vocab_size"
+     ],
+     "dataset": "train",
+     "layers": [],
+     "read": "run.h",
+     "width": 15
+    },
+    "kl": {
+     "kind": "op",
+     "op": "kl",
+     "of": "tl",
+     "against": "run.final",
+     "reverse": true,
+     "dims": [
+      "layers",
+      "rows",
+      "pos"
+     ],
+     "dataset": "train",
+     "layers": [],
+     "read": "run.h",
+     "width": 15
+    },
+    "mkl": {
+     "kind": "op",
+     "op": "mean",
+     "of": "kl",
+     "dims": [
+      "layers"
+     ],
+     "dataset": "train",
+     "layers": [],
+     "read": "run.h"
+    }
+   },
+   "eval": {
+    "held_out": {
+     "train": "test"
+    }
+   },
+   "evals": {
+    "held_out": {
+     "run": {
+      "kind": "forward",
+      "input": "test.input",
+      "interventions": {
+       "h": {
+        "site": {
+         "component": "layer_output",
+         "layers": "0:4"
+        },
+        "pos": {
+         "index": "0:15"
+        },
+        "dims": [
+         "layers",
+         "rows",
+         "pos",
+         "hidden_size"
+        ],
+        "dataset": "test",
+        "layers": [],
+        "read": "fit.held_out.run.h",
+        "width": 15,
+        "gathered": true
+       },
+       "final": {
+        "site": {
+         "component": "logits"
+        },
+        "pos": {
+         "index": "0:15"
+        },
+        "dims": [
+         "rows",
+         "pos",
+         "vocab_size"
+        ],
+        "dataset": "test",
+        "read": "fit.held_out.run.final",
+        "width": 15,
+        "gathered": true
+       }
+      },
+      "dataset": "test",
+      "schedule": {
+       "axes": []
+      },
+      "batch_size": 2
+     },
+     "lensed": {
+      "kind": "op",
+      "op": "apply",
+      "of": "fit.held_out.run.h",
+      "featurizer": "fit.lens",
+      "dims": [
+       "layers",
+       "rows",
+       "pos",
+       "hidden_size"
+      ],
+      "dataset": "test",
+      "layers": [],
+      "read": "fit.held_out.run.h",
+      "width": 15
+     },
+     "tl": {
+      "kind": "op",
+      "op": "readout",
+      "of": "fit.held_out.lensed",
+      "dims": [
+       "layers",
+       "rows",
+       "pos",
+       "vocab_size"
+      ],
+      "dataset": "test",
+      "layers": [],
+      "read": "fit.held_out.run.h",
+      "width": 15
+     },
+     "kl": {
+      "kind": "op",
+      "op": "kl",
+      "of": "fit.held_out.tl",
+      "against": "fit.held_out.run.final",
+      "reverse": true,
+      "dims": [
+       "layers",
+       "rows",
+       "pos"
+      ],
+      "dataset": "test",
+      "layers": [],
+      "read": "fit.held_out.run.h",
+      "width": 15
+     },
+     "mkl": {
+      "kind": "op",
+      "op": "mean",
+      "of": "fit.held_out.kl",
+      "dims": [
+       "layers"
+      ],
+      "dataset": "test",
+      "layers": [],
+      "read": "fit.held_out.run.h"
+     }
+    }
+   }
+  },
+  "gain": {
+   "kind": "op",
+   "op": "sub",
+   "of": "fit.held_out.mkl",
+   "with": "ll_mkl",
+   "dims": [
+    "layers"
+   ],
+   "dataset": "test",
+   "layers": [],
+   "read": "fit.held_out.run.h"
+  }
+ },
+ "saves": [
+  "ll_mkl",
+  "fit.held_out.mkl",
+  "gain",
+  "fit.history.mkl",
+  "fit.lens"
+ ],
+ "document": "documents/tuned_lens.json",
+ "compiled": true
+}

@@ -54,7 +54,8 @@ REAL = sorted(f"real/{os.path.splitext(n)[0]}" for n in os.listdir(os.path.join(
               if n.endswith(".json"))
 # Documents that train or load a featurizer, pinned in test_fit.py.
 FIT = ["das", "das_apply", "dbm", "head_gates", "lora_apply", "lora_train", "pca_control", "random_subspace",
-       "sae_feature_ablation", "sae_published_jumprelu", "sae_published_topk", "sae_train", "sae_train_ablation"]
+       "sae_feature_ablation", "sae_published_jumprelu", "sae_published_topk", "sae_train", "sae_train_ablation",
+       "tuned_lens"]
 GENERATE = ["generate_probe", "generated_answer", "generated_confidence", "generated_contains", "generated_steer"]
 FORWARD = [n for n in NAMES if n not in FIT and n not in GENERATE]
 # The documents the hooks engine refuses by name: the engines differ only where nnterp reads a value inside a module's

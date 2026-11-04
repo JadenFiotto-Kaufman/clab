@@ -132,7 +132,7 @@ With `over: ["layers"]` it holds one map per layer of its site's selection, `W` 
 "sites": {"resid": {"component": "layer_output", "layers": "0:4"}}
 ```
 
-`over` names `layers` alone, and other axes are refused (`over: ['num_heads']: an 'affine' is over ['layers'] or nothing, …`), since a map is a matrix over the last axis. The site picks several layers, and every use selects the same ones, in any order, since each layer's map is taken by its id. The bundle's header records `over` and the layers, so a document that loads it may leave `over` out, applies it at any of those layers by id, and is refused at a layer the header does not name. Like any `apply`, inside an entry it writes, and the layers after it see the mapped value; to read a layer through it and leave the forward as it is, make it an `apply` step over a read.
+`over` names `layers` alone, and other axes are refused (`over: ['num_heads']: an 'affine' is over ['layers'] or nothing, …`), since a map is a matrix over the last axis. The site picks several layers, and every use selects the same ones, in any order, since each layer's map is taken by its id. The bundle's header records `over` and the layers, so a document that loads it may leave `over` out, applies it at any of those layers by id, and is refused at a layer the header does not name. Like any `apply`, inside an entry it writes, and the layers after it see the mapped value; to read a layer through it and leave the forward as it is, make it an `apply` step over a read, as a [tuned lens](../patterns/logit-lens.md#a-tuned-lens) does.
 
 ## Drawn, trained or loaded
 

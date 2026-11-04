@@ -22,7 +22,7 @@ One technique per page, each built on a document under `documents/`; the usage p
 
 ## Reading, steering and generation
 
-- [logit-lens](logit-lens.md) — The logit lens in one forward: readout over a layers selector, a kl check against the model's logits, kl between lenses aligned by layer label, and top_k to see what each layer would say.
+- [logit-lens](logit-lens.md) — The logit lens in one forward: readout over a layers selector, a kl check against the model's logits, kl between lenses aligned by layer label, top_k to see what each layer would say, and a tuned lens with a trained affine translator per layer.
 - [steering](steering.md) — Steering with a direction: harvest a mean difference, add it at a dose beside a matched random direction, sweep the dose, renormalize, clamp, and keep the write on through every generated token.
 - [generation-experiments](generation-experiments.md) — Scoring what the model says: generated answers, confidence before the answer, contains over decoded text, forced answers by teacher forcing, answer spellings, and positions inside chat turns.
 

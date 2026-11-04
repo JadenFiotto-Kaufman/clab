@@ -100,9 +100,14 @@ def distribution(args: dict) -> None:
 
 
 @op("metrics", needs=(VOCABULARY,), removes=VOCABULARY, check=distribution)
-def kl(of: Tensor, against: Value) -> Tensor:
-    """KL(of ‖ against) between the two next-token distributions, in nats."""
+def kl(of: Tensor, against: Value, reverse: bool = False) -> Tensor:
+    """KL(of ‖ against) between the two next-token distributions, in nats; with `reverse`, KL(against ‖ of). An
+    operand may leave out an axis the value has and not carry one it lacks, so the side with a `layers` axis (a
+    lens against the model's logits), or the side an entry holds, is `of`; `reverse` sets the direction apart
+    from that."""
     p, q = of.float().log_softmax(-1), against.to(of.device).float().log_softmax(-1)
+    if reverse:
+        p, q = q, p
     return (p.exp() * (p - q)).sum(-1)
 
 
