@@ -8,13 +8,14 @@ from collections.abc import Callable, Mapping
 from typing import Any, cast
 
 from clab import featurizers, ops
+from clab.featurizers import bundles
 from clab.compile import positions
 from clab.compile.answers import check_column_ref, check_text_ref, is_literal
 from clab.compile.state import Compiling
 from clab.format import address, data, registry, selectors
 from clab.format.sweeps import points
-from clab.plan import (Intervention, Labelled, Load, Op, OpStep, Plan, arguments, fail, kind_of, member_of, produced,
-                       record_of, top_k_members, top_k_of, trained_featurizers)
+from clab.plan import (Featurizer, Intervention, Labelled, Load, Op, OpStep, Plan, arguments, fail, kind_of, member_of,
+                       produced, record_of, top_k_members, top_k_of, trained_featurizers)
 
 
 def narrowed_readout_refusal(what: str) -> str:
@@ -200,13 +201,17 @@ def whole_top_k(cx: Compiling, ref: str, record: Labelled, at: dict[str, int], t
     return f"{ref!r} is a top_k's value, several tensors ({several(top)}), and {takes} takes one: {fix}"
 
 
-def k_past(name: str, args: dict, met: Labelled, sizes: dict[str, int] | None, classes: list | None) -> str | None:
+def k_past(name: str, args: dict, met: Labelled, sizes: dict[str, int] | None,
+           known: dict[str, tuple[int, str]]) -> str | None:
     """Why a `top_k`'s `k` (op `name`'s arguments `args`) cannot pick among the entries of the axes it ranks on the
-    value it meets, labelled `met`: more than there are, where their number is static. Compile knows a `select`'s
-    indices, the layers, a static width of `pos` and a probe's `classes`; preflight besides the model's sizes
-    (`sizes`, None at compile) and a width the rows confirm. Along a ragged axis (`transforms.RAGGED`: a `pos` whose
-    rows differ, the keys) there is no one number, and a pick past what is there is id -1. A `k` below 1, which picks
-    nothing, the document alone refuses. None where `k` fits."""
+    value it meets, labelled `met`: below 1, which picks nothing, or more than there are, where their number is
+    static. From the record: a `select`'s indices, the layers (at compile those written from the first, in preflight
+    every pick), a width of `pos` (at compile a static one, in preflight one the rows confirm); from `known`, by axis
+    with what says so, what the caller knows (at compile `known_counts`: the rows, a probe's classes, a featurizer's
+    coordinates, an earlier top_k's picks; in preflight a probe's classes); and in preflight the model's sizes
+    (`sizes`, None at compile). Along a ragged axis (`transforms.RAGGED`: a `pos` whose rows differ, the keys) there is
+    no one number, and a pick past what is there is id -1. None where `k` fits, or where an axis's number is known to
+    neither stage (a gate's coordinates, a generation's `new`, a fit's `epochs`, a load's `k`)."""
     if name != "top_k" or not isinstance(args.get("k"), int):
         return None
     if args["k"] < 1:
@@ -223,8 +228,8 @@ def k_past(name: str, args: dict, met: Labelled, sizes: dict[str, int] | None, c
             counts.append((axis, len(met.layers), "the value's"))
         elif axis == "pos" and met.width is not None:
             counts.append((axis, met.width, "each row's"))
-        elif axis == "classes" and classes is not None:
-            counts.append((axis, len(classes), "the probe's"))
+        elif axis in known:
+            counts.append((axis, *known[axis]))
         elif sizes is not None and axis in sizes and axis not in ops.transforms.RAGGED:
             counts.append((axis, sizes[axis], "the model's"))
         else:
@@ -233,17 +238,60 @@ def k_past(name: str, args: dict, met: Labelled, sizes: dict[str, int] | None, c
     if args["k"] <= n:
         return None
     held = " by ".join(f"{c} along {axis} ({why})" for axis, c, why in counts)
-    return f"k {args['k']} is more than the {n} entries it ranks, {held}, each of which it picks once: k is at most {n}"
+    return (f"k {args['k']} is more than the {n} entr{'y' if n == 1 else 'ies'} it ranks, {held}, each of which it "
+            f"picks once: k is at most {n}")
 
 
-def probe_classes(cx: Compiling, record: Labelled) -> list | None:
-    """The class list of the probe a value's `classes` axis is of (the last encode left open around it), at compile;
-    None for a value with no `classes` axis."""
-    if "classes" not in (record.dims or []) or not record.space:
+def known_counts(cx: Compiling, record: Labelled, ref: str | None = None,
+                 at: dict[str, int] | None = None) -> dict[str, tuple[int, str]]:
+    """What compile knows of how many entries the value `ref` names (or an entry's, labelled `record`) holds along the
+    axes `k_past` takes from the caller, each with what says so: its dataset's rows (in a fit's body a run's rows are
+    fewer, which `compile_fit` holds a `top_k` to); the classes of the probe its `classes` axis is of (the last encode
+    left open around it); the coordinates of the featurizer its `features` are in, as its field or bundle counts them
+    (`coordinates_of`), as many as that encode's `select` keeps; and the picks of the `top_k` step whose member it is,
+    or descends from through op steps, along `k`."""
+    dims, out = record.dims or [], {}
+    if "rows" in dims and record.dataset in cx.rows:
+        out["rows"] = (len(cx.rows[cast(str, record.dataset)]), "the dataset's")
+    if record.space and ("classes" in dims or "features" in dims):
+        ref_f = record.space[-1]["featurizer"]
+        spec = points(cx.featurizers[ref_f if ref_f in cx.featurizers else ref_f.partition(".")[2]])[0]
+        if "classes" in dims:
+            out["classes"] = (len(featurizers.labels(cx.rows, (spec.model_extra or {})["classes"])), "the probe's")
+        elif (n := coordinates_of(cx, spec)) is not None:
+            select = record.space[-1].get("select")
+            out["features"] = (len(selectors.select(select["features"], n)), "those its encode's select keeps") \
+                if select else (n, f"the {spec.kind}'s coordinates")
+    if "k" in dims and ref is not None and at is not None and (k := picks_of(cx, ref, at)) is not None:
+        out["k"] = (k, "the picks of the top_k it ranks")
+    return out
+
+
+def coordinates_of(cx: Compiling, spec: Featurizer) -> int | None:
+    """How many coordinates featurizer `spec` (a compiled record) encodes into, where compile knows: the field of its
+    kind that counts them (`Kind.counts`, else one it is drawn from: a subspace's or a pca's `k`, an sae's
+    `latents`), written or recorded by its bundle's header, else what its bundle's tensors hold (a published sae's);
+    None for a drawn featurizer with no such field (a gate's, as wide as its site)."""
+    kind, fields = featurizers.KINDS[spec.kind], spec.model_extra or {}
+    for key in dict.fromkeys((*kind.counts, *kind.drawn)):
+        given = fields.get(key)
+        if given is None and spec.header is not None and key in spec.header:
+            given = bundles.value(spec.header[key])
+        if isinstance(given, int) and not isinstance(given, bool):
+            return given
+    if spec.bundle is None:
         return None
-    ref = record.space[-1]["featurizer"]
-    spec = points(cx.featurizers[ref if ref in cx.featurizers else ref.partition(".")[2]])[0]
-    return featurizers.labels(cx.rows, (spec.model_extra or {})["classes"])
+    labels = featurizers.labels(cx.rows, fields["classes"]) if "classes" in fields else None
+    return featurizers.make(spec.kind, fields, kind.width(spec.bundle), spec.bundle, None, labels, spec.header).size()
+
+
+def picks_of(cx: Compiling, ref: str, at: dict[str, int]) -> int | None:
+    """The `k` of the `top_k` step whose member value `ref` is, or descends from through op steps; None for any other
+    value (a load's `k` axis, whose top_k ran in another run)."""
+    if (found := member_of(cx.steps, ref, at)) is not None:
+        return arguments(found[0])["k"]
+    record = record_of(cx.steps, ref, at)
+    return picks_of(cx, record.of, record.at) if isinstance(record, OpStep) and "k" in (record.dims or []) else None
 
 
 def check_featurizer_ref(cx: Compiling, value: object, path: str) -> None:

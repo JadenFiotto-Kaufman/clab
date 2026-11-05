@@ -816,13 +816,49 @@ PICKS = r", each of which it picks once: k is at most "
                                                   r"more$"),
     (ranked_past(NARROW, {}, [{"op": "top_k", "k": -1}]),
      r"^steps\.clean\.interventions\.r\.ops\[0\]\.k: k -1: a top_k picks at least one entry, so k is 1 or more$"),
-], ids=["select", "select-in-an-entry", "layers", "static-width", "classes", "zero", "negative"])
+    (ranked_past({"site": LAYER0, "pos": -1}, {"t": {**TOP, "k": 5, "over": ["rows"]}}),
+     rf"^steps\.t\.k: k 5 is more than the 4 entries it ranks, 4 along rows \(the dataset's\){PICKS}4$"),
+    (ranked_past({"site": LAYER0, "pos": -1}, {"t": {**TOP, "k": 5, "over": "features"}},
+                 [{"op": "encode", "featurizer": "rot"}], {"rot": {"kind": "subspace", "k": 4}}),
+     rf"^steps\.t\.k: k 5 is more than the 4 entries it ranks, 4 along features \(the subspace's coordinates\)"
+     rf"{PICKS}4$"),
+    (ranked_past({"site": LAYER0, "pos": -1}, {}, [{"op": "encode", "featurizer": "s", "select": {"features": [0, 1]}},
+                                                    {"op": "top_k", "k": 3, "over": "features"}],
+                 {"s": {"kind": "sae", "latents": 8}}),
+     rf"^steps\.clean\.interventions\.r\.ops\[1\]\.k: k 3 is more than the 2 entries it ranks, 2 along features "
+     rf"\(those its encode's select keeps\){PICKS}2$"),
+    (ranked_past({"site": {"component": "logits"}, "pos": -1},
+                 {"t": {**TOP, "k": 3}, "a": {"kind": "op", "op": "abs", "of": "t.probs"},
+                  "u": {"kind": "op", "op": "top_k", "of": "a", "k": 5, "over": "k"}}),
+     rf"^steps\.u\.k: k 5 is more than the 3 entries it ranks, 3 along k \(the picks of the top_k it ranks\){PICKS}3$"),
+], ids=["select", "select-in-an-entry", "layers", "static-width", "classes", "zero", "negative", "rows", "features",
+        "selected-features", "a-top_k's-k"])
 def test_a_top_k_past_a_static_axis_the_document_sizes_is_refused_at_compile(change, message):
     """A `k` past the entries of an axis whose size the document fixes, a `select`'s indices, the layers it picks, a
     static width, a probe's classes, failed at the run with torch's own error: refused at compile, naming the axis
-    and the most `k` can be; and so is a `k` of 0 or below, which picks nothing, on a step and in an entry."""
+    and the most `k` can be: also the dataset's rows, a featurizer's coordinates (as many as an encode's `select`
+    keeps), an earlier `top_k`'s `k` through an op step over its member; and so is a `k` of 0 or below, which picks
+    nothing, on a step and in an entry."""
     with pytest.raises(PlanError, match=message):
         edited("readout", change).compile()
+
+
+@pytest.mark.parametrize("batch_size, refused", [(1, True), (2, False), (3, False)])
+def test_a_top_k_over_rows_in_a_fits_body_is_held_to_the_rows_its_fewest_row_run_holds(batch_size, refused):
+    """das.json's body runs over minibatches of its 2 training rows and once over both: a `top_k` over rows there
+    ranks each run's rows, so `k` 2 fits minibatches of 2 or more and is refused at compile, naming the bound, where
+    every minibatch holds one."""
+    def change(d):
+        d["steps"]["fit"]["batch_size"] = batch_size
+        d["steps"]["fit"]["steps"]["t"] = {"kind": "op", "op": "top_k", "of": "patched.logits", "k": 2, "over": "rows"}
+    plan = edited("das", change)
+    if not refused:
+        plan.compile()
+        return
+    with pytest.raises(PlanError, match=r"^steps\.fit\.steps\.t\.k: k 2 is more than the 1 entry it ranks, 1 along rows "
+                                        r"\(those the fewest-row run of the body holds, of 2 rows in minibatches of 1\), "
+                                        r"each of which it picks once: k is at most 1$"):
+        plan.compile()
 
 
 @pytest.mark.parametrize("change, message", [

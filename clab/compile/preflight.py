@@ -210,12 +210,13 @@ def prepare(engine: Engine, plan: Plan, steps: dict, classes: dict[str, list], f
                 check_last_only(engine, name, step, findings)
 
 
-def probe_of(plan: Plan, record: Labelled, classes: dict[str, list]) -> list | None:
-    """The class list of the probe a value's `classes` axis is of (the last encode left open around it), among
-    `classes` by declared featurizer; None for a value with no `classes` axis."""
+def probe_of(plan: Plan, record: Labelled, classes: dict[str, list]) -> dict[str, tuple[int, str]]:
+    """How many classes the probe a value's `classes` axis is of holds (the last encode left open around it), among
+    `classes` by declared featurizer, as `arguments.k_past` takes it; none for a value with no `classes` axis."""
     if "classes" not in (record.dims or []) or not record.space:
-        return None
-    return classes.get(declared(plan, record.space[-1]["featurizer"]))
+        return {}
+    held = classes.get(declared(plan, record.space[-1]["featurizer"]))
+    return {} if held is None else {"classes": (len(held), "the probe's")}
 
 
 def check_last_only(engine: Engine, name: str, step: Forward, findings: Findings) -> None:

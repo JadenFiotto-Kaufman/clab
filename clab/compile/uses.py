@@ -118,14 +118,6 @@ def over_of(f: Featurizer) -> list[str] | None:
     return given if given is not None or f.header is None or "over" not in f.header else json.loads(f.header["over"])
 
 
-def header_value(text: str) -> Any:
-    """A header field's value as a draw takes it: the JSON it holds (`8`, `true`, a list), else the text (`relu`)."""
-    try:
-        return json.loads(text)
-    except ValueError:
-        return text
-
-
 def check_bundle_shapes(plan: Plan) -> None:
     """A loaded clab bundle's tensors have the shapes one drawn from its header has, every kind's: drawn at the
     header's `width` from the kind's fields it records (a subspace's `k`, an sae's `latents`, a lora's `rank`, a probe's
@@ -143,7 +135,7 @@ def check_bundle_shapes(plan: Plan) -> None:
             kind, over, width = KINDS[f.kind], over_of(f), f.header["width"]
             if any(k in kind.header and k not in f.header for k in kind.drawn):
                 continue
-            fields = {k: header_value(f.header[k]) for k in kind.header if k in f.header and k != "classes"}
+            fields = {k: bundles.value(f.header[k]) for k in kind.header if k in f.header and k != "classes"}
             fields.update({k: 0 for k in kind.drawn if k not in kind.header})     # a constant's init: any number
             taken = registry.signature(kind).parameters
             fields.update({"over": over} if "over" in taken else {}, **{k: (f.model_extra or {})[k] for k in
@@ -151,7 +143,7 @@ def check_bundle_shapes(plan: Plan) -> None:
             keys = {axis: "layer" if axis == "layers" else f"kept.{axis}" for axis in over or []}
             recorded = [bundles.recorded(f.header.get("layer")) if axis == "layers" else
                         json.loads(f.header.get(key) or "[]") for axis, key in keys.items()]
-            classes = header_value(f.header["classes"]) if "classes" in f.header else None
+            classes = bundles.value(f.header["classes"]) if "classes" in f.header else None
             with torch.device("meta"):
                 drawn = make(f.kind, fields, int(width), None, None, classes, device="meta",
                              kept=cast("dict[str, list[int]]", dict(zip(over or [], recorded))) if over else None)

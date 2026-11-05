@@ -28,7 +28,7 @@ from typing import Any, Callable, cast
 from clab import featurizers, ops
 from clab.compile.answers import check_column_ref
 from clab.compile.arguments import (featurizer_kind, kept_labels, layout, mismatch, narrowed_readout_refusal,
-                                    k_past, probe_classes, references, resolver, space_of, value_record,
+                                    k_past, known_counts, references, resolver, space_of, value_record,
                                     whole_top_k)
 from clab.compile.interventions import bundles_of, compile_entry, entries_with_paths
 from clab.compile.schedule import share_forwards
@@ -495,7 +495,7 @@ def compile_op(cx: Compiling, path: str, name: str, spec: OpStep, plan: Plan, at
     of, args = value_record(cx, spec.of, f"{path}.of", at), arguments(spec)
     if spec.op != "permute" and (why := whole_top_k(cx, spec.of, of, at, repr(spec.op))):    # permute's own, below
         fail(f"{path}.of", why)
-    if why := k_past(spec.op, args, of, None, probe_classes(cx, of)):
+    if why := k_past(spec.op, args, of, None, known_counts(cx, of, spec.of, at)):
         fail(f"{path}.k", why)
     text = isinstance(of, OpStep) and of.op == "detokenize" and not arguments(of).get("tokens")
     if spec.op == "contains" and not text:
@@ -803,6 +803,17 @@ def compile_fit(cx: Compiling, path: str, name: str, spec: Fit, plan: Plan, at: 
             fail(f"{path}.steps.{n}", f"a derangement moves every row to another, and over {total} rows in minibatches "
                  f"of {size} {'every minibatch' if size == 1 else 'the last of each epoch'} holds one row: give the "
                  "fit a batch_size that leaves every minibatch two rows or more")
+    # A top_k over rows ranks the rows of each run of the body: a minibatch, the last of each epoch the fewest, and the
+    # run that scores every training row.
+    fewest = (total % size or size) if spec.epochs else total
+    for n, s in body.items():
+        over = arguments(s).get("over") if isinstance(s, OpStep) and s.op == "top_k" else None
+        if over == "rows" or isinstance(over, list) and "rows" in over:
+            assert isinstance(s, OpStep)
+            of = record_of(within.steps, s.of, at)
+            held = (fewest, f"those the fewest-row run of the body holds, of {total} rows in minibatches of {size}")
+            if why := k_past(s.op, arguments(s), of, None, {**known_counts(within, of, s.of, at), "rows": held}):
+                fail(f"{path}.steps.{n}.k", why)
     # The rows a minibatch's ids are: of the datasets the body's forwards read, or, with none, its first harvest's.
     rows = {s.dataset for s in body.values() if s.kind != "op"} or \
         {record_of(cx.steps, r, at).dataset for r in list(harvests)[:1]}
