@@ -1164,6 +1164,7 @@ def test_a_per_call_metric_over_151936_tokens_is_the_whole_logits_metric(engines
     ([{"op": "argmax"}, {"op": "eq", "with": 4598}], 2),
     ([{"op": "max", "over": ["vocab_size"]}, {"op": "div", "with": 2.0}, {"op": "log"}], 3),
     ([{"op": "max", "over": ["vocab_size"]}, {"op": "div", "with": 2.0}, {"op": "pow", "exponent": 1.7}], 2),
+    ([{"op": "median", "over": ["vocab_size"]}, {"op": "sqrt"}], 2),
     ([{"op": "mean", "over": ["pos"]}], 0),
     ([{"op": "count"}], 0),
     ([{"op": "kl", "against": "ref"}], 0),

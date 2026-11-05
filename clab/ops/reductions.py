@@ -92,6 +92,25 @@ def std(of: Tensor, dims: list[str], over: list[str] | None = None) -> Tensor:
     return (spread / (n - 1)).sqrt().masked_fill(n < 2, math.nan)
 
 
+@op("reductions", layout=reduced, positionwise=True)
+def median(of: Tensor, dims: list[str], over: list[str] | None = None) -> Tensor:
+    """The median over the axes `over` names, as `mean` takes them, of the n values that are there: the middle one
+    of them sorted, and for an even n the mean of the two middle ones, as numpy's `median` has it (torch's is the
+    lower of the two); NaN where none is. A sort and a gather in float32, float32 out whatever the value's dtype, so
+    a bfloat16 value's two middle ones are averaged in float32 (numpy's on that float32 copy, not in bfloat16). A
+    zero comes out +0.0, as numpy gives it, by adding 0.0, which leaves every other value as it is; so the sort's
+    order among -0.0 and 0.0 changes no bit, and the bits are the same on every device."""
+    of, axes = floated(of), [i for i, a in enumerate(dims) if a in (DEFAULT if over is None else over)]
+    rest = [i for i in range(of.dim()) if i not in axes]
+    flat = of.permute(*rest, *axes).flatten(len(rest))         # the axes it is over, as one last axis
+    if flat.shape[-1] == 0:                                    # nothing at all: missing, as sum and mean have it
+        return flat.new_full(flat.shape[:-1], math.nan)
+    ordered = flat.sort(dim=-1, stable=True).values           # NaN sorts last, after the n values there
+    n = (~flat.isnan()).sum(-1, keepdim=True)
+    low, high = ordered.gather(-1, ((n - 1) // 2).clamp(min=0)), ordered.gather(-1, n // 2)
+    return torch.where(n % 2 == 1, low, (low + high) / 2).squeeze(-1) + 0.0     # -0.0 + 0.0 is 0.0
+
+
 # What `count` counts along unless `over` names other axes: the positions.
 COUNTED = ("pos",)
 

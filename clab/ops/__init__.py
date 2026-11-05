@@ -250,8 +250,8 @@ from clab.ops import edits, metrics, reductions, transforms  # noqa: E402
 OPS.update((fn.__name__, fn) for fn in [
     edits.swap, edits.add, edits.sub, edits.scale, edits.renormalize, edits.normalize, edits.project_out, edits.decode,
     edits.apply, edits.noise, edits.clamp, transforms.readout, transforms.encode, transforms.grad, reductions.mean,
-    reductions.sum, reductions.min, reductions.max, reductions.std, reductions.count, reductions.norm, reductions.dot,
-    reductions.entropy, reductions.pca, metrics.match, metrics.logit_diff, metrics.token_prob, metrics.token_logit,
+    reductions.sum, reductions.min, reductions.max, reductions.std, reductions.median, reductions.count,
+    reductions.norm, reductions.dot, reductions.entropy, reductions.pca, metrics.match, metrics.logit_diff, metrics.token_prob, metrics.token_logit,
     metrics.cross_entropy, metrics.contains, metrics.kl, metrics.js, transforms.top_k, transforms.argmax,
     transforms.detokenize, transforms.abs, transforms.exp, transforms.log, transforms.sign, transforms.sqrt,
     transforms.square, transforms.neg, transforms.mul, transforms.div, transforms.pow, transforms.eq, transforms.ne,

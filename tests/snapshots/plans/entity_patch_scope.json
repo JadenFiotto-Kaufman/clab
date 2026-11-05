@@ -1,0 +1,138 @@
+{
+ "description": "entity_patch.json on data/weekdays_aligned with each entity read over its whole scope, no `index`; that dataset names the counterfactual's entity `cf_entity`, so its scope is `pairs.cf_entity`. Every row's entity there, the base's and the counterfactual's, is one token, so the scope holds one position on every row, the width preflight confirms from the rows, and the read pairs with the other forward's write position by position. It lands where `'index': -1` would, and gives the same reads with `'index': -1` to the bit. On weekdays/train, where ' Thursday' is three tokens, entity_patch.json without its `index` is refused before any forward, naming the rows and their counts.",
+ "model": {
+  "key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
+  "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998"
+ },
+ "data": {
+  "pairs": {
+   "path": "weekdays_aligned/data",
+   "sha256": "37624f0e308a1ed7496ad05cbc4291cb11ec96a28d2a63d6ee5d87d9127e1e84",
+   "n_rows": 6
+  }
+ },
+ "steps": {
+  "counterfactual": {
+   "kind": "forward",
+   "input": "pairs.counterfactual_inputs[0]",
+   "interventions": {
+    "v_cf": {
+     "site": {
+      "component": "layer_output",
+      "layers": 0
+     },
+     "pos": {
+      "scope": {
+       "column": "pairs.cf_entity"
+      }
+     },
+     "dims": [
+      "rows",
+      "pos",
+      "hidden_size"
+     ],
+     "dataset": "pairs",
+     "layers": [
+      0
+     ],
+     "read": "counterfactual.v_cf",
+     "gathered": true
+    }
+   },
+   "dataset": "pairs",
+   "schedule": {
+    "axes": []
+   }
+  },
+  "patched": {
+   "kind": "forward",
+   "input": "pairs.input",
+   "interventions": {
+    "patch": {
+     "site": {
+      "component": "layer_output",
+      "layers": 0
+     },
+     "pos": {
+      "scope": {
+       "column": "pairs.entity"
+      }
+     },
+     "ops": [
+      {
+       "op": "swap",
+       "with": "counterfactual.v_cf",
+       "dims": [
+        "rows",
+        "pos",
+        "hidden_size"
+       ]
+      }
+     ],
+     "dims": [
+      "rows",
+      "pos",
+      "hidden_size"
+     ],
+     "dataset": "pairs",
+     "layers": [
+      0
+     ],
+     "read": "patched.patch"
+    },
+    "logits": {
+     "site": {
+      "component": "lm_head_output"
+     },
+     "pos": -1,
+     "dims": [
+      "rows",
+      "pos",
+      "vocab_size"
+     ],
+     "dataset": "pairs",
+     "read": "patched.logits",
+     "width": 1,
+     "gathered": true
+    }
+   },
+   "dataset": "pairs",
+   "schedule": {
+    "axes": []
+   }
+  },
+  "iia": {
+   "kind": "op",
+   "op": "match",
+   "of": "patched.logits",
+   "expected": "pairs.cf_answer",
+   "dims": [
+    "rows",
+    "pos"
+   ],
+   "dataset": "pairs",
+   "read": "patched.logits",
+   "width": 1
+  },
+  "logit_diff": {
+   "kind": "op",
+   "op": "logit_diff",
+   "of": "patched.logits",
+   "a": "pairs.cf_answer",
+   "b": "pairs.base_answer",
+   "dims": [
+    "rows",
+    "pos"
+   ],
+   "dataset": "pairs",
+   "read": "patched.logits",
+   "width": 1
+  }
+ },
+ "saves": [
+  "iia",
+  "logit_diff"
+ ],
+ "document": "documents/entity_patch_scope.json",
+ "compiled": true
+}
