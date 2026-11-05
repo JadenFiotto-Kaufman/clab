@@ -258,7 +258,7 @@ def known_counts(cx: Compiling, record: Labelled, ref: str | None = None,
         spec = points(cx.featurizers[ref_f if ref_f in cx.featurizers else ref_f.partition(".")[2]])[0]
         if "classes" in dims:
             out["classes"] = (len(featurizers.labels(cx.rows, (spec.model_extra or {})["classes"])), "the probe's")
-        elif (n := coordinates_of(cx, spec)) is not None:
+        elif (n := coordinates_of(spec)) is not None:
             select = record.space[-1].get("select")
             out["features"] = (len(selectors.select(select["features"], n)), "those its encode's select keeps") \
                 if select else (n, f"the {spec.kind}'s coordinates")
@@ -267,11 +267,12 @@ def known_counts(cx: Compiling, record: Labelled, ref: str | None = None,
     return out
 
 
-def coordinates_of(cx: Compiling, spec: Featurizer) -> int | None:
+def coordinates_of(spec: Featurizer) -> int | None:
     """How many coordinates featurizer `spec` (a compiled record) encodes into, where compile knows: the field of its
     kind that counts them (`Kind.counts`, else one it is drawn from: a subspace's or a pca's `k`, an sae's
-    `latents`), written or recorded by its bundle's header, else what its bundle's tensors hold (a published sae's);
-    None for a drawn featurizer with no such field (a gate's, as wide as its site)."""
+    `latents`), written or recorded by its bundle's header, else the last axis of the first tensor its bundle holds,
+    the encode's (a published sae's `W_enc`, `[width, latents]`); None for a drawn featurizer with no such field (a
+    gate's, as wide as its site)."""
     kind, fields = featurizers.KINDS[spec.kind], spec.model_extra or {}
     for key in dict.fromkeys((*kind.counts, *kind.drawn)):
         given = fields.get(key)
@@ -279,10 +280,7 @@ def coordinates_of(cx: Compiling, spec: Featurizer) -> int | None:
             given = bundles.value(spec.header[key])
         if isinstance(given, int) and not isinstance(given, bool):
             return given
-    if spec.bundle is None:
-        return None
-    labels = featurizers.labels(cx.rows, fields["classes"]) if "classes" in fields else None
-    return featurizers.make(spec.kind, fields, kind.width(spec.bundle), spec.bundle, None, labels, spec.header).size()
+    return None if spec.bundle is None else spec.bundle[kind.saves[0]].shape[-1]
 
 
 def picks_of(cx: Compiling, ref: str, at: dict[str, int]) -> int | None:

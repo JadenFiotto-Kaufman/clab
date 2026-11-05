@@ -1673,6 +1673,27 @@ def test_every_kinds_loaded_tensors_are_checked_against_a_draw_from_its_header(t
         Plan(os.path.join(root, "documents", f"{name}.json")).compile()
 
 
+@pytest.mark.parametrize("file, header, tensors, document, lacking", [
+    ("fit.dictionary", {"kind": "sae", "activation": "relu", "centered": "true", "document": "sae_train"},
+     {"W_enc": torch.zeros(16, 32), "b_enc": torch.zeros(32), "W_dec": torch.zeros(32, 16), "b_dec": torch.zeros(16, 2)},
+     "sae_train_ablation", "latents"),
+    ("g", {"kind": "gate"}, {"theta": torch.ones(5)}, None, "width"),
+])
+def test_a_clab_header_that_records_no_field_the_draw_needs_is_refused_at_compile(tmp_path, file, header, tensors,
+                                                                                 document, lacking):
+    """A clab bundle's header records every field a draw from it needs, its `width` and the kind's fields it is drawn
+    from (an sae's `latents`), which clab writes: a hand-made one without is refused at compile naming the file, the
+    field and the kind, where it was not checked and its wrong tensor (`b_dec` `[16, 2]`) met torch's error at the
+    run, or a gate's `theta` met another stage's refusal."""
+    root = corpus_copy(tmp_path)
+    plan = Plan(os.path.join(root, "documents", f"{document}.json")) if document else unit_gated(root, tensors["theta"])
+    meta = {k: v for k, v in bundle_header(**header).items() if k != lacking}
+    save_file(tensors, os.path.join(root, "documents", "artifacts", f"{file}.safetensors"), metadata=meta)
+    with pytest.raises(PlanError, match=rf"^featurizers\.\w+\.file_path: documents/artifacts/{re.escape(file)}"
+                                        rf"\.safetensors: header records no '{lacking}', which an? \w+ bundle records$"):
+        plan.compile()
+
+
 def pattern_gates(root: str) -> Plan:
     """The tiny Llama, eager, over weekdays/train (rows of 11, 9, 9 and 9 tokens) at the last position: the clean
     pattern at layer 0 and the logits; head 1's pattern knocked out by a `swap` with 0; the same head knocked out

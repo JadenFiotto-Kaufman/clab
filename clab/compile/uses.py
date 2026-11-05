@@ -125,16 +125,21 @@ def check_bundle_shapes(plan: Plan) -> None:
     and for a featurizer over axes at the indices it records (`layer`, `kept.<axis>`): a gate's `theta` as many units
     on each axis as it records indices there, or `[width]` on the last axis of its site's selection, an affine's `W`
     and `b` a map per layer at that width (`Kind.stacked`). The draw is made on the meta device, which holds no data,
-    and a refusal names the tensor and the `file_path`. A header that records no `width`, or none of a field the draw
-    needs that its kind records (a hand-made sae's `latents`), says nothing a draw could be made from, and a
-    published file has no header: its kind reads its shapes (`Kind.published`)."""
+    and a refusal names the tensor and the `file_path`. A header that records no `width`, or none of a field of its
+    kind's header the draw needs (one it is drawn from or that counts its coordinates: a subspace's or a pca's `k`, an
+    sae's `latents`, a lora's `rank` and `alpha`, a probe's `classes`), is refused by name, naming the file, the field
+    and the kind: clab writes every one. A published file has no header, and its kind reads its shapes
+    (`Kind.published`)."""
     for name, spec in plan.featurizers.items():
         for f in points(spec):
-            if f.bundle is None or f.header is None or "width" not in f.header:
+            if f.bundle is None or f.header is None:
                 continue
-            kind, over, width = KINDS[f.kind], over_of(f), f.header["width"]
-            if any(k in kind.header and k not in f.header for k in kind.drawn):
-                continue
+            kind, over, file = KINDS[f.kind], over_of(f), (f.model_extra or {})["file_path"]
+            needed = ["width", *(k for k in kind.header if k in (*kind.drawn, *kind.counts, "classes"))]
+            if (lacking := next((k for k in needed if k not in f.header), None)) is not None:
+                fail(f"featurizers.{name}.file_path", f"{file}: header records no {lacking!r}, which "
+                     f"{'an' if f.kind[0] in 'aeiou' else 'a'} {f.kind} bundle records")
+            width = f.header["width"]
             fields = {k: bundles.value(f.header[k]) for k in kind.header if k in f.header and k != "classes"}
             fields.update({k: 0 for k in kind.drawn if k not in kind.header})     # a constant's init: any number
             taken = registry.signature(kind).parameters
@@ -151,7 +156,7 @@ def check_bundle_shapes(plan: Plan) -> None:
                 shape, laid_out = list(f.bundle[tensor].shape), list(getattr(drawn, tensor).shape)
                 if shape == laid_out:
                     continue
-                file, a = (f.model_extra or {})["file_path"], "an" if f.kind[0] in "aeiou" else "a"
+                a = "an" if f.kind[0] in "aeiou" else "a"
                 if over is not None:
                     said = ", ".join(f"{key} {f.header.get(key)}" for key in keys.values()) + \
                         (f", width {width}" if kind.stacked else "")
