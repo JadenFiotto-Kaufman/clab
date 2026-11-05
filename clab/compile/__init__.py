@@ -360,7 +360,8 @@ def compile_step(cx: Compiling, path: str, name: str, spec: Entry, plan: Plan, a
     assert not isinstance(spec, list), "a point holds one step under each name"
     derived = set(type(spec).model_fields) - set(documented(type(spec)))     # compile writes them over what was set
     for key in sorted(spec.model_fields_set & derived):
-        fail(f"{path}.{key}", f"{key!r} is a derived field, which compile writes; a step sets none")
+        fail(f"{path}.{key}", ops.supplied(key) if spec.kind == "op" and key in ops.SUPPLIED else
+             f"{key!r} is a derived field, which compile writes; a step sets none")
     return {"forward": compile_forward, "generate": compile_forward, "op": compile_op, "fit": compile_fit,
             "load": compile_load}[spec.kind](cx, path, name, spec, plan, at)
 

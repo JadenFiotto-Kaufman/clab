@@ -111,15 +111,37 @@ def test_a_derived_field_a_step_sets_is_refused_by_name(name, path, field, value
 
 
 @pytest.mark.parametrize("field, value, where", [("positions", {"pairs": [[0]]}, ""), ("gathered", True, ""),
-                                                 ("width", 3, ""), ("dims", ["rows"], ".ops[0]")])
+                                                 ("width", 3, ""), ("space", [{"featurizer": "rot"}], ".ops[0]")])
 def test_a_derived_field_an_entry_or_its_op_sets_is_refused_by_name(field, value, where):
-    """An entry's derived fields (`positions`, `gathered`, `width`) and its ops' (`dims`) are compile's, as a step's
-    are, so a document's is refused by name at its path."""
+    """An entry's derived fields (`positions`, `gathered`, `width`) and its ops' (`space`) are compile's, as a step's
+    are, so a document's is refused by name at its path; an op's `dims`, which the run supplies too, is refused as
+    the run's (`test_an_op_argument_the_run_supplies_is_refused_as_the_runs`)."""
     def change(d):
         patch = d["steps"]["patched"]["interventions"]["patch"]
         (patch["ops"][0] if where else patch)[field] = value
     with pytest.raises(PlanError, match=rf"^steps\.patched\.interventions\.patch{re.escape(where)}\.{field}: "
                                         rf"'{field}' is a derived field, which compile writes; an entry sets none$"):
+        edited("patching", change).compile()
+
+
+@pytest.mark.parametrize("name, value, field", [("dims", ["pos"], True), ("layers", [0], True), ("rows", [0], False),
+                                               ("positions", [0], False), ("eos", [1], False)])
+@pytest.mark.parametrize("where", ["step", "entry"])
+def test_an_op_argument_the_run_supplies_is_refused_as_the_runs(name, value, field, where):
+    """Every name the run supplies an op (`ops.SUPPLIED`), given as an argument, is refused at compile by one message
+    that names it and says the run supplies it, on an op step and on an entry's op alike: `dims` reached the op as a
+    duplicate keyword, and `rows` was refused as an argument the op takes none of. The path ends at the argument
+    where the record holds it as a derived field (`dims`, a step's `layers`), at the op where it does not."""
+    def change(d):
+        if where == "step":
+            d["steps"]["m"] = {"kind": "op", "op": "mean", "of": "logit_diff", name: value}
+        else:
+            d["steps"]["patched"]["interventions"]["patch"]["ops"][0][name] = value
+    path = r"steps\.m" if where == "step" else r"steps\.patched\.interventions\.patch\.ops\[0\]"
+    held = field and (where == "step" or name == "dims")
+    with pytest.raises(PlanError, match=rf"^{path}{re.escape('.' + name) if held else ''}: '{name}' is no argument a "
+                                        rf"document gives: the run supplies it, {re.escape(ops.SUPPLIED[name])}; "
+                                        r"leave it out$"):
         edited("patching", change).compile()
 
 

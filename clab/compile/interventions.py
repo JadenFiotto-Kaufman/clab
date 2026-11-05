@@ -111,7 +111,8 @@ def compile_entry(cx: Compiling, path: str, spec: Intervention, plan: Plan, step
     `pos` and take no operand with a `pos` axis are counted into `per_call`, the ops the run applies at each call."""
     for written, record in [(path, spec)] + [(f"{path}.ops[{i}]", o) for i, o in enumerate(spec.ops)]:   # as written
         for key in sorted(record.model_fields_set & (set(type(record).model_fields) - set(documented(type(record))))):
-            fail(f"{written}.{key}", f"{key!r} is a derived field, which compile writes; an entry sets none")
+            fail(f"{written}.{key}", ops.supplied(key) if isinstance(record, Op) and key in ops.SUPPLIED else
+                 f"{key!r} is a derived field, which compile writes; an entry sets none")
     if isinstance(spec.site, Site):
         site = spec.site
     elif spec.site in plan.sites:
