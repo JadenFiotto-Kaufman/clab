@@ -20,7 +20,7 @@ import torch
 from conftest import BATCH_SIZE, GENERATE, ROOT, TRIP, close, edited, on_each, placed, plain, plan_of, same, snapshot, stand_in
 from transformers import AutoTokenizer, LogitsProcessor, LogitsProcessorList
 
-from clab import Plan
+from clab import Plan, output
 from clab.compile import positions
 from clab.format.sweeps import points
 from clab.plan import PlanError, entries
@@ -403,7 +403,7 @@ def test_the_manifest_holds_each_rows_positions_and_tokens_json_what_it_said(fil
     out = tmp_path / "probe"
     run = filled["generate_probe", "nnterp"]
     run.dump(str(out))
-    manifest = json.loads((out / "manifest.json").read_text())
+    manifest, _ = output.manifest(str(out))
     assert [p["interventions"]["logits"]["positions"][p["dataset"]] for p in manifest["steps"]["patched"]] == \
         [[[p - 1 + k] for p in PROMPT] for k in range(3)]
     assert "tokens" not in manifest["run"]

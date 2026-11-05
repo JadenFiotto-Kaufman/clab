@@ -2,8 +2,10 @@
 
 import itertools
 import json
+import math
 from typing import Any, cast
 
+import torch
 from torch import Tensor
 
 from clab import ops
@@ -31,7 +33,9 @@ def table(plan: Plan, names: tuple[str, ...], columns: list[str] | None) -> list
     (`columns=` to choose), and `value` last: the element, or the remaining axes as nested lists. A row a read
     did not reach (a call beyond the prefill it never made, a scope it does not say, an index that picks none of
     its tokens) gives one row, `alignment_missing` true, with no value; a row's positions past its own are left
-    out. A value with no rows axis gives a row per element with its axis indices.
+    out. A value with no rows axis gives a row per element with its axis indices; a `top_k` over `rows` (alone, or
+    among a list of axes) a row per pick, its other axes' indices and `k` first, then the ranked value's row at the
+    pick as its own table labels it, its `value` the ranked value there.
 
     Several values join on the keys they share, the sweep axes by coordinate and the axis columns (`row`, `layer`,
     `pos`, `key`; a value with no rows axis its own axes, under the same names), each row of the one with more keys
@@ -49,6 +53,9 @@ def table(plan: Plan, names: tuple[str, ...], columns: list[str] | None) -> list
         if name not in plan.results:
             raise ValueError(f"{name!r} has no result: the run stopped before its step; {run.stopped}")
         record = record_of(plan.steps, name, points(plan.steps[name.partition(".")[0]])[0].at)
+        if len(names) > 1 and ranks_rows(record):
+            raise ValueError(f"{name!r} is a top_k over rows, whose rows are its picks, and a top_k over rows tables "
+                             "alone; table it by itself")
         if "rows" in (record.dims or []) and record.dataset is not None:
             by_dataset[record.dataset] = name
     if len(by_dataset) > 1:
@@ -137,98 +144,242 @@ def rows_of(plan: Plan, name: str, columns: list[str] | None) -> list[dict[str, 
                          "from plan.results")
     out = []
     for (_, p), (at, value) in zip(projections(plan, name), by_point(plan, name)):
-        if fitted:              # a fit's history, over each point's own epochs
-            out += [{"at": at, **row} if at else row
-                    for row in value_rows(value, record_of(plan.steps, name, p.at).dims or [], None)]
-            continue
         record = record_of(plan.steps, name, p.at)
         dims = record.dims or []
-        if isinstance(value, dict) and "rows" not in dims:
+        if fitted:              # a fit's history, over each point's own epochs
+            out += value_rows(value, dims, None, at, [], [])
+            continue
+        if isinstance(value, dict) and "rows" not in dims and not ranks_rows(record):
             raise ValueError(f"{name!r} has no rows to table: it is {rowless(record, dims, list(value))}")
+        used = columns_used(plan, name, p.at)
+        if isinstance(value, dict) and "rows" not in dims:
+            out += picks(plan, cast(OpStep, record), value, at, p, columns if columns is not None else used)
+            continue
         examples = dataset_rows(plan, record.dataset) if record.dataset else []
         place = read_labels(plan, record, p.at) if record.read else None
-        used = columns_used(plan, name, p.at)
-        for row in value_rows(value, dims, place):
-            if "row" in row and examples:
-                example = examples[row["row"]]
-                row = {**({"example_id": example["example_id"]} if "example_id" in example else {}), **row,
-                       **{c: example[c] for c in (columns if columns is not None else used)}}
-            last = {"value": row.pop("value")} if "value" in row else {}
-            out.append({**({"at": at} if at else {}), **row, **last})       # the value last, as in a joined table
+        out += value_rows(value, dims, place, at, examples, columns if columns is not None else used)
+    return out
+
+
+def ranks_rows(record: Labelled) -> bool:
+    """Whether a value is a `top_k` over `rows`, alone or among a list of axes: one whose picks are rows."""
+    over = arguments(record).get("over") if isinstance(record, OpStep) and record.op == "top_k" else None
+    return "rows" in (over if isinstance(over, list) else [over])
+
+
+def picks(plan: Plan, record: OpStep, value: dict[str, Any], at: dict[str, Any], point: Any, columns: list[str]
+          ) -> list[dict[str, Any]]:
+    """A `top_k` over `rows` (alone, or among a list of axes) as rows: one per pick that picks an entry, holding
+    the value's other axes as index columns, as a value with no rows axis has them, and `k`, but those the ranked
+    value's own table labels its rows by (`layers`, `pos`, `key`); then the ranked value's row at the pick, as its
+    table labels it (`example_id`, `row`, `layer`, `pos` and `key` with their tokens through its read, and its
+    `call` in a generation; a pick past the row's own positions or keys left out, as there), another ranked axis's
+    index under its name, and the dataset `columns` of that row; and `value` last, the ranked value there, beside
+    its `tokens` where the op decoded them."""
+    over = arguments(record)["over"]
+    axes = over if isinstance(over, list) else [over]
+    ids = value["ids"] if isinstance(over, list) else {over: value["ids"]}
+    ranked = record_of(plan.steps, record.of, point.at)
+    examples = dataset_rows(plan, ranked.dataset) if ranked.dataset else []
+    place = read_labels(plan, ranked, point.at) if ranked.read else None
+    layers = place["layers"] if place else None
+    second = "probs" if "probs" in value else "values"
+    shape, dims = list(value[second].shape), record.dims or []
+    labelled = [a for a in ranked.dims or [] if a in ("rows", "layers", "pos", "key")]     # its table's row labels
+    picked = {a: t.reshape(-1).tolist() for a, t in ids.items()}
+    scores = value[second].reshape(-1).tolist()
+    tokens = value.get("tokens")
+    for _ in range(len(shape) - 1) if tokens is not None else ():
+        tokens = [t for each in cast(list, tokens) for t in each]
+    out = []
+    for e, score in enumerate(scores):
+        if picked[axes[0]][e] == -1:
+            continue                        # a pick past the entries there
+        own = {a: e // math.prod(shape[j + 1:]) % shape[j] for j, a in enumerate(dims)}
+        where = {**own, **{a: picked[a][e] for a in axes}}         # the pick's index on each axis of the ranked value
+        row: dict[str, Any] = {"at": at} if at else {}
+        row.update((COLUMNS.get(a, a), i) for a, i in own.items() if a not in labelled)
+        r = where["rows"]
+        example = examples[r] if examples else None
+        if example is not None and "example_id" in example:
+            row["example_id"] = example["example_id"]
+        for a in ranked.dims or []:
+            i = where[a]
+            if a in ("pos", "key") and place is not None:
+                ks, got = along(place, r, a, i + 1, row.get("pos")) \
+                    if place["positions"][r] != positions.MISSING else ([], {})
+                if i not in ks:
+                    break                   # past the row's own positions or keys
+                row.update((c, column[ks.index(i)]) for c, column in got.items())
+            elif a in labelled or a in axes:
+                row[COLUMNS.get(a, a)] = layers[i] if a == "layers" and layers is not None else i
+        else:
+            if example is not None:
+                row.update((c, example[c]) for c in columns)
+            row.pop("value", None)
+            row["value"] = {second: score, "tokens": tokens[e]} if tokens is not None else score
+            out.append(row)
     return out
 
 
 def rowless(record: Labelled, dims: list[str], held: list[str]) -> str:
     """What a saved value of several tensors (`held`) with no rows axis is, and where to read it, as `rows_of`'s
-    refusal says: a bundle; a `top_k` over `rows`, whose ids are rows of the value it ranks, which tables; another
-    op's value over a value with no rows axis."""
+    refusal says: a bundle; another op's value over a value with no rows axis. A `top_k` over `rows` tables
+    (`picks`)."""
     names = [{"probs": "probabilities"}.get(k, k) for k in held]
     said = " and ".join([", ".join(names[:-1]), names[-1]] if len(names) > 1 else names)
     if not isinstance(record, OpStep):
         return f"laid out {dims}; read it from plan.results"
     if ops.DECLARED[record.op]["bundle"]:
         return f"a bundle (a {record.op}'s value); read it from plan.results"
-    if arguments(record).get("over") == "rows":
-        return (f"laid out {dims}, a {record.op} over rows, which ranks the rows of {record.of!r}: its {said}, the "
-                f"rows it ranks first, one list each; read it from plan.results, and table {record.of!r} for those "
-                "rows' columns, its ids being the rows that table numbers")
     return f"laid out {dims}, a {record.op} over a value with no rows axis, its {said} one list each; read it from " \
         "plan.results"
 
 
-def value_rows(value: Tensor | list[Any] | dict[str, Any], dims: list[str], place: dict[str, Any] | None
-               ) -> list[dict[str, Any]]:
-    """A value's rows: one per index on its example and token axes, the rest of it as the row's value; a row the
-    read did not reach (`place` says so) is one row, `alignment_missing`, whatever its token axes hold, none
-    included (a read no row reached is `[rows, 0]`)."""
-    first = next(iter(value.values())) if isinstance(value, dict) else value
+def value_rows(value: Tensor | list[Any] | dict[str, Any], dims: list[str], place: dict[str, Any] | None,
+               at: dict[str, Any], examples: list[dict], columns: list[str]) -> list[dict[str, Any]]:
+    """A value's rows: one per index on its example and token axes, the rest of it as the row's value, after its
+    point's coordinates (`at`, where it has any), its row's `example_id` and, after its labels, the dataset `columns`
+    of its row (`examples`, the dataset's rows); a row the read did not reach (`place` says so) is one row,
+    `alignment_missing`, whatever its token axes hold, none included (a read no row reached is `[rows, 0]`).
+
+    Built column by column: the index columns from the shape, the token labels from one lookup per row and index
+    through `place` (`along`), and the values from one `tolist` of the elements kept, the value laid out as its
+    example axes, its token axes, then the rest; the dicts last, a key holding the last of the values given it in
+    that order and `value` moved last."""
+    first = value
+    while isinstance(first, dict):          # a dict's first member, a top_k's `ids` over several axes its first axis's
+        first = next(iter(first.values()))
     shape = list(first.shape) if isinstance(first, Tensor) else [len(first)]
     # The axes a row is per: the example axes, then the token axes within each; every axis of a value with no rows.
     outer = [i for i, a in enumerate(dims) if a in ("layers", "rows") or "rows" not in dims]
     inner = [i for i, a in enumerate(dims) if a in ("pos", "key") and "rows" in dims]
-    layers = place["layers"] if place else None             # the model's layer at each index of a layers axis
-    out = []
-    for index in itertools.product(*(range(shape[i]) for i in outer)):
-        whole = {COLUMNS.get(dims[i], dims[i]): layers[k] if dims[i] == "layers" and layers is not None else k
-                 for i, k in zip(outer, index)}
-        if place and "row" in whole and place["positions"][whole["row"]] == positions.MISSING:
-            out.append({**whole, positions.MISSING: True})      # one row says so, in place of its tokens
+    within = math.prod(shape[i] for i in inner)             # an outer index's elements, kept or not
+    strides = [math.prod(shape[i] for i in outer[j + 1:]) for j in range(len(outer))]
+    rows = outer.index(dims.index("rows")) if "rows" in dims else None
+    kept: list[int] = []                    # the elements kept, by flat index over [outer..., inner...]
+    labels: dict[str, list] = {}            # their token labels, a column each
+    held: list[tuple[int, int | None]] = []     # each outer index with how many elements it keeps; None: missing
+    for o in range(math.prod(shape[i] for i in outer)):
+        r = o // strides[rows] % shape[outer[rows]] if rows is not None else 0
+        if place and rows is not None and place["positions"][r] == positions.MISSING:
+            held.append((o, None))          # one row says so, in place of its tokens
             continue
-        for within in itertools.product(*(range(shape[i]) for i in inner)):
-            at = {**dict(zip(outer, index)), **dict(zip(inner, within))}
-            row: dict[str, Any] = dict(whole)
-            for i, k in zip(inner, within):
-                row.update(token(place, at[dims.index("rows")], dims[i], k, row.get("pos")) if place else {dims[i]: k})
-            if row.get("key", 0) is None or row.get("pos", 0) is None:
-                continue                                    # past the row's own keys or positions
-            pick = tuple(at.get(i, slice(None)) for i in range(len(dims)))
-            row["value"] = {k: part(v, pick) for k, v in value.items()} if isinstance(value, dict) else part(value, pick)
-            out.append(row)
+        ws, got = [0], {}
+        for i in inner:                     # each token axis in turn, within each index the axes before it kept
+            ws_, got_ = [], {c: [] for c in got}
+            for j, w in enumerate(ws):
+                ks, labelled = along(place, r, dims[i], shape[i], got["pos"][j] if place and "pos" in got else None)
+                ws_ += map((w * shape[i]).__add__, ks)
+                for c, column in got.items():
+                    if c not in labelled:
+                        got_[c] += [column[j]] * len(ks)
+                for c, column in labelled.items():
+                    got_.setdefault(c, []).extend(column)
+            ws, got = ws_, got_
+        kept += map((o * within).__add__, ws)
+        for c, column in got.items() if ws else ():
+            labels.setdefault(c, []).extend(column)
+        held.append((o, len(ws)))
+    index = torch.tensor(kept, dtype=torch.long)
+
+    def cells(v: Any) -> list:              # the value at each element kept: a dict's per member
+        if isinstance(v, Tensor):
+            return laid(v, index, outer + inner, len(dims))
+        if isinstance(v, dict):
+            return [dict(zip(v, each)) for each in zip(*map(cells, v.values()))]
+        return [part(v, pick_of(g, shape, outer, inner, strides, within, len(dims))) for g in kept]
+    values = cells(value)
+    layers = place["layers"] if place else None             # the model's layer at each index of a layers axis
+    named = [COLUMNS.get(dims[i], dims[i]) for i in outer]
+    out: list[dict[str, Any]] = []
+    start = 0                               # where a run's elements begin among those kept
+    for (missing, eid), run in itertools.groupby(held, key=lambda h: (
+            h[1] is None, rows is not None and bool(examples) and
+            "example_id" in examples[h[0] // strides[rows] % shape[outer[rows]]])):
+        run = list(run)
+        counts = [1 if n is None else n for _, n in run]
+        given: dict[str, list] = {}         # each key's column, in the order a row writes its keys
+        if at:
+            given["at"] = [at] * sum(counts)
+        example = [examples[o // strides[rows] % shape[outer[rows]]] for o, _ in run] \
+            if rows is not None and examples else []
+        if eid:
+            given["example_id"] = spread([e["example_id"] for e in example], counts)
+        for c, (j, i) in zip(named, enumerate(outer)):     # an outer index's own, by arithmetic on the shape
+            given[c] = spread([layers[o // strides[j] % shape[i]] if dims[i] == "layers" and layers is not None
+                               else o // strides[j] % shape[i] for o, _ in run], counts)
+        if missing:
+            given[positions.MISSING] = [True] * len(run)
+        else:
+            n = sum(counts)
+            given.update((c, column[start:start + n]) for c, column in labels.items())
+            given["value"] = values[start:start + n]
+            start += n
+        for c in columns if example else ():
+            given[c] = spread([e[c] for e in example], counts)
+        if "value" in given:
+            given["value"] = given.pop("value")
+        out += [dict(zip(given, row)) for row in zip(*given.values())]
     return out
 
 
-def token(place: dict[str, Any], row: int, axis: str, k: int, at: int | None) -> dict[str, Any]:
-    """Index `k` on a token axis as the token it is: on `pos` through the read's resolved positions, on `key`
-    through its `select` or, unselected, the row's own key `k`, each a position of the row as `pos` counts them, and
-    a key relative to the query at its offset from the position `at` the row is labelled with (its `offset` alone
-    where the value has no `pos` axis left); None past the row's own positions or keys."""
+def spread(values: list, counts: list[int]) -> list:
+    """Each of `values` as many times as `counts` says, in order."""
+    out: list = []
+    for v, n in zip(values, counts):
+        out += [v] * n
+    return out
+
+
+def along(place: dict[str, Any] | None, row: int, axis: str, size: int, at: int | None
+          ) -> tuple[list[int], dict[str, list]]:
+    """The indices along token axis `axis` (`size` long) of row `row` that are its own, and their labels, a column
+    each: on `pos` the positions the read resolved to and the tokens there, and for a read in a generation the
+    forward `call` that holds each; on `key` each key position (through the read's `select`, or unselected the
+    row's own key at that index) and its token, the row's own keys only, a key relative to the query at its offset
+    from the position `at` the row is labelled with (its `offset` alone where the value has no `pos` axis left).
+    Without a read, each index itself."""
+    if place is None:
+        return list(range(size)), {axis: list(range(size))}
+    prompt = len(place["prompt"][row])
     if axis == "pos":
-        return position_label(place, row, place["positions"][row][k], axis) if k < len(place["positions"][row]) \
-            else {axis: None}
-    if isinstance(place["keys"], dict):
+        index = place["positions"][row][:size]
+        ks = list(range(len(index)))
+    elif isinstance(place["keys"], dict):
+        offsets = [place["keys"]["offset"][k] for k in range(size)]
         if at is None:
-            return {"offset": place["keys"]["offset"][k]}
-        index = at + place["keys"]["offset"][k]
-        return position_label(place, row, index, axis) if 0 <= index < len(place["prompt"][row]) else {axis: None}
-    index = place["keys"][k] if place["keys"] is not None else k
-    return position_label(place, row, index, axis) if index < len(place["prompt"][row]) else {axis: None}
+            return list(range(size)), {"offset": offsets}
+        ks = [k for k in range(size) if 0 <= at + offsets[k] < prompt]
+        index = [at + offsets[k] for k in ks]
+    else:
+        keys = place["keys"]
+        ks = [k for k in range(size) if (keys[k] if keys is not None else k) < prompt]
+        index = [keys[k] if keys is not None else k for k in ks]
+    tokens = place["tokens"][row]
+    got = {axis: index, f"{axis}_token": [tokens[i] for i in index]}
+    if place["beyond"]:
+        got["call"] = [positions.call_of(i, prompt) for i in index]
+    return ks, got
 
 
-def position_label(place: dict[str, Any], row: int, index: int, axis: str) -> dict[str, Any]:
-    """A row's position `index` as a table labels it: `pos` and `pos_token` (or `key`, `key_token`), the token
-    that sits there, and for a read in a generation the forward `call` that holds it."""
-    call = {"call": positions.call_of(index, len(place["prompt"][row]))} if place["beyond"] else {}
-    return {axis: index, f"{axis}_token": place["tokens"][row][index], **call}
+def laid(value: Tensor, index: Tensor, order: list[int], n: int) -> list:
+    """The elements `index` picks of `value` laid out with the axes `order` names first, flattened, then the rest
+    (of its `n`), as plain values: each an element or the rest as nested lists."""
+    rest = [i for i in range(n) if i not in order]
+    flat = value.permute(order + rest).reshape(math.prod(value.shape[i] for i in order), *[value.shape[i] for i in rest])
+    return flat[index.to(value.device)].tolist()
+
+
+def pick_of(g: int, shape: list[int], outer: list[int], inner: list[int], strides: list[int], within: int,
+            n: int) -> tuple[int | slice, ...]:
+    """The index of element `g` (flat over the outer axes, then the inner) along each of the `n` axes, the rest
+    whole, as `part` takes it."""
+    o, w = divmod(g, within)
+    at = {i: o // strides[j] % shape[i] for j, i in enumerate(outer)}
+    for i in reversed(inner):
+        w, at[i] = divmod(w, shape[i])
+    return tuple(at.get(i, slice(None)) for i in range(n))
 
 
 def part(value: Tensor | list[Any], pick: tuple[int | slice, ...]) -> Any:

@@ -1,10 +1,13 @@
 """`table`: saved values as rows, several joined on the keys they share (their sweep axes by coordinate, their
 axis columns), and what has no rows to table."""
 
+import json
+
 import pytest
-from conftest import BATCH_SIZE, document
+from conftest import BATCH_SIZE, ROOT, document, edited, same
 
 from clab import Plan
+from clab.plan import entries
 
 TINY = {"key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
         "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998", "dtype": "float32"}
@@ -123,8 +126,8 @@ def test_a_shared_token_column_means_one_thing_for_both_or_is_refused(engines):
 
 def test_a_value_with_no_rows_axis_and_several_tensors_says_so(engines):
     """A `top_k` over a value with no rows axis is a dict of one list each, and a `pca`'s value a bundle: neither
-    has rows to table, and the refusal says which it is. A `top_k` over `rows` (T10's repro) ranks the rows of the
-    value it is over, whose table is where those rows' columns are."""
+    has rows to table, and the refusal says which it is. A `top_k` over `rows` (T10's repro) tables a row per pick,
+    beside the picked row's columns."""
     filled = run(engines, plan(
         steps={"f": {"kind": "forward", "input": "pairs.input", "interventions": {
                    "logits": logits(), "h": {"site": {"component": "layer_output", "layers": 0}, "pos": -1}}},
@@ -137,11 +140,9 @@ def test_a_value_with_no_rows_axis_and_several_tensors_says_so(engines):
                                          r"no rows axis, its ids, probabilities and tokens one list each; read it from "
                                          r"plan\.results$"):
         filled.table("t")
-    with pytest.raises(ValueError, match=r"^'top' has no rows to table: it is laid out \['hidden_size', 'k'\], a top_k "
-                                         r"over rows, which ranks the rows of 'hmax': its ids and values, the rows it "
-                                         r"ranks first, one list each; read it from plan\.results, and table 'hmax' for "
-                                         r"those rows' columns, its ids being the rows that table numbers$"):
-        filled.table("top")
+    top = filled.results["top"]
+    assert [(t["hidden_size"], t["k"], t["row"], t["value"]) for t in filled.table("top")] == \
+        [(h, j, top["ids"][h, j].item(), top["values"][h, j].item()) for h in range(16) for j in range(3)]
     assert len(filled.table("hmax")) == 4
     with pytest.raises(ValueError, match=r"^'b' has no rows to table: it is a bundle \(a pca's value\); read it from "
                                          r"plan\.results$"):
@@ -165,3 +166,107 @@ def test_a_swept_fits_history_tables_each_points_own_epochs(engines):
     history = filled.results["fit.history.ce"]
     assert filled.table("fit.history.ce") == [{"at": {"epochs": 2}, "epochs": epoch, "value": history[2][epoch].item()}
                                               for epoch in (0, 1)]
+
+
+def test_reads_that_resolved_alike_share_one_positions_list_in_the_manifest(engines, tmp_path, monkeypatch):
+    """Two reads at one `pos` and a third at another: the manifest holds the two distinct positions lists once
+    each, in its `positions`, each read naming its list by index; read back, every read's positions are the ran
+    plan's, the two at one `pos` hold one list again, and the table is the ran plan's."""
+    def at(layer: int, pos) -> dict:
+        return {"site": {"component": "layer_output", "layers": layer}, "pos": pos}
+    filled = run(engines, plan(
+        steps={"f": {"kind": "forward", "input": "pairs.input", "interventions": {
+            "a": at(0, {"index": "1:"}), "b": at(1, {"index": "1:"}), "c": at(1, -1)}}},
+        saves=["f.a", "f.b", "f.c"]))
+    filled.dump(str(tmp_path))
+    with open(tmp_path / "manifest.json") as f:
+        held = json.load(f)
+    ran = entries(filled.steps["f"])
+    assert {k: e["positions"] for k, e in held["steps"]["f"]["interventions"].items()} == \
+        {"a": {"pairs": 0}, "b": {"pairs": 0}, "c": {"pairs": 1}}
+    assert held["positions"] == [ran["a"].positions["pairs"], ran["c"].positions["pairs"]]
+    monkeypatch.chdir(ROOT)                 # a loaded plan's corpus root is where it is read
+    back = Plan.load(str(tmp_path))
+    got = entries(back.steps["f"])
+    assert all(same(got[k].positions, ran[k].positions) for k in ran)
+    assert got["a"].positions["pairs"] is got["b"].positions["pairs"] is not got["c"].positions["pairs"]
+    assert back.table("f.a", "f.b") == filled.table("f.a", "f.b") and back.table("f.c") == filled.table("f.c")
+
+
+def test_a_tables_rows_at_its_corners_are_the_ones_written_out_by_hand(engines):
+    """A generation's read over layers 1 then 0 of every token of the word each row said: row 0 said it in one
+    token, row 1 in two (row 0 is shorter than the widest), rows 2 and 3 never (`alignment_missing`). The table is a
+    row per layer, row and position of the row's own, labelled with the model's layer, the token and the call that
+    holds it, and one row, with no value, for each row the read did not reach; each row's keys in this order."""
+    def change(d):
+        d["steps"] = {"answer": {**d["steps"]["answer"], "interventions": {"said": {
+            "site": {"component": "layer_output", "layers": [1, 0]},
+            "pos": {"frame": "1:", "scope": {"column": "prompts.said"}}, "ops": [{"op": "sum", "over": ["hidden_size"]}]}}}}
+        d["saves"] = ["answer.said"]
+    filled = run(engines, edited("generated_answer", change).compile())
+    value = filled.results["answer.said"]
+    assert value.shape == (2, 4, 2)
+    said = [("substr", "If today is Thursday, tomorrow is"), ("energ", "If today is Friday, tomorrow is"),
+            ("Friday", "If today is Saturday, tomorrow is"), ("Saturday", "If today is Sunday, tomorrow is")]
+    expected = []
+    for i, layer in enumerate((1, 0)):
+        def row(r: int, **labels) -> dict:
+            return {"example_id": said[r][0], "layer": layer, "row": r, **labels, "input": said[r][1]}
+        expected += [{**row(0, pos=12, pos_token="▁substr", call=2), "value": value[i, 0, 0].item()},
+                     {**row(1, pos=11, pos_token="▁energ", call=3), "value": value[i, 1, 0].item()},
+                     {**row(1, pos=12, pos_token="calc", call=4), "value": value[i, 1, 1].item()},
+                     {**row(2, alignment_missing=True)}, {**row(3, alignment_missing=True)}]
+    assert [list(t.items()) for t in filled.table("answer.said")] == [list(t.items()) for t in expected]
+
+
+def test_a_top_k_over_rows_and_positions_tables_a_row_per_pick_labelled_as_the_value_it_ranks(engines):
+    """T10's max-activating examples: a `top_k` over `["rows", "pos"]` of an SAE's latents at every token after BOS
+    tables a row per feature and pick: `features` and `k`, then the picked row with its dataset columns and the
+    picked position with its token, through the read the latents are of, then the latent there. Over `rows` alone
+    the value keeps `pos`, which it labels the same way, through the picked row. Beside another name it is
+    refused: its rows are its picks."""
+    def change(d):
+        d["steps"]["base"]["interventions"]["latents"]["pos"] = {"index": "1:"}
+        d["steps"]["top"] = {"kind": "op", "op": "top_k", "of": "base.latents", "k": 3, "over": ["rows", "pos"]}
+        d["steps"]["top_rows"] = {"kind": "op", "op": "top_k", "of": "base.latents", "k": 2, "over": "rows"}
+        d["saves"] = ["top", "top_rows", "base.latents"]
+    filled = run(engines, edited("sae_published_jumprelu", change).compile())
+    top, latents = filled.results["top"], filled.results["top"]["values"]
+    assert filled.run is not None and filled.data["prompts"].rows is not None
+    rows, tokens = filled.data["prompts"].rows, filled.run.tokens["prompts.input"]
+    positions = entries(filled.steps["base"])["latents"].positions["prompts"]
+    picked = [(f, j, top["ids"]["rows"][f, j].item(), top["ids"]["pos"][f, j].item())
+              for f in range(latents.shape[0]) for j in range(3)]
+    expected = [{"features": f, "k": j, "row": r, "pos": positions[r][i], "pos_token": tokens[r][positions[r][i]],
+                 "input": rows[r]["input"], "value": latents[f, j].item()} for f, j, r, i in picked]
+    assert [list(t.items()) for t in filled.table("top")] == [list(t.items()) for t in expected]
+    assert len({t["pos_token"] for t in expected}) > 1 and len({t["row"] for t in expected}) > 1
+    first = filled.table("top_rows")[0]
+    assert list(first) == ["features", "k", "row", "pos", "pos_token", "input", "value"]
+    assert first["pos"] == positions[first["row"]][0] and first["pos_token"] == tokens[first["row"]][first["pos"]]
+    for names, top in ((("top", "base.latents"), "top"), (("base.latents", "top_rows"), "top_rows")):
+        with pytest.raises(ValueError, match=rf"^'{top}' is a top_k over rows, whose rows are its picks, and a top_k "
+                                             r"over rows tables alone; table it by itself$"):
+            filled.table(*names)
+
+
+@pytest.mark.parametrize("key", [{"offset": [-1, 0]}, "0:3"])
+def test_a_top_k_over_rows_and_keys_labels_each_pick_as_the_patterns_own_table_does(engines, key):
+    """Over `["rows", "key"]` of an attention pattern, keys relative to each query or selected, each pick's row is
+    the pattern's own table row at the pick: the query position the read resolved to, its token, and the key
+    through the read's selection, relative to that query or selected, with its token; its value is that row's
+    value at the pick's head."""
+    pattern = {"component": "attention_probabilities", "layers": 0, "select": {"key": key}}
+    filled = run(engines, Plan(model={**TINY, "attn_implementation": "eager"}, data=PAIRS, document=document("patching"),
+                               steps={"f": {"kind": "forward", "input": "pairs.input", "interventions": {
+                                          "p": {"site": pattern, "pos": {"index": "1:"}}}},
+                                      "top": {"kind": "op", "op": "top_k", "of": "f.p", "k": 5, "over": ["rows", "key"]}},
+                               saves=["f.p", "top"]).compile())
+    own = {(t["row"], t["pos"], t["key"]): t for t in filled.table("f.p")}
+    picks = filled.table("top")
+    assert len(picks) == (filled.results["top"]["ids"]["rows"] != -1).sum() > 100       # each pick that picks one
+    assert list(picks[0])[:3] == ["num_heads", "k", "row"]
+    for t in picks:
+        mine = own[t["row"], t["pos"], t["key"]]
+        assert (t["pos_token"], t["key_token"], t["value"]) == (mine["pos_token"], mine["key_token"],
+                                                               mine["value"][t["num_heads"]])
