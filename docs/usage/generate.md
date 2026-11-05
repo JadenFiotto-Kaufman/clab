@@ -1,6 +1,6 @@
 ---
 title: Generation
-one_liner: "Generation steps: options passed to the model's generate, deterministic decoding, frames for the prefill and decode calls, writes kept on through generation, writes found online at generated text, EOS and rows that stop early."
+one_liner: "How do I generate, and read or write as it generates? Options, frames (0, 1:, :, -1) for the prefill and decode calls, a read at every call, writes through every generated token, and rows that stop early."
 tags: [usage, generation, decoding, eos]
 related: [docs/concepts/positions.md, docs/usage/positions.md, docs/usage/ops.md, docs/errors/alignment-missing.md, docs/patterns/generation-experiments.md, docs/patterns/steering.md, docs/usage/sweeps.md]
 sources: [clab/steps/generate.py, clab/steps/batches.py, clab/plan.py, clab/compile/positions.py]
@@ -10,40 +10,24 @@ sources: [clab/steps/generate.py, clab/steps/batches.py, clab/plan.py, clab/comp
 
 A `generate` step runs the model's `generate` on every row of its input. Its value is the new token ids, `[rows, new]`. Its entries read and write at the forward calls that `pos`'s `frame` names: call 0 is the prefill, and call k ≥ 1 is decode call k. The step's fields are in [FORMAT.md#generate](../../FORMAT.md#generate) and the frame stage is in [FORMAT.md#pos](../../FORMAT.md#pos). Why a generation is a timeline of calls is explained in [concepts/positions.md](../concepts/positions.md).
 
-## Generate and score the text
+`detokenize` turns each row's ids into text, stopped before the row's first EOS ([ops.md](ops.md)). Scoring that text (`contains`, a whole-word count, the text after a marker, a reasoning trace's length, teacher forcing) is [patterns/generation-experiments.md](../patterns/generation-experiments.md).
 
-From `documents/generated_contains.json`:
+## The first generated token's leading space
 
-```json
-"answer": {"kind": "generate", "input": "prompts.input", "max_new_tokens": 6, "min_new_tokens": 6, "do_sample": false},
-"text": {"kind": "op", "op": "detokenize", "of": "answer"},
-"said": {"kind": "op", "op": "contains", "of": "text", "text": "prompts.said"},
-"acc": {"kind": "op", "op": "mean", "of": "said"}
-```
+On a SentencePiece tokenizer such as the corpus Llama's, decoding drops the leading space of a row's first generated token. A row whose tokens are `▁triple`, `▁Snow` reads `triple Snow`. `detokenize` decodes this way, and so does the search for a scope over generated text. A byte-level BPE tokenizer such as GPT-2's keeps the space when it decodes.
 
-`detokenize` turns each row's ids into text and stops before the row's first EOS. `contains` scores 1 where that text contains the row's answer. Both are covered in [usage/ops.md](ops.md).
+- An answer written with its leading space, as [data.md](data.md#answer-columns) asks, is not found when it is generated token 0.
+- Token 0 is the token a write at the prompt's last position changes first.
+- On a row that says ` triple` at token 0 and never again, `contains` scores 0, and a scope over the decode calls finds nothing.
 
-### Score what follows a text: `after`
-
-`contains` searches the whole text, so a thinking model's answer is found in its reasoning too. `after` cuts each row's text at the first occurrence of a column's text or a literal and keeps what follows it, the whole text on a row that never says it:
-
-```json
-"answer_text": {"kind": "op", "op": "detokenize", "of": "answer", "after": {"text": "</think>"}},
-"correct": {"kind": "op", "op": "contains", "of": "answer_text", "text": "test.gold"}
-```
-
-`after` compares as `contains` does, text on text, under the reference's `strip` and `lower`; of a set it is the occurrence that ends first. On `documents/generated_contains.json` every row's text is `Handler substr energcalc tossorter`: `"after": "prompts.said"` gives ` energcalc tossorter` and ` tossorter` on the two rows that say their word and the whole text on the two that do not, and a `contains` of the word in that is 0 on every row. To tell a row that never said the text from one that did, score `contains` of it on the uncut text as well. With `tokens: true` a row is its token strings, which `after` does not cut, and the two together are refused.
-
-### The first generated token's leading space
-
-On a SentencePiece tokenizer such as the corpus Llama's, decoding drops the leading space of a row's first generated token: a row that generates `▁Finland ony` reads `Finlandony`. `detokenize` decodes this way, and so does the search for a scope over generated text. So an answer written with its leading space, as [data.md](data.md#answer-columns) asks, is not found when it is generated token 0, the token a write at the prompt's last position changes first: on a row that says ` Finland` there and never again, `contains` scores 0, and a scope over the decode calls finds a later occurrence or none. Give the column `strip: true` wherever it searches generated text (a `text` scope takes `"strip": true` beside its text):
+Give the column `strip: true` wherever it searches generated text:
 
 ```json
 "said": {"kind": "op", "op": "contains", "of": "text", "text": {"column": "prompts.said", "strip": true}},
 "at_said": {"site": "head", "pos": {"frame": "1:", "scope": {"column": {"column": "prompts.said", "strip": true}}, "index": -1}}
 ```
 
-Under `strip` that row scores 1, and a scope finds a word said at token 0. A byte-level BPE tokenizer such as GPT-2's keeps the space when it decodes.
+Under `strip` that row scores 1, and the scope finds the word said at token 0.
 
 ## Options
 
@@ -54,16 +38,16 @@ Every key other than `kind`, `input` and `interventions` goes to the engine's `g
 - **`min_new_tokens`** holds EOS off until a row has that many tokens. Setting it equal to `max_new_tokens` makes every row make the same calls.
 - **`eos_token_id`** is the id, or list of ids, that a row stops on. Without it, rows stop on the id from the engine's generation config.
 
-The step refuses five options before the model loads, since each would change the rows, the value or the calls: `num_return_sequences`, `num_beams`, `return_dict_in_generate`, `use_cache` and `prefill_chunk_size`. Compile also refuses a parameter of `generate` itself (`generation_config`, `logits_processor`), which takes what a document cannot write, and a value of a type transformers' `GenerationConfig` refuses (`"max_new_tokens": "6"`). Any other option is left for the engine to accept, and one it rejects fails when the step runs, with the step's name. There is no `seed` option:
+The step refuses `num_return_sequences`, `num_beams`, `return_dict_in_generate`, `use_cache` and `prefill_chunk_size` before the model loads, since each would change the rows, the value or the calls. Compile also refuses a parameter of `generate` itself (`generation_config`, `logits_processor`), which takes what a document cannot write. It refuses a value of a type transformers' `GenerationConfig` refuses (`"max_new_tokens": "6"`). The engine accepts or rejects any other option, and one it rejects fails when the step runs, naming the step. There is no `seed` option:
 
 ```text
-clab: steps.g: num_beams 2; it stays 1: beams change the rows each forward call sees, so a read's row is no longer the input's
-clab: steps.g.generation_config: 'generation_config' is a parameter of generate itself, taking GenerationConfig, not a field of a generation config; a step's options are the config's fields (max_new_tokens, do_sample, ...)
-clab: steps.g.max_new_tokens: '6' is not a value generate takes: '<=' not supported between instances of 'str' and 'int'
-clab: g: generate rejected 'seed': The following `model_kwargs` are not used by the model: ['seed'] (note: typos in the generate arguments will also show up in this list)
+clab: steps.answer: num_beams 2; it stays 1: beams change the rows each forward call sees, …
+clab: steps.answer.generation_config: 'generation_config' is a parameter of generate itself, …
+clab: steps.answer.max_new_tokens: '6' is not a value generate takes: …
+clab: answer: generate rejected 'seed': The following `model_kwargs` are not used by the model: ['seed'] …
 ```
 
-Like a forward, a generation reproduces to the bit only at a fixed batch size ([usage/running.md](running.md)). Options can be swept; `max_new_tokens` and `min_new_tokens` crossed with each other is the trap described in [usage/sweeps.md](sweeps.md#labels-zip-or-cross).
+Like a forward, a generation gives the same numbers only at a fixed batch size ([running.md](running.md#when-two-runs-give-the-same-numbers)). Options can be swept; `max_new_tokens` crossed with `min_new_tokens` is the trap in [usage/sweeps.md](sweeps.md#labels-zip-or-cross).
 
 ## Frames: which forward call
 
@@ -81,11 +65,20 @@ In the prefill, the head is computed only at the last position. So `{"frame": 0,
 
 ### A read at every call
 
-At the head, `{"frame": ":"}` is the per-call read: one position per call, the prefill's last prompt token and then each generated input, `[rows, calls, vocab_size]`. `{"frame": ":", "index": -1}` is one position, the last call's, since `index` counts over the tokens of every call the frame picks; on a residual site `{"frame": ":"}` is every prompt token and then each generated input.
+At the head, `{"frame": ":"}` is the per-call read: one position per call, the prefill's last prompt token and then each generated input, `[rows, calls, vocab_size]`. `{"frame": ":", "index": -1}` is one position, the last call's, since `index` counts over the tokens of every call the frame picks. On a residual site `{"frame": ":"}` is every prompt token and then each generated input.
 
-An entry's ops after its last edit run at each call it reads, on that call's `[rows, 1, ...]` value, up to the first that removes `pos`, takes an operand with a `pos` axis, scores an answer of several tokens, or is not positionwise. The positionwise ops are `match`, `logit_diff`, `token_prob`, `token_logit`, `cross_entropy`, `top_k`, `argmax`, `min`, `max`, `median`, `count`, and the elementwise `abs`, `sign`, `sqrt`, `square`, `neg`, `mul`, `div` and comparisons ([FORMAT.md#generate](../../FORMAT.md#generate) lists them from the code). So a metric of the head inside its entry holds one number a call, `[rows, calls]`, and each call's logits are freed once the metric has been taken. Of `[{"op": "token_prob", ...}, {"op": "mean", "over": ["pos"]}]`, `token_prob` runs at each call and `mean` after the generation. The entry's record counts the ops it runs at each call (`per_call`, in the manifest's `steps`).
+The ops after an entry's last edit run in one of two places:
 
-The other ops run after the batch's generation, on the calls arranged by position. A read that has no ops, or whose first op is one of these, is held whole until then. At the head that is `calls × vocab_size` values a row in the model's dtype: at 512 calls over Qwen3-8B's 151,936-token vocabulary in bfloat16, 156 MB a row, as much again while the calls are arranged, and 312 MB more for a metric's float32 copy. These ops are `kl`, `js`, `cosine`, `readout`, `encode`, `mean`, `sum`, `norm`, `dot`, `std` and `pow`. Their bits depend on the shape of the value they run on: a matmul, or a sum over a long axis, is ordered by torch according to that shape. A call's value is `[rows, 1, ...]` where the whole read is `[rows, calls, ...]`, so running them at each call would move their last bits. On the CPU, either way, a value is the same to the bit as before; on CUDA a `token_prob` or `cross_entropy` over GPT-2's 50,257-token vocabulary can differ in its last bits, since torch picks its softmax's kernel by the tensor's outer size (over Llama-3's 128,256 tokens it does not). On Llama-3.2-1B generating 64 tokens after each of the 42 weekday prompts at batch 16 in float32, a per-call `token_prob` peaks at 4,842 MiB, 128 MiB above the weights. The same metric as a step over the logits read whole peaks at 7,676 MiB (`tests/test_real.py`). To hold less of a read that waits, read only the ids you score (`select: {"vocab_size": [...]}`, raw logits, which no metric scores, since a metric needs the whole vocabulary), or lower `--batch-size`.
+- **At each call, on that call's `[rows, 1, ...]` value:** the leading ops that are positionwise ([FORMAT.md#generate](../../FORMAT.md#generate) lists them). They stop at the first op that removes `pos`, takes an operand with a `pos` axis, or scores an answer of several tokens.
+- **After the batch's generation, on the calls arranged by position:** the rest, from the first op that waits (`entropy` and `mean` wait, for example).
+- **The entry's record counts the ops it runs at each call** (`per_call`, in the manifest's `steps`). Check it before relying on a per-call metric.
+
+So a metric of the head inside its entry holds one number a call, `[rows, calls]`, and each call's logits are freed once the metric has been taken. Of `[{"op": "token_prob", ...}, {"op": "mean", "over": ["pos"]}]`, `token_prob` runs at each call and `mean` after the generation.
+
+- **A read that waits is held whole until the generation ends.** That is a read with no ops, or whose first op waits. At the head it holds `calls × vocab_size` values a row in the model's dtype, as much again while the calls are arranged, and a float32 copy for a metric.
+- **To hold less of a read that waits,** read only the ids you score (`select: {"vocab_size": [...]}`, raw logits, which no metric scores, since a metric needs the whole vocabulary), or lower `--batch-size`.
+
+An op waits where its bits depend on the shape of the value it runs on: torch orders a matmul, or a sum over a long axis, by that shape. A call's value is `[rows, 1, ...]` where the whole read is `[rows, calls, ...]`, so running such an op at each call would move its last bits. On the CPU a per-call metric equals the same metric over the whole read. On CUDA a per-call softmax metric can differ from it in the last bits.
 
 ## Writes during generation
 
@@ -129,32 +122,38 @@ Each entry's record holds where it landed (`positions`, by dataset). `damped.pro
 
 To write at every position, the whole prompt included, use `{"frame": ":"}`. A root bundle written at `{"frame": ":"}` covers every call of whichever step pulls it in: every token of a forward, and every prompt token and generated input of a generation.
 
-Because a write lands as its call runs, everything it selects must be known by then. It cannot count back from a row's last call, and its index must name the same calls on a row that stops early as on one that runs on:
+Because a write lands as its call runs, everything it selects must be known by then. It cannot count back from a row's last call. Its index must name the same calls on a row that stops early as on one that runs on. For the prompt's last token and every decode call, write the two entries above:
 
 ```text
-clab: steps.g.interventions.zero.pos: frame -1 with index ':' names calls that depend on how far each row gets; a write lands as its call runs, so its frame is not counted from the row's last call, and its index names the same calls on a row that stops early as on one that runs on: ':' over the prompt, and not counted from the end over several decode calls; or it takes a text scope
-clab: steps.g.interventions.zero.pos: frame ':' with index -1 counts back from the row's last position, known only when the row stops, and a write lands as each call runs; for the prompt's last positions and every decode call, write two entries: {'frame': 0, 'index': -1} and {'frame': '1:'}
-clab: steps.g.interventions.zero.pos: frame '2:' with index ':' names calls up to the row's last; a write lands at calls listed before the run, so the step gives max_new_tokens, which bounds them
+clab: steps.damped.interventions.zero.pos: frame -1 with index ':' names calls that depend on how far each row gets; …
+clab: steps.damped.interventions.zero.pos: frame ':' with index -1 counts back from the row's last position, known only when the row stops, …
+clab: steps.damped.interventions.zero.pos: frame '2:' with index ':' names calls up to the row's last; …
 ```
 
-Steering with a harvested direction through a generation is in [patterns/steering.md](../patterns/steering.md).
+The last of these needs `max_new_tokens` on the step, which bounds the calls. Steering with a harvested direction through a generation is in [patterns/steering.md](../patterns/steering.md).
 
 ## Writes at generated text, found online
 
-A write with a `column` or `text` scope over the decode calls is resolved while the row generates. At each call, clab decodes what the row has generated so far, and the write lands at the call that is fed the last token of the occurrence as it appears. A variation of `documents/generated_answer.json` zeroes layer 0 where each row says its `said` word:
+A write with a `column` or `text` scope over the decode calls is resolved while the row generates. At each call, clab decodes what the row has generated so far.
+
+- The write lands at the call fed the last token of the occurrence, so the text changes from the next token on.
+- A row that never says the text is `alignment_missing` in the write's `positions`, and it generates as if unwritten.
+
+A variation of `documents/generated_answer.json` zeroes layer 0 where each row says its `said` word:
 
 ```json
 "zero": {"site": "l0", "pos": {"frame": "1:", "scope": {"column": "prompts.said"}, "index": -1}, "ops": [{"op": "scale", "factor": 0.0}]}
 ```
 
-Row 0 says `substr` as generated token 1, so the write lands at position 12, the call fed `▁substr`, and the row's text changes from token 2 on. Rows 2 and 3 never say their word. They are `alignment_missing` in the write's `positions` (`[[12], [12], 'alignment_missing', 'alignment_missing']`), and their text is unchanged. Such a write takes index `-1`, counts `occurrence` from the first, and takes no `before`. Each of these is refused by name:
+It lands at `[[12], [12], 'alignment_missing', 'alignment_missing']`: row 0 at the call fed `▁substr`, and rows 2 and 3 never say their word. Such a write takes index `-1`, counts `occurrence` from the first, and takes no `before`. Each of these is refused by name:
 
 ```text
-clab: steps.answer.interventions.zero.pos.index: index 0: a scoped write lands at the call fed its text's last token, the first call that can know the text is there; earlier tokens were already fed, so its index is -1
-clab: steps.answer.interventions.zero.pos.scope.before: a write beyond the prefill lands as its call runs, before the token it would predict is chosen; a scope that is before is a read's there, or a write's in the prefill
+clab: steps.answer.interventions.zero.pos.index: index 0: a scoped write lands at the call fed its text's last token, …
+clab: steps.answer.interventions.zero.pos.scope.occurrence: occurrence -1 counts from the last occurrence, which is known only when the row ends; …
+clab: steps.answer.interventions.zero.pos.scope.before: a write beyond the prefill lands as its call runs, before the token it would predict is chosen; …
 ```
 
-A read is resolved after the row has finished generating, so these limits do not apply to reads: a read over generated text can take `before`, any index and any occurrence. The recipes are in [usage/positions.md](positions.md).
+A read is resolved after the row has finished generating, so these limits do not apply to reads. A read over generated text can take `before`, any index and any occurrence; the recipes are in [usage/positions.md](positions.md).
 
 ## Rows that stop early
 
@@ -166,17 +165,16 @@ A row stops at its first EOS. On the first four rows of the `test` split of `dat
       "interventions": {"at3": {"site": "head", "pos": {"frame": 3}}}}
 ```
 
-- The step's ids keep the shape `[4, 8]`. Every position after a row's EOS is filler, so read the text through `detokenize`, which stops before the EOS. `plan.run.tokens["g"]` lists each row's tokens up to and including its EOS: `['Handler', '▁tijd', '▁Alex']` on row 1.
-- A read at a call a row never made is missing on that row. `{"frame": 3}` gives row 1 one table row, with `alignment_missing` true and no value.
-- A ragged read (`"1:"`, `":"`) holds each row's own calls. Positions past a row's last call are NaN in the read, so an `argmax` of them is -1, and the table leaves them out.
-- `{"frame": -1}` on row 1 is call 2, the call that chose EOS. Its `argmax` is the EOS id.
-- With `min_new_tokens: 8`, every row makes all eight calls and `{"frame": 3}` has a value on every row. A row held past its EOS chooses another token where it would have stopped: row 1 says `▁note` at token 2 and goes on from there, a different generation, not the first one extended.
+- **The step's ids keep the shape `[4, 8]`.** Every position after a row's EOS is filler, so read the text through `detokenize`, which stops before the EOS. `contains` therefore never finds the EOS token's text.
+- **To see where a row stopped,** read `plan.run.tokens["g"]`, each row's tokens up to and including its EOS: `['Handler', '▁tijd', '▁Alex']` on row 1. A `count` of a read at `{"frame": "1:"}` is the decode calls each row made: 2 on row 1, 7 on the others.
+- **A read at a call a row never made is missing on that row.** `{"frame": 3}` gives row 1 one table row, with `alignment_missing` true and no value. Such a read has no value on that row as a later write's operand either; hold EOS off with `min_new_tokens` before using it.
+- **A ragged read (`"1:"`, `":"`) holds each row's own calls.** Positions past a row's last call are NaN in the read, so an `argmax` of them is -1, and the table leaves them out.
+- **`{"frame": -1}` on row 1 is call 2,** the call that chose EOS. Its `argmax` is the EOS id.
+- **With `min_new_tokens: 8`, every row makes all eight calls,** and `{"frame": 3}` has a value on every row. A row held past its EOS chooses another token where it would have stopped: row 1 says `▁note` at token 2 and goes on from there. That is a different generation, not the first one extended.
 
 How missing rows pass through ops and tables is covered in [errors/alignment-missing.md](../errors/alignment-missing.md).
 
 ## Pitfalls
 
-- **Leaving out `do_sample`.** The checkpoint decides whether to sample, and a sampled run does not repeat.
-- **An answer with its leading space, searched in generated text.** It is not found at token 0; give the column `strip: true` ([above](#the-first-generated-tokens-leading-space)).
 - **Sweeping a write's frame or a generate option.** Each point runs its own generation. A sweep of a read's frame shares one, and `{"frame": "0:3"}` reads the same calls as one value ([usage/sweeps.md](sweeps.md#widen-the-read-instead)).
 - **A word that ends on the row's last generated token.** No call is fed that token, so a read scoped to the word without `before` is `alignment_missing`. With `max_new_tokens: 2`, a word said as token 1 is missing at the word itself, and found with `before`. Leave room after the answer.

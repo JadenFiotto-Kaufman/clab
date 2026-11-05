@@ -1,6 +1,6 @@
 ---
 title: Sweeps
-one_liner: "Running one document at many settings: what a sweep can stand for, labels that zip or cross, what each point costs, when one wider read replaces a sweep, and reading swept results by coordinate."
+one_liner: "How do I run one document at many settings? What a sweep may stand for, labels that zip or cross, each point's cost, and reading swept results."
 tags: [usage, sweeps, grid, labels]
 related: [docs/concepts/names-and-sweeps.md, docs/usage/output.md, docs/usage/sites.md, docs/usage/generate.md, docs/patterns/head-and-neuron-patching.md, docs/patterns/logit-lens.md]
 sources: [clab/format/sweeps.py, clab/compile/__init__.py, clab/plan.py, clab/output/table.py]
@@ -8,7 +8,7 @@ sources: [clab/format/sweeps.py, clab/compile/__init__.py, clab/plan.py, clab/ou
 
 # Sweeps
 
-Write `{"sweep": [v1, v2, ...]}` where a value goes, and the document runs once at each value, all on one model load. The rules are in [FORMAT.md#sweeps](../../FORMAT.md#sweeps). Why steps multiply the way they do, and how a step finds the right point of the value it uses, is in [concepts/names-and-sweeps.md](../concepts/names-and-sweeps.md).
+Write `{"sweep": [v1, v2, ...]}` where a value goes, and the document runs once at each value, all on one model load. The rules are in [FORMAT.md#sweeps](../../FORMAT.md#sweeps). How a step's points follow from the values it uses is in [concepts/names-and-sweeps.md](../concepts/names-and-sweeps.md).
 
 ## Sweep one value
 
@@ -18,30 +18,46 @@ Write `{"sweep": [v1, v2, ...]}` where a value goes, and the document runs once 
 "patch": {"site": "target", "pos": {"sweep": [-1, -2, -3]}, "ops": [{"op": "swap", "with": "counterfactual.v_cf"}]}
 ```
 
-`patched` becomes three points, and each one is a whole forward over every row. `iia` and `logit_diff` reference `patched`, so they become three points too. The counterfactual step uses no swept value, so it runs once, and every point writes the counterfactual's last-token value: at `pos=-2` onto the base's second-to-last token. To patch each position from the same position, give the read's `pos` the same sweep; both are labelled `pos`, so their points pair up ([activation-patching.md](../patterns/activation-patching.md#a-layer-by-position-map)). `clab show` lists the axis and the points' shape:
+- **A swept write's step runs one forward per point.** `patched` has three points, each a whole forward over every row.
+- **A step that references a swept value inherits its points.** `iia` and `logit_diff` reference `patched`, so they have three points too.
+- **A step that uses nothing swept runs once and serves every point.** The counterfactual read is one value.
+- **A write swept against an unswept read writes the read's one value at every point.** At `pos=-2`, the counterfactual's last-token value goes onto the base's second-to-last token.
+- **To patch each position from the same position, sweep the read's `pos` too.** Both sweeps are labelled `pos`, so their points pair up ([activation-patching.md](../patterns/activation-patching.md#a-layer-by-position-map)).
+
+`clab show` lists the axis and the points' shape:
 
 ```text
 result      step        dims       axes  shape
 iia         iia         rows, pos  pos   3 points, each [4,1]
 ```
 
-A sweep can stand in these places:
+A sweep can stand in these places ([FORMAT.md#sweeps](../../FORMAT.md#sweeps) has the full rule):
 
-- any field that FORMAT.md types as "or a sweep", for example a site's `layers` and `select`, an entry's `pos` or its `frame` and `index`, and a fit's `epochs`, `seed`, objective weights and `lr`;
-- an op's arguments, inside an entry or on an op step (`scale`, `factor`, `top_k`'s `k`);
+- a field FORMAT.md types as "or a sweep": a site's `layers` and `select`, an entry's `pos` (its `frame`, its `index` or a scope's `occurrence`), and a fit's `epochs`, `seed`, objective weights and `lr`;
+- an op's arguments, inside an entry or on an op step (`scale`'s `factor`, `top_k`'s `k`);
 - a featurizer's fields (`k`, `seed`);
 - a generate step's options (`max_new_tokens`).
 
-A sweep cannot stand for a name (`site`, `input`, `of`, `featurizer`), a `component`, a `kind`, a `file_path`, a gate's `over` (a featurizer has one width at every point), or anything under `model` or `data`. To run the same steps on two datasets, write the steps twice; a run loads one model, so to compare revisions or checkpoints, write one document per revision and join their tables. Each value of a sweep is a number, a string, a boolean or a list of them. To vary an object, sweep a field inside it:
+A sweep is refused on `kind`, `op`, `site`, `component`, `input`, `of`, `featurizer`, `train`, `interventions`, `saves` and `file_path`. It is refused on a featurizer's `over`, a scope's `column` and a fit's optimizer `name`, and anywhere under `model` or `data`. What to write instead:
+
+- **Two datasets:** write the steps twice, one set per dataset.
+- **Two checkpoints or revisions:** a run loads one model, so write one document per revision and join their tables.
+- **Two scope columns:** write one entry per column.
+- **Two optimizers:** write one fit per optimizer.
+
+Each value of a sweep is a number, a string, a boolean or a list of them. To vary a `pos` object, sweep a scalar inside it: `{"frame": 0, "index": {"sweep": [-1, -2]}}`.
 
 ```text
 clab: sites.target.component: a sweep cannot stand for 'component'
-clab: steps.patched.interventions.patch.pos.sweep: a sweep's values are numbers, strings, booleans or lists of them, each point keyed by its value; {'frame': 0, 'index': -1} is an object: sweep a scalar field inside it, {'frame': {'sweep': [0, ...]}}
+clab: steps.forced.interventions.logits.pos.scope.column: {'sweep': ['days.base_answer', 'days.cf_answer']} is not a column reference, …; a scope's column takes no sweep (its occurrence does)
+clab: steps.patched.interventions.patch.pos: a sweep's values are numbers, strings, booleans or lists of them, each point keyed by its value; …
 ```
 
 ## Labels: zip or cross
 
-A sweep's label names its axis. Sweeps that share a label pair their points (they *zip*), and sweeps with different labels make a grid (they *cross*). With no `label`, the label is the field's own key, so two `layers` sweeps zip by default. This document reads the counterfactual at layer `src` and writes it into layer `dst`, over every pair of layers:
+A sweep's label names its axis. Sweeps that share a label pair their points (they *zip*). Sweeps with different labels make a grid (they *cross*). One sweep reached from two places is one axis. With no `label`, the label is the field's own key, so two `layers` sweeps zip by default.
+
+This document reads the counterfactual at layer `src` and writes it into layer `dst`, over every pair of layers:
 
 ```json
 {
@@ -76,7 +92,11 @@ A sweep's label names its axis. Sweeps that share a label pair their points (the
 }
 ```
 
-`logit_diff` has four points, keyed `src=0,dst=0` through `src=1,dst=1`. The counterfactual is two points, one per `src`, and they share one forward, since they differ only in what they read; `patched` runs four. With both labels removed, both sweeps are labelled `layers` and the run has two points, `layers=0` and `layers=1`, which give the grid's diagonal bit for bit. The same rule decides every pair of sweeps:
+- Crossed labels make the product of their values: `logit_diff` has four points, keyed `src=0,dst=0` through `src=1,dst=1`.
+- Points that differ only in what they read share one forward: the counterfactual's two points run as one, and `patched` runs four.
+- The same sweeps without labels are both labelled `layers` and zip: two points, `layers=0` and `layers=1`, equal to the grid's diagonal ([running.md](running.md#when-two-runs-give-the-same-numbers)).
+
+The same rule decides every pair of sweeps:
 
 | sweeps | labels | points |
 |---|---|---|
@@ -88,43 +108,46 @@ A sweep's label names its axis. Sweeps that share a label pair their points (the
 | a `load` of a value the run that saved it swept over `layers`, `[0, 1]` | `layers`, which the load declares where the document does not ([cached-harvest.md](../patterns/cached-harvest.md#what-the-load-checks)) | 2, zipped with a `layers` sweep here over the same values |
 | one label over different values | — | refused |
 
+Two sweeps under one label over different values are refused. Give one of them its own label to cross them, or the same values to pair them:
+
 ```text
-clab: sites.dst.layers: label 'layers' is also the sweep at sites.src.layers, over [0, 1]; one label is one axis, whose sweeps pair their points: give one of them its own label to cross them ({'sweep': [...], 'label': '<name>'}), or the same values to pair them
+clab: sites.dst.layers: label 'layers' is also the sweep at sites.src.layers, over [0, 1]; one label is one axis, …
 ```
 
 A label is letters, digits and underscores, because a coordinate is written `<label>=<value>`. Before you trust a grid, check the `axes` column of `clab show`: a grid that zipped has one axis where you expected two.
 
 ## What a sweep costs
 
-A forward or generation depends on the step's options and its writes alone. Points of a step that agree on those, and differ only in what they read, share one forward over every row, which visits every site any of them reads; each point that changes a write runs its own ([FORMAT.md](../../FORMAT.md#sweeps) has the rule, and each point's `schedule` in the manifest says which forward served it):
+- A forward or generation depends on the step's options and its writes alone ([FORMAT.md#sweeps](../../FORMAT.md#sweeps)).
+- Points that differ only in what they read share one forward, which visits every site any of them reads.
+- Each point that changes a write, an operand or an option runs its own forward.
+- Each point's `schedule` in the manifest names the forward that served it. `clab show` prints one cost row per forward, with the points it served (`all 4 points`).
+- A value is made once per distinct point on the axes it depends on (its `axes`). A read that does not depend on a step's sweep is one value, not identical copies.
 
-- `documents/head_patching.json` sweeps `select: {"num_heads": ...}` on the `target` site. The counterfactual step only reads that site, so its four points share one forward; `patched` writes there, so it runs four: five forwards for four heads.
-- `documents/generate_probe.json` sweeps the frame of a read, so its three points share one three-token generation, and its ids, `patched`, are one tensor.
+`documents/head_patching.json` sweeps `select: {"num_heads": ...}` on the `target` site. The counterfactual step only reads that site, so its four points share one forward. `patched` writes there, so it runs four: five forwards for four heads. `documents/generate_probe.json` sweeps the frame of a read, so its three points share one generation, and its ids, `patched`, are one `[4, 3]` tensor.
 
-`clab show` prints one cost row per forward with the points it served (`all 4 points`). A value is made once per distinct point on the sweep axes it depends on (its `axes`), so a read that does not depend on a step's sweep is one value, not identical copies. A step that uses nothing swept runs once, and its value serves every point.
-
-A large grid costs outside the forwards too. The manifest holds every point's records, with their positions per row (each distinct list once) and their schedule: on the corpus Llama a grid of 800 points over 4 rows writes a manifest of about 3 MB, and the size grows with the rows. Compile time grows faster than the number of points: 200 points compile in 0.4 s, 800 in 1.9 s and 3,200 in 12 s. Split a very large grid into documents by layer range.
+A large grid costs outside the forwards too. The manifest holds every point's records, positions and schedule, so its size grows with the points and the rows. Compile time grows faster than the number of points. Split a very large grid into documents by layer range.
 
 ## Widen the read instead
 
-When a sweep only chooses which part of one forward you read, the points share one forward either way, and one wider read gives the same numbers as one value with an axis:
+When a sweep only chooses which part of one forward you read, the points share one forward either way. One wider read then gives the same numbers as one value with an axis:
 
 | swept read | one wider read | the wider value |
 |---|---|---|
-| `"layers": {"sweep": [0, 1]}` (`documents/logit_lens.json`) | `"layers": ":"` (`documents/logit_lens_all.json`) | a `layers` axis, `[2, 4, 1]` |
-| `"pos": {"sweep": [-2, -1]}` and `select: {"num_heads": {"sweep": [0, 1, 2, 3]}}` on `attention_premix` | `"pos": {"index": "-2:"}` and no `select` | `[4, 2, 4, 4]` where each point is `[4, 1, 1, 4]` |
-| `{"frame": {"sweep": [0, 1, 2]}, "index": -1}` at the head in a generation | `{"frame": "0:3"}` | `[4, 3]` where each point is `[4, 1]` |
+| `"layers": {"sweep": [0, 1]}` (`documents/logit_lens.json`) | `"layers": ":"` (`documents/logit_lens_all.json`) | the metric `p_answer`: `[2, 4, 1]`, with a `layers` axis, where each point is `[4, 1]` |
+| `"pos": {"sweep": [-2, -1]}` and `select: {"num_heads": {"sweep": [0, 1, 2, 3]}}` on `attention_premix` | `"pos": {"index": "-2:"}` and no `select` | the read: `[4, 2, 4, 4]`, where each point is `[4, 1, 1, 4]` |
+| `{"frame": {"sweep": [0, 1, 2]}, "index": -1}` at the head in a generation | `{"frame": "0:3"}` | the metric `p_answer`: `[4, 3]`, where each point is `[4, 1]` |
 
-Each pair gives equal values bit for bit, from the same one forward or generation. The wider read lets the document combine settings: an op sees one point at a time, so it can reduce or compare along an axis but never across points. A `mean` over `layers` works on the `layers: ":"` lens and is refused on the swept one:
+Each pair gives equal values, from the same one forward or generation ([running.md](running.md#when-two-runs-give-the-same-numbers)). An op sees one point at a time, so it can reduce or compare along an axis but never across points. The wider read lets the document combine settings: a `mean` over `layers` works on the `layers: ":"` lens and is refused on the swept one:
 
 ```text
 clab: steps.avg at layers=0: a reduction cannot remove 'layers'; the value is ['rows', 'pos']
 ```
 
-Sweep when each point is a different intervention: the layer, head, position or dose a *write* acts at. A read used as the write's operand may leave out an axis the write has, and then broadcasts over it, but an axis it keeps holds the write's indices ([FORMAT.md](../../FORMAT.md#ops) states the operand rule). An unnarrowed read of every head does not serve a one-head swap, so in head patching the counterfactual read is swept along with the write, its points sharing one forward:
+Sweep when each point is a different intervention: the layer, head, position or dose a *write* acts at. A read used as the write's operand may leave out an axis the write has, and then broadcasts over it. An axis the operand keeps must hold the write's indices ([FORMAT.md#ops](../../FORMAT.md#ops) states the operand rule). So in head patching an unnarrowed read of every head does not serve a one-head swap. Sweep the counterfactual read's `select` with the write's; its points still share one forward:
 
 ```text
-clab: steps.patched.interventions.patch.ops[0].with at num_heads=0: 'counterfactual.v_cf' holds every num_heads, and this write's selection holds [0]; an operand holds the same ones: select num_heads [0] at the read
+clab: steps.patched.interventions.patch.ops[0].with at num_heads=0: 'counterfactual.v_cf' holds every num_heads, and this write's selection holds [0]; …
 ```
 
 ## Reading swept results
@@ -136,7 +159,7 @@ A swept save holds one value per point, keyed by the point's coordinate, which i
 | `plan.results[name]` in Python | the value for one axis; a tuple in axis order for several; a list value as a tuple | `-1`, `(0, 1)`, `(0, 1, 2, 3)` |
 | output files, `clab show`, `plan.run.costs`, `plan.run.tokens` | text, `label=value` joined by commas | `pos=-1`, `src=0,dst=1`, `intermediate_size=[0,1,2,3]` |
 | `clab table` and `plan.table`, column `at` | an object | `{"src":0,"dst":1}` |
-| a compiled step's `at` in `manifest.json` | the *index* on each axis | `{"pos": 2}` for `pos=-3` |
+| a compiled step's `at` in `manifest.json` | the *index* on each axis, meaningful only inside its plan | `{"pos": 2}` for `pos=-3` |
 
 ```python
 from clab import Plan
@@ -144,10 +167,12 @@ plan = Plan.load("out/pos_sweep")
 plan.results["iia"][-2]          # the [rows, pos] tensor at pos=-2
 ```
 
-The tuple's order is the order of the `axes` column in `clab show`, which is the order of `plan.sweeps`. Axes follow the format's root keys, then document order, and not the order keys appear in your file ([concepts/names-and-sweeps.md](../concepts/names-and-sweeps.md#a-sweep-label-is-an-axis)). `clab table` groups rows by point, in that order. Reading the output files is covered in [usage/output.md](output.md).
+`plan.sweeps` lists the axes by label, each with its values: `{'num_heads': Axis(values=[0, 1, 2, 3])}` for `documents/head_patching.json`. A coordinate tuple follows the order of `plan.sweeps`, which is the order of the `axes` column in `clab show`. Axes follow the format's root keys (`data`, `sites`, `interventions`, `featurizers`, `steps`), then document order inside each key. The order of keys in your file does not matter: a featurizer's `seed` sweep comes before a step's `pos` sweep even when `featurizers` is written after `steps`. `clab table` groups rows by point, in that order.
+
+**A swept `pos`'s coordinate is not the table's `pos` column.** `at` holds the swept value; `pos` holds the position the tabled value's read landed on. On `documents/pos_sweep.json`, `clab table out iia` prints row 0 with `at` `{"pos":-2}` beside `pos` 10: the patch's position is in `at`, the logits read's in `pos`. Give a write's `pos` sweep its own label (`"label": "patch_pos"`) to keep the two names apart.
+
+Reading the output files is covered in [usage/output.md](output.md).
 
 ## Pitfalls
 
-- **Default labels zip.** Sweeping `layers` on a read and on a write with the same values gives the diagonal, not the grid. Give each sweep its own `label`.
-- **Values swept over different axes cross in a table.** `clab table out iia m`, where `iia` is swept over `pos` and `m` over `layers`, prints a row per example at every pair of points; one that shares an axis joins on it. A swept value joins an unswept one too: the unswept row repeats beside every point ([output.md](output.md#clab-table)).
-- **A swept write re-runs its whole step.** Every point that changes a write, its operand or a generate option runs its own forward; see [What a sweep costs](#what-a-sweep-costs).
+- **Values swept over different axes cross in a table.** `clab table out iia m`, with `iia` swept over `pos` and `m` over `layers`, prints a row per example at every pair of points. Values that share an axis join on it. An unswept value's row repeats beside every point of a swept one ([output.md](output.md#clab-table)).
