@@ -20,9 +20,9 @@ How a change to clab lands: the branch and commit conventions, the rules a chang
 The format is everything a document can write: the records and their fields, the step kinds, the ops and their arguments, the components, the featurizer kinds and their fields, the engines' options. [FORMAT.md](../../FORMAT.md) lists all of it.
 
 - **Proposed with before-and-after JSON.** A format change is proposed before it is built, as the same document fragment written today and as it would be written after the change. It lands only when the repository's owner ratifies it.
-- **One spelling per thing.** No aliases, and no old spelling kept beside a new one. A spelling the format does not have is refused by name with the one to write instead: `reads` and `writes` on a step are refused because a step's reads and writes are one `interventions` value, and a model block's `torch_dtype` with ``the dtype is spelled `dtype` ``.
+- **One spelling per thing.** No aliases, and no old spelling kept beside a new one. A spelling the format does not have is refused by name with the one to write instead. `reads` and `writes` on a step are refused because a step's reads and writes are one `interventions` value; a model block's `torch_dtype` is refused with ``the dtype is spelled `dtype` ``.
 - **The corpus runs unchanged.** The documents under `documents/` are the format's semantics, and their pinned numbers say what each means ([testing.md](testing.md)). A change never edits a corpus document to make it pass. A change that would need one rewritten is a format change; a pin that moves is a change of meaning, made on purpose and visible in the snapshot diff. New behavior gets a new document or a new test.
-- **FORMAT.md is regenerated in the same commit.** It is rendered from the code's docstrings and registries (`clab/docs.py` `markdown`), and `tests/test_format.py` fails when it drifts. Run `uv run clab describe --markdown`: it writes `FORMAT.md` at the repo root itself, from any directory, and prints nothing (`--verbose` prints the path it wrote), so nothing is redirected into the file.
+- **FORMAT.md is regenerated in the same commit.** It is rendered from the code's docstrings and registries (`clab/docs.py` `markdown`), and `tests/test_format.py` fails when it drifts. Run `uv run --no-sync clab describe --markdown`. It writes `FORMAT.md` at the repo root itself, from any directory, and prints nothing (`--verbose` prints the path it wrote), so nothing is redirected into the file.
 
 Adding an op, a featurizer kind, a component or a step kind is [extending.md](extending.md).
 
@@ -30,11 +30,13 @@ Adding an op, a featurizer kind, a component or a step kind is [extending.md](ex
 
 ```bash
 CUDA_VISIBLE_DEVICES= HF_HUB_OFFLINE=1 uv run --no-sync pytest tests/ -q   # after testing.md's install
-uv run clab describe --markdown        # when the format changed; commit FORMAT.md with the code
+uv run --no-sync clab describe --markdown        # when the format changed; commit FORMAT.md with the code
 uvx pyright
 ```
 
-`tests/test_real.py`, `tests/test_device.py`, the CUDA cases of `tests/test_quantized.py` and the two-GPU cases of `tests/test_tp.py` need GPUs and skip without them; run them on one when a change touches an engine or where tensors are placed. Running, pinning and re-pinning are [testing.md](testing.md).
+`--no-sync` keeps `uv run` from syncing transformers past the one the snapshots were made with ([testing.md](testing.md#running-the-suite)).
+
+These need GPUs and skip without them: `tests/test_real.py`, `tests/test_device.py`, `tests/test_vllm.py` (with vLLM installed), the device test in `tests/test_featurizers.py`, the CUDA cases of `tests/test_quantized.py` and the two-GPU cases of `tests/test_tp.py`. Run them on one when a change touches an engine or where tensors are placed ([testing.md](testing.md#gpu-real-model-tests)). Running, pinning and re-pinning are [testing.md](testing.md).
 
 ## What a pull request carries
 
@@ -45,18 +47,19 @@ uvx pyright
 
 ## Docs
 
-Docs are written for a reader, often an agent with clab installed, who finds the one page for a task and applies it without reading anything else. Every page is held to three requirements:
+A page is for a reader, often an agent, who finds the one page for a task and applies it alone. Each change keeps these rules:
 
-1. **Useful and findable.** A page answers a question someone has while using or developing clab; its title and `one_liner` say what it answers in the words a searcher would use. One topic has one home: a page that needs a topic another page owns gives one sentence of context and links it. Index pages route and do not teach, and a new page gets a line in its section's `index.md`.
-2. **Compact.** State the rule, show it once, stop: no motivational introductions, no summaries that repeat the page, no enumeration where a pattern and one example suffice. Explain in your own words, completely enough that the reader does not need the source to finish the task, and never mirror the source (no attribute dumps, re-listed enums or walkthroughs of implementation lines).
-3. **Nothing environment-specific.** No machine or host names, user names, home paths, personal environments or one operator's deployment details. Generalize the requirement, or leave it out.
+- **Findable.** `title` and `one_liner` say what the page answers, in a searcher's words. A new page gets a line in its section's `index.md`, and index pages only route.
+- **One home per topic.** `usage/` owns a part of the format or a run stage, `patterns/` a technique, `concepts/` a mechanism, `errors/` a refusal or a symptom, `developing/` the code. Another page gives one sentence of context and a link. `CLAUDE.md` holds the by-task routes and the mistakes that run without a refusal, one line and a link each.
+- **Routed.** Every op, featurizer kind, component, step kind and run option has a when-to-use sentence on the page that owns it. It also has a route from `CLAUDE.md` or a pattern page.
+- **One rule per sentence**, under 25 words and never over 40. A recipe is a table row or a bullet; a trap is a bullet with a bold lead-in. No paragraph passes about 120 words.
+- **Rules, not runs.** A walkthrough keeps only its rule, unless the number is the point. One example per rule: a corpus document by path, the fragment that matters quoted.
+- **Numbers from the repository**: a snapshot, a test, a corpus document or its `clab show`. A figure from one machine, one card or one real model goes, and its mechanism stays.
+- **"To the bit" has one home**, [usage/running.md](../usage/running.md#when-two-runs-give-the-same-numbers). Elsewhere say "equal" and link it; a test's assertion is "bit-equal" (`same`).
+- **Current and general.** Present tense: no history, roadmap, version pins or issue references. No host or user names, home paths, one deployment, one CPU vendor's kernels or one card's timings.
+- **FORMAT.md is the spec.** Link its section and add the task, the choice, the recipe or the trap. Full lists and counts live there alone. Use its spellings, one per thing, and quote a refusal by its first clause.
+- **Own words, cited.** Never paste a docstring. Cite code by path and symbol (`clab/compile/positions.py` `resolve`), never by line number.
+- **Examples compile.** A fenced `json` block with `model` and `steps` must compile against the corpus; a fragment omits `model`.
+- **Front matter**: `title`, `one_liner` (quoted when it holds `: `), `tags`, and `related` and `sources` naming files that exist. Leaf pages run 60 to 200 lines.
 
-And the rules particular to clab's docs:
-
-- **FORMAT.md is the spec.** Link its section (`../../FORMAT.md#ops`) and add what it cannot say: the task, the choice, the recipe, the trap. Never restate its fields or ops.
-- **Current truth only.** Present tense; no version pins, no history, no bug or issue references, no roadmap. Odd behavior is stated neutrally, with how to work with it.
-- **Cite by path and symbol**, in backticks: `clab/compile/positions.py` `lands_at_call`. Never by line number.
-- **Examples compile.** A fenced `json` document with both `model` and `steps` is compiled by the docs test, so it uses the corpus's pinned tiny checkpoint and datasets under `data/`; anything else is a fragment, without `model`. Prefer pointing at a corpus document by path and quoting the part that matters.
-- **Front matter** on every page: `title`, `one_liner` (quoted when it holds `: `), `tags`, and `related` and `sources` naming repo files that exist. Leaf pages run 60 to 200 lines.
-
-`uv run pytest tests/test_docs.py -q` checks links, anchors, front matter, cited paths and symbols, line-number citations, banned names and that complete documents compile; the rest is review.
+`uv run --no-sync pytest tests/test_docs.py -q` checks links, anchors, front matter, cited paths and symbols, line-number citations, banned names and compiling examples ([testing.md](testing.md#the-docs-test)); the rest is review.

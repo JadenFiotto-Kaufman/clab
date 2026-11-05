@@ -1,9 +1,9 @@
 ---
 title: Plan Lifecycle
-one_liner: "What happens between a document and its results: Plan, compile with the document alone, preflight with the model, the run inside one session, results and the output directory, and how to tell from a refusal's message which stage raised it."
+one_liner: "What happens between a document and its results, and which stage raised a refusal?"
 tags: [concepts, lifecycle, compile, preflight, refusals]
 related: [docs/usage/running.md, docs/usage/engines.md, docs/concepts/one-session.md, docs/usage/output.md, docs/errors/index.md, docs/developing/compile-and-run.md]
-sources: [clab/plan.py, clab/compile/__init__.py, clab/compile/preflight.py, clab/engines/__init__.py, clab/steps/__init__.py, clab/output/__init__.py]
+sources: [clab/plan.py, clab/compile/__init__.py, clab/compile/preflight.py, clab/engines/__init__.py, clab/engines/vllm.py, clab/steps/__init__.py, clab/output/__init__.py, clab/cli.py]
 ---
 
 # Plan Lifecycle
@@ -14,7 +14,7 @@ A document reaches its results through six stages. Each stage knows more than th
 
 ```text
 document ─Plan(path)─▶ plan ─compile()─▶ compiled plan ─engines.load()─▶ engine
-   ─execute()─▶ [ preflight ▸ every step ▸ results and run record ] ─dump()─▶ output directory ─Plan.load()─▶ filled plan
+   ─execute()─▶ [ checks ▸ preflight ▸ every step ▸ results and run record ] ─dump()─▶ output directory ─Plan.load()─▶ filled plan
 ```
 
 A plan's `repr`, which `print` gives too, says how far it has gone: `Plan(patching, uncompiled)`, `Plan(patching, compiled, 1 point)`, `Plan(patching, run on nnterp, 2 results)`.
@@ -50,7 +50,11 @@ Compiling a compiled plan returns it unchanged. Compile runs before any engine l
 
 ## 3. Load: the engine and its model
 
-`engines.load(name, model, device, **options)` builds the engine. On the command line these are `--engine`, `--device` and `-o`. The hooks engine loads the checkpoint the model block pins; the nnterp engine (at `tp` 1) and `ndif` build a shell with no weights, whose weights the nnterp engine loads before the first step of a run that calls the model ([engines.md](../usage/engines.md#where-the-model-goes---device)), refusing there a model block key its loader rejects and weights the offline cache lacks. The engine refuses an option it does not declare, a model block key it cannot honor, a device that cannot be, a checkpoint the offline cache lacks, a quantized `dtype` its hardware or a server cannot hold, `tp` outside torchrun and torchrun without `tp`, each by name and before any weight loads ([engines.md](../usage/engines.md)):
+`engines.load(name, model, device, **options)` builds the engine. On the command line these are `--engine`, `--device` and `-o`.
+
+- The hooks engine loads the checkpoint the model block pins.
+- The nnterp engine (at `tp` 1), `ndif` and `vllm` build a shell with no weights. Each engine that runs the model here loads the weights before the first step of a run that calls the model ([engines.md](../usage/engines.md#where-the-model-goes---device)). A model block key the loader rejects is refused there.
+- The engine refuses what it cannot honor by name, before any weight loads: an option, a model block key, a device, a checkpoint the offline cache lacks, a `dtype` ([engines.md](../usage/engines.md#engine-options--o-keyvalue)).
 
 ```text
 the hooks engine takes no 'remote'; its options: none (where the model runs is `device`, given as --device)
@@ -60,16 +64,32 @@ device 'cuda:0': no CUDA device is visible (torch.cuda.is_available() is False);
 
 ## 4. Preflight: the model in hand, no forward yet
 
-Preflight runs inside the run, before any forward. It sees the tokenizer, the model's sizes, the components the engine serves, and the order the engine's forward reaches them in. It:
+`engine.execute(plan)` starts the run. Two things come before preflight:
+
+- **`execute` checks the plan against the engine**, on the client, before any session opens (`clab/steps/__init__.py` `start_run`). It refuses an uncompiled plan, a model block other than the one the engine loaded, a `grad` entry the engine cannot take, and under ndif loads larger than a request carries. The vllm engine's `execute` first refuses what vLLM cannot do: a fit, a write at the recomputed attention pattern, a generate option its sampling cannot map. These checks read only the plan and the engine's declarations. Under nnterp and ndif the model is still a shell with no weights, and nothing has been sent. [developing/engines.md](../developing/engines.md#execute) lists them all.
+- **The run puts every dataset's rows in view.** Rows that are not in the plan are read again: a hub dataset's always, a file dataset's after `Plan.load`. Rows whose digest differs from the one compile recorded are refused:
+
+  ```text
+  data.pairs: data/weekdays/train.json is not what the run read (its rows' digest differs)
+  ```
+
+Preflight then runs, inside the run and before any forward. It sees the tokenizer, the model's sizes, the components the engine serves, and the order the engine's forward reaches them in. It:
 
 - tokenizes every input and records the tokens in `plan.run.tokens`.
 - resolves every prefill position per row, onto each read's and write's record (`positions`).
 - turns answer columns into token ids.
 - resolves the indices each `select` keeps and the layers a slice picks.
 - fixes each featurizer's width.
-- writes, at each point that runs its forward, the rest of its `schedule`: the sites the forward visits in the engine's forward order with the reads and writes done at each, each operand resolved to the point that made it or to a read of the same forward, the site the forward stops after, and a generation's calls.
+- completes each forward's `schedule` ([FORMAT.md](../../FORMAT.md#derived-fields)): the sites it visits in the engine's forward order, the reads and writes at each, and where it stops.
 
-It refuses by `<step>.<entry>`, or by `<step>` for an op step, without the `steps.` prefix of a document path. Typical causes: a component the engine does not serve, a layer or `select` outside the model's sizes, a position that does not fit some row, an answer that is not one token, an operand read later in the forward than the write that uses it, a bundle at the wrong width or layer.
+It refuses by `<step>.<entry>`, or by `<step>` for an op step, without the `steps.` prefix of a document path. Typical causes:
+
+- a component the engine does not serve;
+- a layer or `select` outside the model's sizes;
+- a position that does not fit some row, or an answer that is not one token;
+- an operand read later in the forward than the write that uses it;
+- a bundle at the wrong width or layer;
+- on vllm, the head at a position other than the prompt's last, or a step longer than the engine's `max_len`.
 
 ```text
 counterfactual.v_cf: layer 5; the model has 2 layers
@@ -81,15 +101,11 @@ A preflight refusal costs a model load and no forward.
 
 ## 5. The run: every step, in order
 
-`engine.execute(plan)` first refuses a plan that is not compiled (`plan is not compiled; call plan.compile()`) and a plan whose model block differs from the one the engine loaded. It then hands the plan to `steps.run`. Under nnterp and ndif that call runs inside the engine's one nnsight session; under hooks it is plain Python.
+The run is `steps.run`. Under nnterp and ndif it runs inside the engine's one nnsight session. Under hooks and vllm it is plain Python; on vllm each batch is one trace.
 
-At its start, before preflight, the run puts every dataset's rows in view. Rows that are not in the plan are read again: a hub dataset's always, a file dataset's after `Plan.load`. Rows whose digest differs from the one compile recorded are refused:
+Each step runs in document order, without gradients except where a fit trains or a forward has `grad` entries. A forward or generation runs once per forward its schedule names, serving every point it serves; an op runs once per distinct point of its value. The engines execute the schedule and decide nothing. The run decides whatever needs the model's values: where each generated row stopped, which positions beyond the prefill a read or write lands at, and every op. It records what each run of a step cost in `plan.run.costs`.
 
-```text
-data.pairs: data/weekdays/train.json is not what the run read (its rows' digest differs)
-```
-
-Each step then runs in document order, without gradients except where a fit trains: a forward or generation once per forward its schedule names, serving every point it serves; an op once per distinct point of its value. The engines execute the schedule and decide nothing. The run decides whatever needs the model's values: where each generated row stopped, which positions beyond the prefill a read or write lands at, and every op. It records what each run of a step cost in `plan.run.costs`. Few refusals are left this late. One is an option the model's `generate` rejects, which names the step:
+Few refusals are left this late. One is an option the model's `generate` rejects, which names the step (on vllm the engine's `execute` refuses an option it cannot map, before any step runs):
 
 ```text
 answer: generate rejected 'max_new_tokns': The following `model_kwargs` are not used by the model: ['max_new_tokns'] ...
@@ -99,23 +115,34 @@ The other is a step that runs out of CUDA memory, which stops the run there: the
 
 ## 6. Results, dump and load
 
-After the last step, each saved value goes into `plan.results` as a detached CPU copy, keyed by coordinate on the sweep axes it depends on. `plan.run` records how the run went: the engine and its options, the versions that served it, the served dtype and devices, the model's sizes, every input's tokens and what each step cost; the records hold every position each read and write resolved to and each forward's schedule. `plan.dump(out)` writes one file per save plus `manifest.json` and, beside it, every input's tokens in `tokens.json`; `Plan.load(out)` reads them back as the filled plan. [output.md](../usage/output.md) covers reading them.
+After the last step, each saved value goes into `plan.results` as a detached CPU copy, keyed by coordinate on the sweep axes it depends on. `plan.run` records how the run went: the engine and its options, the versions that served it, the served dtype and devices, the model's sizes, torch's thread count, every input's tokens and what each step cost. The records hold every position each read and write resolved to, and each forward's schedule. `plan.dump(out)` writes one file per save plus `manifest.json` and, beside it, every input's tokens in `tokens.json`; `Plan.load(out)` reads them back as the filled plan. [output.md](../usage/output.md) covers reading them.
 
-A loaded plan holds no rows from file datasets. `plan.table` reads them again and refuses if the file changed since the run, with the message shown under stage 5. An output directory is written only when the run completes, so a refusal at any stage leaves none, except an out-of-memory stop, which writes the steps before it.
+A loaded plan holds no rows from file datasets. `plan.table` reads them again and refuses if the file changed since the run, with the message shown under stage 4. An output directory is written only when the run completes, so a refusal at any stage leaves none, except an out-of-memory stop, which writes the steps before it.
 
 ## Where each stage runs
 
-Under nnterp and hooks, every stage runs in your process. Under ndif, Plan, compile, load and dump run on the client. Preflight and the run happen on the server, inside the one session, and the results and run record come back together. A refusal from those two stages arrives only after the request has waited in the server's queue. Why this split keeps the numbers the same is [one-session.md](one-session.md).
+Under nnterp and hooks, every stage runs in your process. So it does under vllm, with the model in vLLM's worker. Under ndif with `remote=true`, Plan, compile, load, `execute`'s checks and dump run on the client. The rows' digest check, preflight and the run happen on the server, inside the one session, and the results and run record come back together. A refusal from the server arrives only after the request has waited in its queue. Why this split keeps the numbers the same is [one-session.md](one-session.md).
 
 ## Which stage refused
 
-| the message starts with | raised by | what had happened |
-|---|---|---|
-| a document path: `steps.<step>…`, `data.<name>…`, `saves[i]`, `featurizers.<name>…` | Plan or compile | nothing loaded |
-| `no document at …`, `batch_size …`, `the <engine> engine takes no …`, `model.<key>…`, `device…`, `remote:`, `tp …`, `-o …` | load, or the command line before it | nothing loaded |
-| a step's name without `steps.`: `<step>.<entry>:`, `<step>:`, `<fit>.<step>.<entry>:` | preflight | the model loaded, no forward ran |
-| `<step>: generate rejected '<option>'` | the run | earlier steps ran, nothing was written |
-| `steps.<step>: out of CUDA memory …` | the run | the steps before it ran and are saved |
-| `data.<name>:` saying the rows are not what compile read | the run, or `plan.table` on a loaded plan | the data changed after compile |
+`clab run` prints a refusal as `clab: <where>: <what>`, and the `<where>` says which stage raised it. Some prefixes are shared between stages, so match on the first clause too.
+
+| the message starts with | first clause, for example | raised by | what had happened |
+|---|---|---|---|
+| `no document at …`, `batch_size …`, `padding '…'`, `readout '…'` | `batch_size 0: a batch holds one row or more` | the command line or `clab.run`, before the document is read | nothing read |
+| a document path: `steps.<step>…`, `data.<name>…`, `saves[i]`, `featurizers.<name>…`, `model: …` | `steps.iia: unknown step kind 'opp'` | Plan or compile | nothing loaded |
+| `unknown engine …`, `the <engine> engine takes no …`, `model.<key>: the <engine> engine cannot …`, `device…`, `remote:`, `tp …`, `-o …` | `the hooks engine takes no 'tp'` | load | the document compiled; no weight loaded |
+| `plan is not compiled`, `the plan's model is not the one this engine loaded`, a `grad` entry's `<step>.<entry>:`, a load's size `<step>: the values this document loads hold …`, and on vllm a fit, a pattern write and a generate option | `patched.h: a grad entry takes the model's gradient` | `execute`'s checks, on the client before the session | the engine loaded, under nnterp and ndif as a shell with no weights; nothing sent, no forward |
+| a step's name without `steps.`: `<step>.<entry>:`, `<step>:`, `<fit>.<step>.<entry>:` | `counterfactual.v_cf: layer 5; the model has 2 layers` | preflight | the model loaded, no forward ran |
+| `<step>: generate rejected '<option>'` | `answer: generate rejected 'max_new_tokns'` | the run; on vllm, `execute`, before any step | earlier steps ran, nothing was written |
+| `steps.<step>: out of CUDA memory …` | | the run | the steps before it ran and are saved |
+| `data.<name>:` saying the rows are not what compile read | `data.pairs: data/weekdays/train.json is not what the run read` | the run, or `plan.table` on a loaded plan | the data changed after compile |
+
+Four forms add to a message:
+
+- **At a sweep point**, compile adds ` at <label>=<value>` to the path: `steps.patched.interventions.patch.pos.frame at frame=1: frame 1: …`. Preflight names no point.
+- **A bundle's entry** is refused at its own path, then ` in <step path>`: `interventions.b.w.ops[0].with in steps.patched: 'nope.v' names no value produced before this step; …`.
+- **Several document errors** print one per line, only the first prefixed `clab:` (`clab: model: Field required`, then `steps.iia: unknown step kind 'bogus'; …`). So do the `datasets` library's two-line messages.
+- **`--batch-size`, `--padding` and `--readout` are refused before the document is read**, and `--engine`, `--device` and `-o` after it compiles. A broken document run with `--batch-size 0` reports `batch_size 0: …`; run with `--device gpu`, it reports its own refusal.
 
 Each refusal, with its cause and fix, is listed by message in [errors/index.md](../errors/index.md).
