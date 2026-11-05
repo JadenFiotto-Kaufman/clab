@@ -1,6 +1,6 @@
 ---
 title: Writing a Document
-one_liner: "The anatomy of a clab document: the root keys, a four-step patching experiment read top to bottom, how steps name each other's values, saves, and what is checked before the model loads."
+one_liner: "How do I write a document? The root keys, one patching experiment read top to bottom, how steps name each other's values, and saves."
 tags: [usage, document]
 related: [docs/usage/data.md, docs/usage/sites.md, docs/usage/positions.md, docs/usage/interventions.md, docs/usage/ops.md, docs/usage/running.md, docs/usage/output.md, docs/concepts/plan-lifecycle.md, docs/concepts/names-and-sweeps.md]
 sources: [clab/plan.py, clab/compile/__init__.py]
@@ -8,7 +8,7 @@ sources: [clab/plan.py, clab/compile/__init__.py]
 
 # Writing a Document
 
-A clab document is one JSON object that declares a whole experiment: the checkpoint, the data, the steps that run in order, and the values to keep. `clab run` checks it, runs it on the model and writes the kept values to a directory. This page reads `documents/patching.json` from top to bottom, then covers how steps name each other's values and what is checked before the model loads.
+A clab document is one JSON object that declares a whole experiment: the checkpoint, the data, the steps that run in order, and the values to keep. `clab run` checks it, runs it on the model and writes the kept values to a directory. This page reads `documents/patching.json` from top to bottom, then covers how steps name each other's values and `saves`.
 
 ## The root keys
 
@@ -69,8 +69,8 @@ The steps and the saves:
 ```text
 $ clab run documents/patching.json
 patching on nnterp (batch size 8, device cpu, tp 1) -> out/patching
-  iia.safetensors              iia              [4,1]
-  logit_diff.safetensors       logit_diff       [4,1]
+  iia.safetensors         iia         [4,1]
+  logit_diff.safetensors  logit_diff  [4,1]
   out/patching/manifest.json
 $ clab table out/patching iia logit_diff
 row  pos  pos_token  input                              cf_answer  iia  base_answer  logit_diff
@@ -79,7 +79,7 @@ row  pos  pos_token  input                              cf_answer  iia  base_ans
 ...
 ```
 
-The corpus checkpoint has random weights, so the numbers mean nothing; the wiring is the point. Row 0's last token sits at position 10 rather than 8 because ` Thursday` is three tokens on this tokenizer. Reading the table and the manifest is [output.md](output.md); running options are [running.md](running.md). Each entry's mechanics are [interventions.md](interventions.md), `pos` is [positions.md](positions.md), and the metrics are [ops.md](ops.md).
+The corpus checkpoint has random weights, so the numbers mean nothing; the wiring is the point. Row 0's last token sits at position 10 rather than 8 because ` Thursday` is three tokens on this tokenizer. Reading the table and the manifest is [output.md](output.md). Running options, and the one-line check that compiles a document before any model loads, are [running.md](running.md#check-before-you-run). Each entry's mechanics are [interventions.md](interventions.md), `pos` is [positions.md](positions.md), and the metrics are [ops.md](ops.md).
 
 ## How steps name each other's values
 
@@ -102,21 +102,15 @@ The full rules, including a fit's own scope and how a swept name resolves, are i
 
 ## `saves`
 
-Each name in `saves` is a step's value or a step's member: `iia`, `patched.logits`, `fit.rot`. Each becomes one file, and the manifest lists them in this order. A name saved twice, or one that names no value, is refused; the refusal lists every name that could be saved. A step saved whole is not named `manifest` or `tokens`, the names of the directory's own two files. With no `saves`, the run writes only `manifest.json` and `tokens.json`.
+Each name in `saves` is a step's value or a step's member: `iia`, `patched.logits`, `fit.rot`.
 
-Save what you will read. An entry's value leaves the model only when something saves or uses it, and saving `patched.logits` here keeps `[4, 1, 32000]` floats where the metric is `[4, 1]`.
-
-## What is checked before the model loads
-
-Most mistakes are refused before anything runs, each by the document path of what is wrong:
-
-- **Reading the document** checks each record's shape: `steps.patched.interventions.logits: unknown field 'position'; valid: site, pos, ops`.
-- **Compile** checks it against the data files and bundle headers: every reference, column, save and sweep. `steps.iia.expected: dataset 'pairs' has no column 'cf' on every row; columns: answer, base_answer, ...`
-
-Both run without a model, so a document can be checked without loading one ([running.md](running.md#check-before-you-run) has the one-line check). What needs the tokenizer or the model's sizes is checked after the model loads, before any forward: a position a row does not have (`counterfactual.v_cf: row 0: tokens 10 do not fit its 9 scope tokens`), a component the engine does not serve. A few things fail only when their step runs, such as a `generate` option the model's `generate` rejects. Any refusal leaves no output directory, except a step that runs out of CUDA memory, which saves the steps before it ([running.md](running.md#when-a-step-runs-out-of-memory)). Which stage refuses what is [plan-lifecycle.md](../concepts/plan-lifecycle.md); messages and their fixes are in [errors/index.md](../errors/index.md).
+- **Each name becomes one file**, and the manifest lists them in this order. With no `saves`, the run writes only `manifest.json` and `tokens.json`.
+- **A name that names no value is refused, listing every name that could be saved**: `saves[0]: 'nope' names no step's value; a save is a step or a step's member: counterfactual.v_cf, iia, …`.
+- **A name saved twice is refused**: `saves[1]: 'iia' is saved twice`.
+- **A step saved whole is not named `manifest` or `tokens`**, the names of the directory's own two files.
+- **Save what you will read.** An entry's value leaves the model only when something saves or uses it, and saving `patched.logits` here keeps `[4, 1, 32000]` floats where the metric is `[4, 1]`.
 
 ## Pitfalls
 
-- **An entry with no ops reads; an entry with an edit writes.** There is no separate read or write key. A typo in an op name is refused, but a forgotten `ops` list silently turns an intended write into a read.
 - **`description` is not checked against anything.** A document says what it does through its steps; keep the prose in step with them.
 - **A layer past the model's last compiles.** Compile does not know the model, so `"layers": 5` on a two-layer model is refused only after the checkpoint loads (`counterfactual.v_cf: layer 5; the model has 2 layers`), which on a large model is the slow part. The same holds for positions, `select` indices and answer tokens.
