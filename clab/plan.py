@@ -987,7 +987,8 @@ class Fit(Record):
     another renders its chats with its own `template`, so the two have the same one). The body's forwards, and an
     eval's, run in batches of `batch_size`, whatever the run's batch size, padded as the run's `padding` says
     (under `sorted`, a minibatch's own rows longest first). `epochs: 0` trains nothing: the featurizers are scored
-    as drawn (an untrained lora is the identity exactly, a null control), and each history is empty, `[0]`.
+    as drawn (an untrained lora or affine is the identity exactly, a null control), and each history is empty,
+    `[0]`.
 
     The body is a scope of its own that sees every value produced before the fit; a trained featurizer's name
     there is `<fit>.<featurizer>`, the one being trained, which compile writes for its bare name. A value made
@@ -1065,8 +1066,10 @@ class Featurizer(Record):
     width: int | None = derived(None, "the feature width the featurizer has at the sites it is used at, one for all "
                                       "of them, which preflight finds among the model's sizes (null for one used "
                                       "nowhere; a gate over axes, how many units it has: the product of `kept`'s "
-                                      "lengths); a saved bundle's header records it")
-    kept: dict[str, list[int]] = derived({}, "a gate over axes: the indices its units keep on each axis it is over, "
+                                      "lengths, where an affine over layers is as wide as its sites' last axis); a "
+                                      "saved bundle's header records it")
+    kept: dict[str, list[int]] = derived({}, "a featurizer over axes (a gate's units, an affine's maps): the indices "
+                                             "it keeps on each axis it is over, "
                                              "in `over`'s order (`layers` by model layer), as the sites it is used at "
                                              "select them or its bundle's header records them, which preflight "
                                              "finds; empty for any other featurizer")

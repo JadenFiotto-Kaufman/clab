@@ -1,9 +1,9 @@
 ---
 title: Logit Lens
-one_liner: "The logit lens in one forward: readout over a layers selector, a kl check against the model's logits, kl between lenses aligned by layer label, and top_k to see what each layer would say."
-tags: [patterns, lens, logit-lens, readout, layers, kl, top_k]
-related: [docs/usage/sites.md, docs/usage/ops.md, docs/concepts/values-and-layout.md, docs/usage/sweeps.md, docs/usage/positions.md]
-sources: [clab/ops/transforms.py, clab/format/address.py, clab/compile/interventions.py, clab/engines/nnterp.py]
+one_liner: "The logit lens in one forward: readout over a layers selector, a kl check against the model's logits, kl between lenses aligned by layer label, top_k to see what each layer would say, and a tuned lens with a trained affine translator per layer."
+tags: [patterns, lens, logit-lens, tuned-lens, readout, layers, kl, top_k, affine]
+related: [docs/usage/sites.md, docs/usage/ops.md, docs/concepts/values-and-layout.md, docs/usage/sweeps.md, docs/usage/positions.md, docs/usage/featurizers.md, docs/usage/fit.md]
+sources: [clab/ops/transforms.py, clab/ops/metrics.py, clab/format/address.py, clab/compile/interventions.py, clab/engines/nnterp.py, clab/featurizers/affine.py, documents/tuned_lens.json]
 ---
 
 # Logit Lens
@@ -100,6 +100,32 @@ Two lenses compare layer by layer through their labels, whatever order each list
 
 With `patched.lens` read at `"layers": [1, 0]` and `clean.lens` at `":"`, `shift` pairs layer 1 with layer 1 and 0 with 0. An `against` lens that lacks one of the `of` lens's layers is refused by name. `shift_by_layer` is one number per layer, since `mean` keeps the `layers` axis unless `over` names it.
 
+## A tuned lens
+
+The final norm and head were trained on the last layer's stream, so an early layer's logit lens reads it in the wrong basis. A tuned lens first maps each layer's stream with a translator of its own, `h + h W + b`, trained so that the lens's next-token distribution matches the model's: the objective is KL(final ‖ lens). `documents/tuned_lens.json` is one on the tiny GPT-2, with one [`affine` over layers](../usage/featurizers.md#an-affine-map) holding the translators of layers 0 to 3 (every layer but the last, whose lens is the model's own logits), all trained in one fit:
+
+```json
+"sites": {"resid": {"component": "layer_output", "layers": "0:4"}, "head": {"component": "logits"}},
+"featurizers": {"lens": {"kind": "affine", "over": ["layers"]}},
+```
+
+and in the fit's body, after the forward that reads `h` at `resid` and `final` at `head`:
+
+```json
+"lensed": {"kind": "op", "op": "apply", "featurizer": "fit.lens", "of": "run.h"},
+"tl": {"kind": "op", "op": "readout", "of": "lensed"},
+"kl": {"kind": "op", "op": "kl", "of": "tl", "against": "run.final", "reverse": true},
+"mkl": {"kind": "op", "op": "mean", "of": "kl"}
+```
+
+- **The lens reads; it never writes.** `apply` and `readout` are op steps over a plain read, so the forward is the model's own. `apply` inside the entry would write each translated layer back, and every layer after it would see that.
+- **One forward per minibatch trains every layer.** The affine takes each layer's map by its id, `kl` keeps the `layers` axis, and the objective averages it over every axis, so each map takes the gradient of its own layer's loss alone. A sweep of the site's `layers` instead would make a fit, and its forwards, per layer.
+- **The direction is `reverse`.** An operand cannot carry a `layers` axis that `of` lacks, so the lens is `of`, and `"reverse": true` scores KL(final ‖ lens) ([ops.md](../usage/ops.md#metrics)). The document scores the logit lens the same way, `{"op": "kl", "of": "lfw.ll", "against": "lfw.final", "reverse": true}`, and `gain` is the tuned lens's held-out mean KL less the logit lens's, one number per layer.
+- **The null is the logit lens.** Every translator starts at zero, so at `epochs: 0` the tuned lens's held-out KL is the logit lens's to the bit at every layer and `gain` is `0.0`. On CUDA the entry and step forms of `readout` differ in the last bits (above), so write the logit lens as a `readout` step over a plain read there for the same null.
+- **Memory is the scored pass's.** After each epoch the body runs over every training row, and its `readout` step binds a `[layers, rows, positions, vocab_size]` value over all of them, whatever the fit's `batch_size`; on a large vocabulary, keep the positions and the training rows few.
+
+On the corpus model two epochs take the held-out KL at layer 0 from 0.0032 nats (the logit lens's) to 0.0008, below the logit lens's at all four layers. The model is random, so that shows the mechanics and nothing about what a lens learns.
+
 ## Variations
 
 - **The last few tokens.** `"pos": {"index": "-3:"}` on both `logits` and `final` lenses each row's last three tokens, the last included. `kl` pairs position with position, and `clab table OUT to_final` prints a line per layer, row and position, its `pos` and `pos_token` saying which token: 8, 9 and 10 (`▁tom`, `orrow`, `▁is`) on row 0, `to_final` 0.0 at layer 1 on each.
@@ -110,4 +136,4 @@ With `patched.lens` read at `"layers": [1, 0]` and `clean.lens` at `":"`, `shift
 
 ## Pitfalls
 
-- **An early layer's lens is not its information content.** The final norm and head were trained on the last layer's stream; a low probability at layer 2 can mean the answer is there in another basis. Compare layers with each other and with `to_final`, not against an absolute threshold.
+- **An early layer's lens is not its information content.** The final norm and head were trained on the last layer's stream; a low probability at layer 2 can mean the answer is there in another basis. Compare layers with each other and with `to_final`, not against an absolute threshold, or train a [tuned lens](#a-tuned-lens), which learns each layer's basis.

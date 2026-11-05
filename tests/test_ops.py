@@ -247,6 +247,19 @@ def test_kl_and_js():
     assert bool((js >= 0).all() and (js <= math.log(2)).all())
 
 
+def test_kl_reversed_is_kl_with_of_and_against_swapped_to_the_bit():
+    """`reverse` gives KL(against ‖ of): the bits of `kl` with the two swapped, on a value without a `layers` axis and
+    on one with it against a distribution without it (laid out as an operand meets the value, a singleton where it
+    leaves the axis out); the two directions differ."""
+    other = torch.randn(3, 1, 7)
+    assert torch.equal(metrics.kl(LOGITS, other, reverse=True), metrics.kl(other, LOGITS))
+    assert not torch.equal(metrics.kl(LOGITS, other, reverse=True), metrics.kl(LOGITS, other))
+    lens, final = torch.randn(2, 3, 1, 7), other[None]                 # layers, rows, pos, vocab
+    assert torch.equal(metrics.kl(lens, final, reverse=True), metrics.kl(final, lens))
+    assert metrics.kl(lens, final, reverse=True).shape == (2, 3, 1)
+    assert torch.equal(ops.call("kl", lens, {"against": final, "reverse": True}), metrics.kl(final, lens))
+
+
 def test_out_dims_follows_each_ops_declaration():
     assert ops.out_dims("match", ["rows", "pos", "vocab_size"], {}) == ["rows", "pos"]
     assert ops.out_dims("mean", ["rows", "pos", "hidden_size"], {"over": None}) == ["hidden_size"]

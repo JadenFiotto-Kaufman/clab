@@ -62,7 +62,7 @@ The body's datasets are those its forwards read (with none, the one its harvests
 `objective` is `{term: weight}`, and the optimizer minimizes the weighted sum; a negative weight maximizes a term. A term is one of:
 
 - **a body op**, averaged over every axis, missing values left out: `ce` above;
-- **a trained featurizer's scalar**, `<featurizer>.<scalar>`: a gate's `mask` (the mean of its soft mask, the sparsity pressure in `documents/dbm.json`), an sae's `reconstruction` and `l1` (`documents/sae_train.json`). Subspaces, probes and adapters have none.
+- **a trained featurizer's scalar**, `<featurizer>.<scalar>`: a gate's `mask` (the mean of its soft mask, the sparsity pressure in `documents/dbm.json`), an sae's `reconstruction` and `l1` (`documents/sae_train.json`). Subspaces, probes, adapters and affine maps have none.
 
 An sae's scalars are over the coordinates the body reads of it with an `encode` no `decode` closes (an entry's or an `encode` step's). A body that only brackets the sae has nothing to compute them on, and compile refuses the term: `steps.fit.objective.dictionary.reconstruction: 'reconstruction' is over the coordinates the body reads of 'dictionary', an encode no decode closes ...`. Compile refuses anything that is neither, and an objective none of whose terms depends on what the fit trains, which has no gradient to step on:
 
@@ -119,6 +119,7 @@ A history holds one entry per epoch run: fewer when `early_stop` ends the fit, n
 `epochs: 0` trains nothing: the featurizers are scored as drawn, every eval runs, and every history is empty. What the draw is makes it the control:
 
 - **an adapter** starts as the identity exactly: `documents/lora_train.json` at `epochs: 0` gives `fit.held_out.ce` bit-identical to a clean forward's;
+- **an affine map** starts as the identity exactly too, its `W` and `b` zero, and draws nothing from the seed;
 - **a subspace** is a uniformly random one of the fit's seed: `das.json` at `epochs: 0` gives the `held_iia` of a declared `{"kind": "subspace", "k": 8, "seed": 0}` used without a fit, to the bit;
 - **a probe** scores every class 0, and `match` breaks the tie to the lower class id, so its accuracy is the share of rows whose label sorts first.
 
@@ -126,4 +127,4 @@ To run the control beside the trained featurizer, sweep `epochs`; with a sweep o
 
 ## Sweeping a fit
 
-Any of the fit's values may be a sweep, names such as `optimizer.name` excepted: an objective weight (`dbm.json` sweeps its sparsity weight, whose default label is the term's key, `mask.mask`), `lr`, `epochs`, `seed`, or the `layers` of a site the body uses, which trains one featurizer per layer. Each point is a whole fit with its own members. A swept fit's bundle file holds a bundle per point, which no featurizer can load ([bundles.md](bundles.md)).
+Any of the fit's values may be a sweep, names such as `optimizer.name` excepted: an objective weight (`dbm.json` sweeps its sparsity weight, whose default label is the term's key, `mask.mask`), `lr`, `epochs`, `seed`, or the `layers` of a site the body uses, which trains one featurizer per layer. An [affine over layers](featurizers.md#an-affine-map) trains a map per layer in one fit instead, each minibatch's one forward serving all of them. Each point is a whole fit with its own members. A swept fit's bundle file holds a bundle per point, which no featurizer can load ([bundles.md](bundles.md)).

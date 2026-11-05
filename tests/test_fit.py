@@ -1687,3 +1687,225 @@ def test_a_loras_with_stays_its_input_and_a_gates_is_an_operand(engines):
                                         r"selection holds every one"):
         head_gates(other_heads)
     assert featurizers.KINDS["lora"].adapts and not featurizers.KINDS["gate"].adapts
+
+
+def affine_train(*changes) -> Plan:
+    """lora_train with its adapter an affine map (`h + h W + b` at layer 0's output, every position), and a clean
+    forward over the held-out prompts after the fit, its logits saved beside the held-out eval's."""
+    def change(d):
+        d["featurizers"]["lora"] = {"kind": "affine"}
+        d["steps"]["clean"] = {"kind": "forward", "input": "test.input",
+                               "interventions": {"logits": {"site": "head", "pos": -1}}}
+        d["saves"] += ["clean.logits", "fit.held_out.adapted.logits"]
+    return edited("lora_train", chain(change, *changes)).compile()
+
+
+def test_an_untrained_affine_is_the_clean_forward_to_the_bit(engines):
+    """`W` and `b` start at zero: at `epochs: 0` the held-out eval's adapted logits are a clean forward's, to the bit,
+    and the bundle is zero."""
+    plan = affine_train(lambda d: d["steps"]["fit"].update(epochs=0))
+    values = engines("hooks", plan.model).execute(plan, batch_size=BATCH_SIZE).results
+    assert torch.equal(values["fit.held_out.adapted.logits"], values["clean.logits"])
+    assert not values["fit.lora"]["W"].any() and not values["fit.lora"]["b"].any()
+
+
+def test_an_affine_trains_the_same_on_every_engine_and_loads_as_it_was_trained(engines, tmp_path):
+    """lora_train through an affine: its ce falls, `W` and `b` move, nnterp, hooks and ndif under `remote="local"`
+    give the same numbers to the bit; lora_apply loading the bundle it saved gives the held-out eval's adapted
+    logits to the bit."""
+    values = engines("hooks", affine_train().model).execute(affine_train(), batch_size=BATCH_SIZE).results
+    ce = values["fit.history.ce"]
+    assert ce.shape == (20,) and ce[-1] < ce[0]
+    assert values["fit.lora"]["W"].shape == (16, 16) and values["fit.lora"]["W"].any() and values["fit.lora"]["b"].any()
+    assert same(engines("nnterp", affine_train().model).execute(affine_train(), batch_size=BATCH_SIZE).results, values)
+    there = engines("ndif", affine_train().model, remote="local").execute(affine_train(), batch_size=BATCH_SIZE)
+    assert same(there.results, values)
+    root = corpus_copy(tmp_path)
+    engine = engines("hooks", affine_train().model)
+    engine.execute(affine_train(), batch_size=BATCH_SIZE).dump(os.path.join(root, "documents", "artifacts"))
+    with open(os.path.join(root, "documents", "lora_apply.json")) as f:
+        doc = json.load(f)
+    doc["featurizers"]["lora"]["kind"] = "affine"
+    doc["saves"].append("adapted.logits")
+    plan = Plan(**doc, document=os.path.join(root, "documents", "lora_apply.json")).compile()
+    assert same(engine.execute(plan, batch_size=BATCH_SIZE).results["adapted.logits"],
+                values["fit.held_out.adapted.logits"])
+
+
+def tuned_lens(*changes) -> Plan:
+    """documents/tuned_lens.json with `changes`, its body over the training rows as an eval beside the held-out one,
+    and the logit lens's and the held-out lens's values saved, compiled."""
+    def saved(d):
+        d["steps"]["fit"]["eval"]["train"] = {}
+        d["saves"] += ["ll_kl", "lfw.ll", "lfw.final", "fit.train.mkl", "fit.held_out.kl", "fit.held_out.lensed",
+                       "fit.held_out.tl"]
+    return edited("tuned_lens", chain(saved, *changes)).compile()
+
+
+def lens_at(layers: str, epochs: int | None = None):
+    """The lens's site at `layers`, its fit at `epochs`."""
+    def change(d):
+        d["sites"]["resid"]["layers"] = layers
+        if epochs is not None:
+            d["steps"]["fit"]["epochs"] = epochs
+    return change
+
+
+def lens_written(d):
+    """A forward over the held-out rows that writes the declared (untrained) lens back at every layer it is over, its
+    logits saved."""
+    d["steps"]["written"] = {"kind": "forward", "input": "test.input", "interventions": {
+        "w": {"site": "resid", "pos": {"index": "0:15"}, "ops": [{"op": "apply", "featurizer": "lens"}]},
+        "final": {"site": "head", "pos": {"index": "0:15"}}}}
+    d["saves"].append("written.final")
+
+
+@pytest.mark.parametrize("kind", ["nnterp", "hooks"])
+def test_an_untrained_affine_over_layers_reads_out_as_the_logit_lens_to_the_bit(engines, kind):
+    """tuned_lens at `epochs: 0` over all 5 layers: every map is zero, the lens's readout is the logit lens's at every
+    layer and its held-out KL the logit lens's, to the bit, so `gain` is 0; at the last layer both are the model's own
+    logits, KL exactly 0; and the untrained lens written back at every layer leaves the logits a clean forward's, to
+    the bit."""
+    plan = tuned_lens(lens_at(":", 0), lens_written)
+    values = engines(kind, plan.model).execute(plan, batch_size=BATCH_SIZE).results
+    assert values["fit.lens"]["W"].shape == (5, 32, 32) and not values["fit.lens"]["W"].any()
+    assert values["lfw.ll"].shape == (5, 4, 15, 1000)
+    assert torch.equal(values["fit.held_out.tl"], values["lfw.ll"])
+    assert torch.equal(values["fit.held_out.kl"], values["ll_kl"]) and not values["gain"].any()
+    assert torch.equal(values["lfw.ll"][4], values["lfw.final"]) and not values["ll_kl"][4].any()
+    assert torch.equal(values["written.final"], values["lfw.final"])
+
+
+def test_an_affine_over_layers_trains_a_distinct_map_per_layer_in_one_forward_a_minibatch(engines):
+    """tuned_lens's two epochs lower the mean KL on the training rows at every layer from the untrained lens's, and
+    the held-out one (`gain` below 0); the four maps train apart, no two equal, from one forward per minibatch for all
+    of them (and one per batch of the scored pass after each epoch); nnterp and hooks give the same numbers to the
+    bit."""
+    plan = tuned_lens()
+    filled = engines("hooks", plan.model).execute(plan, batch_size=BATCH_SIZE)
+    values = filled.results
+    untrained = engines("hooks", plan.model).execute(tuned_lens(lens_at("0:4", 0)), batch_size=BATCH_SIZE).results
+    assert (values["fit.train.mkl"] < untrained["fit.train.mkl"]).all() and (values["gain"] < 0).all()
+    assert values["fit.history.mkl"].shape == (2,) and values["fit.history.mkl"][1] < values["fit.history.mkl"][0]
+    W, b = values["fit.lens"]["W"], values["fit.lens"]["b"]
+    assert W.shape == (4, 32, 32) and b.shape == (4, 32)
+    assert all(not torch.equal(W[i], W[j]) and not torch.equal(b[i], b[j]) for i in range(4) for j in range(i))
+    assert filled.run is not None and filled.run.costs["fit"]["forwards"] == 2 * (4 + 4)
+    assert same(engines("nnterp", plan.model).execute(tuned_lens(), batch_size=BATCH_SIZE).results, values)
+
+
+def loaded_lens(file: str, layers: str = "0:4"):
+    """tuned_lens's body over the held-out rows at the root, in place of its fit and `gain`, through `lens` loaded
+    from `file` (`over` left to its header), at `layers`."""
+    def change(d):
+        d["featurizers"]["lens"] = {"kind": "affine", "file_path": file}
+        d["sites"]["resid"]["layers"] = layers
+        body = d["steps"].pop("fit")["steps"]
+        d["steps"].pop("gain")
+        body["run"]["input"] = "test.input"
+        body["lensed"]["featurizer"] = "lens"
+        d["steps"].update(body)
+        d["saves"] = ["lensed", "tl", "mkl"]
+    return change
+
+
+def lens_loading(root: str, file: str, layers: str = "0:4") -> Plan:
+    """tuned_lens's body at the root through `lens` loaded from `file` under the corpus copy at `root`
+    (`loaded_lens`), compiled."""
+    loading = edited("tuned_lens", loaded_lens(file, layers)).model_dump(exclude_defaults=True, exclude={"document"})
+    return Plan(**loading, document=os.path.join(root, "documents", "tuned_lens.json")).compile()
+
+
+def write_lens(root: str, W: torch.Tensor, b: torch.Tensor) -> str:
+    """An affine over the tiny GPT-2's layers 0 to 3 holding `W` and `b`, with the header a fit of the lens writes, as
+    a bundle under the corpus copy at `root`; its file_path."""
+    meta = bundle_header(**{"kind": "affine", "over": '["layers"]', "layer": "[0, 1, 2, 3]", "width": "32",
+                            "model.key": "hf-internal-testing/tiny-random-gpt2",
+                            "model.revision": "71034c5d8bde858ff824298bdedc65515b97d2b9"})
+    save_file({"W": W.contiguous(), "b": b.contiguous()}, os.path.join(root, "documents", "artifacts",
+                                                                     "lens.safetensors"), metadata=meta)
+    return "documents/artifacts/lens.safetensors"
+
+
+def test_an_affine_over_layers_loads_from_its_bundle_and_applies_as_trained(engines, tmp_path):
+    """The bundle's header records `over` and the layers; loaded with `over` left to it, the lens gives the held-out
+    eval's lensed values, readout and mean KL to the bit, at a subset of its layers each layer's map by its id, and at
+    a layer it holds no map for it is refused naming the header."""
+    root = corpus_copy(tmp_path)
+    engine = engines("hooks", tuned_lens().model)
+    trained = engine.execute(tuned_lens(), batch_size=BATCH_SIZE)
+    trained.dump(os.path.join(root, "documents", "artifacts"))
+    file = "documents/artifacts/fit.lens.safetensors"
+    from safetensors import safe_open
+    with safe_open(os.path.join(root, file), "pt") as f:
+        header = f.metadata()
+    assert {k: header[k] for k in ("kind", "over", "layer", "width", "component")} == {
+        "kind": "affine", "over": '["layers"]', "layer": "[0, 1, 2, 3]", "width": "32", "component": "layer_output"}
+    values = engine.execute(lens_loading(root, file), batch_size=BATCH_SIZE).results
+    for name in ("lensed", "tl", "mkl"):
+        assert same(values[name], trained.results[f"fit.held_out.{name}"]), name
+    some = engine.execute(lens_loading(root, file, "1:3"), batch_size=BATCH_SIZE).results
+    assert same(some["lensed"], trained.results["fit.held_out.lensed"][1:3])
+    with pytest.raises(ValueError, match=r"^lensed: documents/artifacts/fit\.lens\.safetensors: header 'layer' is "
+                                         r"'\[0, 1, 2, 3\]'; this document uses 'lens' at layer_output layer '2:5', "
+                                         r"which picks layer 4$"):
+        engine.execute(lens_loading(root, file, "2:5"), batch_size=BATCH_SIZE)
+
+
+@pytest.mark.parametrize("W, b, message", [
+    (torch.zeros(3, 32, 32), torch.zeros(4, 32), r"'W' is \[3, 32, 32\], and its header lays an affine over "
+     r"\['layers'\] out on layer \[0, 1, 2, 3\], width 32: 'W' is \[4, 32, 32\], one map per index it keeps on each "
+     r"axis$"),
+    (torch.zeros(4, 16, 16), torch.zeros(4, 32), r"'W' is \[4, 16, 16\], .*: 'W' is \[4, 32, 32\]"),
+    (torch.zeros(4, 32, 32), torch.zeros(4, 16), r"'b' is \[4, 16\], .*: 'b' is \[4, 32\]"),
+    (torch.zeros(4, 32), torch.zeros(4, 32), r"'W' is \[4, 32\], .*: 'W' is \[4, 32, 32\]"),
+])
+def test_a_loaded_affine_whose_tensors_its_header_does_not_lay_out_is_refused_at_compile(tmp_path, W, b, message):
+    """A header over `["layers"]` at layers 0 to 3 and width 32 lays `W` out `[4, 32, 32]` and `b` `[4, 32]`: a bundle
+    with another layer count, another width or a tensor missing an axis is refused naming the file and the tensor,
+    where one of another width ran to the forward and failed there."""
+    root = corpus_copy(tmp_path)
+    with pytest.raises(PlanError, match=r"^featurizers\.lens\.file_path: documents/artifacts/lens\.safetensors: "
+                                        + message):
+        lens_loading(root, write_lens(root, W, b))
+
+
+def test_a_drawn_affine_over_layers_applies_at_its_layers_in_any_order(engines, tmp_path):
+    """A step after the fit applies the trained lens at layers `[3, 2, 1, 0]`, its maps' layers in the other order:
+    it runs, each layer's map taken by its id, and gives the held-out eval's lensed values in that order, to the bit.
+    Its tensors lay the layers out in the first use's order, and so does its bundle's header, at every point of a
+    site swept over the two orders."""
+    def reversed_use(d):
+        d["steps"]["back"] = {"kind": "forward", "input": "test.input", "interventions": {
+            "h": {"site": {"component": "layer_output", "layers": [3, 2, 1, 0]}, "pos": {"index": "0:15"}}}}
+        d["steps"]["back_lensed"] = {"kind": "op", "op": "apply", "featurizer": "fit.lens", "of": "back.h"}
+        d["saves"].append("back_lensed")
+    plan = tuned_lens(reversed_use)
+    filled = engines("hooks", plan.model).execute(plan, batch_size=BATCH_SIZE)
+    assert points(plan.featurizers["lens"])[0].kept == {"layers": [0, 1, 2, 3]}
+    assert same(filled.results["back_lensed"], filled.results["fit.held_out.lensed"].flip(0))
+    swept = tuned_lens(lambda d: d["sites"]["resid"].update(layers={"sweep": ["0:4", [3, 2, 1, 0]]}))
+    engines("hooks", swept.model).execute(swept, batch_size=BATCH_SIZE).dump(str(tmp_path))
+    from safetensors import safe_open
+    with safe_open(os.path.join(tmp_path, "fit.lens.safetensors"), "pt") as f:
+        layers = {k: v for k, v in f.metadata().items() if k.endswith("/layer")}
+    assert len(layers) == 2 and set(layers.values()) == {"[0, 1, 2, 3]"}
+
+
+@pytest.mark.parametrize("change, message", [
+    (lambda d: d["featurizers"]["lens"].update(over=["num_heads"]),
+     r"^featurizers\.lens: over: \['num_heads'\]: an 'affine' is over \['layers'\] or nothing, one map per layer of "
+     r"its site's selection: a map is a matrix over the value's last axis"),
+    (lambda d: d["featurizers"]["lens"].update(over=["layers", "hidden_size"]), r"an 'affine' is over \['layers'\]"),
+    (lambda d: d["sites"]["resid"].update(layers=1),
+     r"^featurizers\.lens\.over: \['layers'\]: fit\.lensed is at layer_output layer 1, one layer, whose selection "
+     r"\['rows', 'pos', 'hidden_size'\] has no layers axis"),
+    (lambda d: d["featurizers"]["lens"].update(seed=0),
+     r"^featurizers\.lens: 'affine' takes no 'seed'; its arguments: over, file_path$"),
+    (lambda d: d["featurizers"]["lens"].update(over={"sweep": [["layers"], None]}),
+     r"^featurizers\.lens\.over: a sweep cannot stand for 'over'; a featurizer has one layout at every point, and an "
+     r"affine's over stacks a map per index of its axes: declare one affine per value$"),
+])
+def test_an_affine_over_another_axis_or_at_one_layer_is_refused_at_compile(change, message):
+    with pytest.raises(PlanError, match=message):
+        tuned_lens(change)

@@ -1,5 +1,5 @@
-"""A featurizer's uses in a plan: every op that reaches it, the width it has at every site it is used at (a gate
-over axes, the indices it keeps on each of them), the checks of a loaded bundle's header against those uses, the
+"""A featurizer's uses in a plan: every op that reaches it, the width it has at every site it is used at (a
+featurizer over axes, the indices it keeps on each of them), the checks of a loaded bundle's header against those uses, the
 instance made for the run, and the header a saved bundle carries."""
 
 from __future__ import annotations
@@ -7,6 +7,8 @@ from __future__ import annotations
 import json
 import math
 from typing import TYPE_CHECKING, cast
+
+import torch
 
 from clab.featurizers import KINDS, Kind, bundles, labels, make
 from clab.format import address, selectors
@@ -103,18 +105,21 @@ def select_mismatch(name: str, f: Featurizer, read: Intervention) -> str | None:
 
 
 def over_of(f: Featurizer) -> list[str] | None:
-    """The axes a gate's units lie on: its `over`, or, where a loading document leaves it out, its bundle's header's;
-    None for the last axis of its site's selection, and for any other featurizer."""
+    """The axes a featurizer is over (a gate's units, an affine's maps): its `over`, or, where a loading document
+    leaves it out, its bundle's header's; None for a gate on the last axis of its site's selection, an affine with
+    one map, and any other featurizer."""
     given = (f.model_extra or {}).get("over")
     return given if given is not None or f.header is None or "over" not in f.header else json.loads(f.header["over"])
 
 
 def check_gate_axes(plan: Plan) -> None:
-    """A gate over axes is used by `apply` alone, on its site's own layout (inside no `encode`, whose coordinates
-    are no axes of the site's), whose selection has each axis it names, in the selection's order, `layers` only
-    where the site picks several. A refusal names the featurizer's `over` and the use. A loaded one's `theta` is
-    laid out as its header says, as many units on each axis as it records indices there (`layer`, `kept.<axis>`),
-    which a refusal names with its `file_path`."""
+    """A featurizer over axes (a gate's units, an affine's maps) is used by `apply` alone, on its site's own layout
+    (inside no `encode`, whose coordinates are no axes of the site's), whose selection has each axis it names, in
+    the selection's order, `layers` only where the site picks several. A refusal names the featurizer's `over` and
+    the use. A loaded one's tensors have the shapes one drawn at its header's `width` and indices has (`layer`,
+    `kept.<axis>`): a gate's `theta` as many units on each axis as it records indices there, an affine's `W` and `b`
+    a map per layer at that width (`Kind.stacked`). The draw is made on the meta device, which holds no data, and a
+    refusal names the tensor and the `file_path`."""
     for name, spec in plan.featurizers.items():
         for f in points(spec):
             over = over_of(f)
@@ -123,12 +128,20 @@ def check_gate_axes(plan: Plan) -> None:
             keys = {axis: "layer" if axis == "layers" else f"kept.{axis}" for axis in over}
             recorded = [bundles.recorded(f.header.get("layer")) if axis == "layers" else
                         json.loads(f.header.get(key) or "[]") for axis, key in keys.items()]
-            shape, laid_out = list(f.bundle["theta"].shape), [len(v) for v in recorded]
-            if shape != laid_out:
-                said = ", ".join(f"{key} {f.header.get(key)}" for key in keys.values())
-                fail(f"featurizers.{name}.file_path", f"{(f.model_extra or {})['file_path']}: 'theta' is {shape}, and "
-                     f"its header lays a gate over {over} out on {said}: 'theta' is {laid_out}, one unit per index "
-                     "it keeps on each axis")
+            stacked, width = KINDS[f.kind].stacked, f.header.get("width") or "0"
+            with torch.device("meta"):
+                drawn = make(f.kind, {"over": over}, int(width), None, None, None, device="meta",
+                             kept=cast("dict[str, list[int]]", dict(zip(over, recorded))))
+            for tensor in KINDS[f.kind].saves:
+                shape, laid_out = list(f.bundle[tensor].shape), list(getattr(drawn, tensor).shape)
+                if shape == laid_out:
+                    continue
+                said = ", ".join(f"{key} {f.header.get(key)}" for key in keys.values()) + \
+                    (f", width {width}" if stacked else "")
+                fail(f"featurizers.{name}.file_path", f"{(f.model_extra or {})['file_path']}: {tensor!r} is {shape}, "
+                     f"and its header lays {'an' if f.kind[0] in 'aeiou' else 'a'} {f.kind} over {over} out on "
+                     f"{said}: {tensor!r} is {laid_out}, one {'map' if stacked else 'unit'} per index it keeps on "
+                     "each axis")
     for name, records in uses(plan).items():
         for where, read, at, o, around in records:
             over = over_of(agreeing_point(plan.featurizers[name], at))
@@ -161,8 +174,8 @@ def check_gate_axes(plan: Plan) -> None:
 
 def units(where: str, name: str, f: Featurizer, read: Intervention, over: list[str], sizes: dict[str, int]
           ) -> dict[str, list]:
-    """The indices a gate over axes keeps on each of them at one use: the layers the use is made at, and on each
-    other axis those its selection keeps (every one of an axis it keeps whole). A loaded gate's are its header's
+    """The indices a featurizer over axes keeps on each of them at one use: the layers the use is made at, and on each
+    other axis those its selection keeps (every one of an axis it keeps whole). A loaded one's are its header's
     (`layer`, and `kept.<axis>` for each other axis), which each use's other axes are checked against; each layer
     the use is made at is checked to be one `layer` names, as every loaded bundle's is."""
     kept = {}
@@ -194,9 +207,12 @@ def units(where: str, name: str, f: Featurizer, read: Intervention, over: list[s
 def write_widths(engine: Engine, plan: Plan) -> None:
     """Each featurizer's width, written on its record (`Featurizer.width`, at every point): the size of the last
     axis of every site it is used at, which is one size, and the width its bundle's header says. A `select` on
-    its features stays within them, and a featurizer a fit trains is used somewhere. A gate over axes is as wide as
-    it has units, and keeps on each axis the indices every site it is used at selects, which are one selection,
-    or that its bundle's header records (`units`), written on its record too (`Featurizer.kept`)."""
+    its features stays within them, and a featurizer a fit trains is used somewhere. A featurizer over axes keeps on
+    each of them the indices every site it is used at selects, which are one selection, or that its bundle's header
+    records (`units`), written on its record too (`Featurizer.kept`): a gate over axes is as wide as it has units,
+    in one order at every use, and one that stacks its tensors over them (`Kind.stacked`: an affine over layers) as
+    its sites' last axis, its uses listing those indices in any order, since it takes each one's slice by its id
+    (the order of the first use is the order its tensors and its bundle's header lay them out in)."""
     sizes, out, laid = engine.sizes(), {}, {}
     for name, used in uses(plan).items():
         for where, read, at, o, around in used:
@@ -204,16 +220,22 @@ def write_widths(engine: Engine, plan: Plan) -> None:
             f = agreeing_point(plan.featurizers[name], at)
             over = over_of(f)
             if over is not None:
-                units_kept = units(where, name, f, read, over, sizes)
-                if laid.setdefault(name, units_kept) != units_kept:
-                    other = ", ".join(f"{a} {v}" for a, v in laid[name].items())
-                    raise ValueError(f"{where}: gate {name!r} is over "
+                units_kept, stacked = units(where, name, f, read, over, sizes), KINDS[f.kind].stacked
+                first = laid.setdefault(name, units_kept)
+                # A stacked kind takes each index's slice by its id, so a use may list them in any order; a gate's
+                # units on an axis but `layers` meet the value's in its selection's order.
+                if (first != units_kept if not stacked else
+                        {a: sorted(v) for a, v in first.items()} != {a: sorted(v) for a, v in units_kept.items()}):
+                    other = ", ".join(f"{a} {v}" for a, v in first.items())
+                    lies = "it holds one map per index of" if stacked else "its units lie on"
+                    raise ValueError(f"{where}: {f.kind} {name!r} is over "
                                      f"{', '.join(f'{a} {v}' for a, v in units_kept.items())} "
-                                     f"here and {other} elsewhere; its units lie on one selection of the axes it is "
-                                     "over, so every site it is used at selects the same ones")
+                                     f"here and {other} elsewhere; {lies} one selection of the axes it is "
+                                     "over, so every site it is used at selects the same ones"
+                                     + ("" if stacked else ", in the same order"))
             last = address.dims(site.component)[-1]
-            width = math.prod(map(len, laid[name].values())) if over is not None else \
-                selectors.width_of(kept[last]) if last in kept else sizes.get(last)
+            width = math.prod(map(len, laid[name].values())) if over is not None and not KINDS[f.kind].stacked \
+                else selectors.width_of(kept[last]) if last in kept else sizes.get(last)
             if width is None:
                 raise ValueError(f"{where}: {site.component}'s last axis is {last}, which grows with the input; "
                                  f"featurizer {name!r} needs a feature axis")
