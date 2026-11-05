@@ -205,9 +205,12 @@ def k_past(name: str, args: dict, met: Labelled, sizes: dict[str, int] | None, c
     value it meets, labelled `met`: more than there are, where their number is static. Compile knows a `select`'s
     indices, the layers, a static width of `pos` and a probe's `classes`; preflight besides the model's sizes
     (`sizes`, None at compile) and a width the rows confirm. Along a ragged axis (`transforms.RAGGED`: a `pos` whose
-    rows differ, the keys) there is no one number, and a pick past what is there is id -1. None where `k` fits."""
+    rows differ, the keys) there is no one number, and a pick past what is there is id -1. A `k` below 1, which picks
+    nothing, the document alone refuses. None where `k` fits."""
     if name != "top_k" or not isinstance(args.get("k"), int):
         return None
+    if args["k"] < 1:
+        return f"k {args['k']}: a top_k picks at least one entry, so k is 1 or more"
     over = args.get("over", ops.transforms.RANKED)
     counts: list[tuple[str, int, str]] = []
     for axis in over if isinstance(over, list) else [over]:

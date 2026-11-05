@@ -812,11 +812,15 @@ PICKS = r", each of which it picks once: k is at most "
                  {"probe": {"kind": "linear", "classes": "prompts.cf_answer"}}),
      rf"^steps\.clean\.interventions\.r\.ops\[1\]\.k: k 5 is more than the 4 entries it ranks, 4 along classes \(the "
      rf"probe's\){PICKS}4$"),
-], ids=["select", "select-in-an-entry", "layers", "static-width", "classes"])
+    (ranked_past(NARROW, {"t": {**TOP, "k": 0}}), r"^steps\.t\.k: k 0: a top_k picks at least one entry, so k is 1 or "
+                                                  r"more$"),
+    (ranked_past(NARROW, {}, [{"op": "top_k", "k": -1}]),
+     r"^steps\.clean\.interventions\.r\.ops\[0\]\.k: k -1: a top_k picks at least one entry, so k is 1 or more$"),
+], ids=["select", "select-in-an-entry", "layers", "static-width", "classes", "zero", "negative"])
 def test_a_top_k_past_a_static_axis_the_document_sizes_is_refused_at_compile(change, message):
     """A `k` past the entries of an axis whose size the document fixes, a `select`'s indices, the layers it picks, a
     static width, a probe's classes, failed at the run with torch's own error: refused at compile, naming the axis
-    and the most `k` can be."""
+    and the most `k` can be; and so is a `k` of 0 or below, which picks nothing, on a step and in an entry."""
     with pytest.raises(PlanError, match=message):
         edited("readout", change).compile()
 
