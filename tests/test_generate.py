@@ -621,6 +621,78 @@ def test_a_write_at_a_call_a_row_never_reaches_skips_that_row(engines):
         assert (v["swapped"][1:, 2] != v["clean"][1:, 2]).any()
 
 
+def reached(max_new_tokens: int = 3, eos: int | None = None, writer: str = "forward", writer_eos: int | None = None,
+            operand: str = "g.v", extra: dict | None = None):
+    """The F3 review's document on tiny GPT-2, over weekdays/train: a generation over the counterfactual prompts reads
+    layer 2's output at `{"frame": 3, "index": 0}`, and a later forward swaps `operand` in at the base prompts' last
+    token (or, `writer` "generate", a generation over them at decode call 2, stopping on `writer_eos`). Tiny GPT-2
+    says 394 first on rows 1 and 3, so under `eos` 394 those rows stop after the prefill and the others run on;
+    `extra` adds steps after the generation."""
+    def change(d):
+        g = {"kind": "generate", "input": "pairs.counterfactual_inputs[0]", "max_new_tokens": max_new_tokens,
+             "do_sample": False, "interventions": {"v": {"site": "target", "pos": {"frame": 3, "index": 0}}}}
+        g.update({} if eos is None else {"eos_token_id": eos})
+        swap = {"op": "swap", "with": operand}
+        if writer == "forward":
+            write = {"kind": "forward", "input": "pairs.input", "interventions": {
+                "patch": {"site": "target", "pos": -1, "ops": [swap]},
+                "logits": {"site": {"component": "lm_head_output"}, "pos": -1}}}
+        else:
+            write = {"kind": "generate", "input": "pairs.input", "max_new_tokens": 4, "do_sample": False,
+                     "interventions": {"patch": {"site": "target", "pos": {"frame": 2, "index": -1}, "ops": [swap]}}}
+            write.update({} if writer_eos is None else {"eos_token_id": writer_eos})
+        d["data"] = {"pairs": {"path": "weekdays/train"}}
+        d["steps"] = {"g": g, **(extra or {}), "patched": write}
+        d["saves"] = ["g", "g.v", "patched", "patched.patch"] if writer != "forward" else \
+            ["g", "g.v", "patched.patch", "patched.logits"]
+    return edited("gpt2_reach", change).compile()
+
+
+ROW_0 = r"'g' made 3 calls on row 0 \(0 to 2\), and 'g\.v' reads call 3 \(\{\"frame\": 3, \"index\": 0\}\)"
+ROW_1 = r"'g' made 1 call on row 1 \(0\), and 'g\.v' reads call 3 \(\{\"frame\": 3, \"index\": 0\}\)"
+TAKES = r"; a write takes an operand read on every row it lands on, and this one lands on row "
+FIX = r": read 'g\.v' at a call every row of 'g' makes \(\{\"frame\": -1\} is each row's last\), or give it a " \
+    r"min_new_tokens and a max_new_tokens that reach the call$"
+
+
+@pytest.mark.parametrize("kind", ["nnterp", "hooks"])
+@pytest.mark.parametrize("plan, message", [
+    (lambda: reached(), rf"^patched\.patch: operand 'g\.v' holds no value on row 0 \(alignment_missing\): {ROW_0}"
+                        rf"{TAKES}0{FIX}"),
+    (lambda: reached(4, eos=394), rf"^patched\.patch: operand 'g\.v' holds no value on row 1 \(alignment_missing\): "
+                                  rf"{ROW_1}{TAKES}1{FIX}"),
+    (lambda: reached(4, eos=394, writer="generate"),
+     rf"^patched\.patch: operand 'g\.v' holds no value on row 1 \(alignment_missing\): {ROW_1}{TAKES}1 at call 2{FIX}"),
+    (lambda: reached(4, eos=394, operand="s", extra={"s": {"kind": "op", "op": "neg", "of": "g.v"}}),
+     rf"^patched\.patch: operand 's', which descends from 'g\.v', holds no value on row 1 \(alignment_missing\): "
+     rf"{ROW_1}{TAKES}1{FIX}"),
+], ids=["review", "rows-that-stopped", "at-a-decode-call", "through-an-op-step"])
+def test_a_write_whose_operand_holds_no_value_on_a_row_it_lands_on_is_refused_naming_the_row_and_the_call(
+        engines, kind, plan, message):
+    """A generation's read at decode call 3 holds nothing on a row whose generation made fewer calls: NaN, the row
+    `alignment_missing`. A later step's write with it as its operand lands on that row, and is refused naming the
+    write, the operand, the row and the call, where it wrote NaN without a word: in a forward before the batch's
+    forward (the review's document, where no row reaches call 3; rows 1 and 3 stopping on 394), at a generation's
+    decode call once the batch's generation says which rows made that call, and through an op step over the read."""
+    built = plan()
+    with pytest.raises(ValueError, match=message):
+        engines(kind, built.model).execute(built, batch_size=BATCH_SIZE)
+
+
+def test_a_write_takes_a_generation_read_on_every_row_that_reached_its_call_to_the_bit(engines):
+    """Where every row makes call 3 (four new tokens, no early EOS) the swap lands `g.v` on every row, its value to the
+    bit, on both engines alike; and a generation whose own rows 1 and 3 stop before call 2 writes there on rows 0 and
+    2 alone, which `g.v` holds, so it runs, the write recorded missing on the rows it never reached."""
+    for kind, filled in on_each(engines, reached(4)).items():
+        v = filled.results
+        assert all(isinstance(p, list) for p in placed(filled)["g.v"]), kind
+        assert not v["patched.patch"].isnan().any() and same(v["patched.patch"], v["g.v"]), kind
+    runs = on_each(engines, reached(4, eos=394, writer="generate", writer_eos=394))
+    assert same(runs["nnterp"].results, runs["hooks"].results)
+    assert placed(runs["nnterp"])["patched.patch"][1::2] == [positions.MISSING] * 2
+    assert all(isinstance(p, list) for p in placed(runs["nnterp"])["patched.patch"][0::2])
+
+
 def test_a_decode_call_writes_operand_is_checked_before_any_forward():
     """A decode call holds one position, so an operand read three tokens wide cannot be written there: refused
     by name when the plan compiles (both widths are static), not as a size error inside the generation."""

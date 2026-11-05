@@ -4,6 +4,7 @@ the ops a write runs there, and a read's value with the ops after its last edit 
 from __future__ import annotations
 
 import functools
+import json
 from collections import ChainMap
 from typing import TYPE_CHECKING, Any, Callable, Iterator, cast
 
@@ -17,8 +18,8 @@ from clab.compile.positions import reads_head, scope_texts
 from clab.compile.state import Findings
 from clab.format import address, data, registry, selectors
 from clab.format.sweeps import lookup, put
-from clab.plan import (Forward, Generate, Intervention, Plan, Site, arguments, bracketed, entries, gathers, gradient_of,
-                        held_rows, kind_of, record_of)
+from clab.plan import (Forward, Generate, Intervention, OpStep, Plan, Site, arguments, bracketed, entries, gathers,
+                        gradient_of, held_rows, kind_of, made_by, record_of)
 
 if TYPE_CHECKING:
     from transformers import PreTrainedTokenizerBase
@@ -227,6 +228,65 @@ def stop_ids(engine: Engine, step: Generate) -> list[int]:
     return engine.eos if given is None else [given] if isinstance(given, int) else list(given)
 
 
+def unreached_rows(plan: Plan, name: str, at: dict) -> tuple[str, dict, Intervention, dict[int, int]] | None:
+    """The read that value `name` (at the point `at`) is, or descends from row for row through op steps (a `permute`'s
+    rows by the permutation it drew), with its point and record, and each row of the value whose read holds no
+    position, with that read's row (a permute's, the row it drew): as the run recorded the read's positions
+    (`positions.MISSING`: a call the row's generation never made, or an index that picks none of its tokens). None
+    where the value has no `rows` axis, every row is held, it comes through a `count` (which counts such a row 0, a
+    number), or it descends from no read whose positions the run recorded (a generation in a fit's body records none).
+    """
+    record = record_of(plan.steps, name, at)
+    if "rows" not in (record.dims or []):
+        return None
+    if isinstance(record, OpStep):
+        if record.op == "count":
+            return None
+        found = unreached_rows(plan, record.of, record.at)
+        if found is None or record.op != "permute":
+            return found
+        moved = {row: found[3][source] for row, source in enumerate(record.permutation or []) if source in found[3]}
+        return (*found[:3], moved) if moved else None
+    if not isinstance(record, Intervention):
+        return None
+    missing = {row: row for row, p in enumerate(record.positions.get(cast(str, record.dataset)) or [])
+               if p == positions.MISSING}
+    return (name, at, record, missing) if missing else None
+
+
+def refuse_unreached(plan: Plan, findings: Findings, bound: dict, ids: list[int], landed: list[int | None]) -> None:
+    """A write takes an operand read on every row it lands on: refused by name where an operand from another step
+    holds no value on a row the write lands on (`bound["unreached"]`, `schedule_binding`'s, from `unreached_rows`),
+    which it would otherwise write NaN into. `landed` is, per row of the batch (dataset row `ids`), the call the write
+    lands at there (0, the prefill), or None where it lands on none (a generation's row that stopped first). The
+    refusal names the write, the operand, the row and the call its read names that the row's generation never made."""
+    for operand, (read, at, record, missing) in bound["unreached"].items():
+        row, call = next(((row, call) for row, call in zip(ids, landed) if call is not None and row in missing),
+                         (None, None))
+        if row is None:
+            continue
+        pos = positions.parse(record.pos)
+        producer = made_by(plan, read)
+        source = missing[row]
+        said = lookup(findings.said, producer, at)[source] if producer in findings.said else None
+        frame, shown = pos["frame"], json.dumps(record.pos if isinstance(record.pos, int) else
+                                                record.pos.model_dump(mode="json", exclude_defaults=True))
+        if said is not None:
+            n = len(said)
+            made = f"{producer!r} made {n} call{'s' * (n != 1)} on row {source} ({'0' if n == 1 else f'0 to {n - 1}'})"
+            why = f"{made}, and {read!r} reads " + (f"call {frame} ({shown})" if isinstance(frame, int) and frame >= n
+                                                    else f"{shown}, which they do not hold")
+        else:
+            why = f"{read!r} reads {shown}, which picks none of row {source}'s tokens"
+        given = f"operand {operand!r}" + (f", which descends from {read!r}," if operand != read else "")
+        held = "" if source == row else f", which holds row {source} of {read!r}"
+        where = f" at call {call}" if call else ""
+        raise ValueError(f"{bound['write']}: {given} holds no value on row {row}{held} ({positions.MISSING}): {why}; a "
+                         f"write takes an operand read on every row it lands on, and this one lands on row {row}"
+                         f"{where}: read {read!r} at a call every row of {producer!r} makes ({{\"frame\": -1}} is "
+                         "each row's last), or give it a min_new_tokens and a max_new_tokens that reach the call")
+
+
 def schedule_binding(engine: Engine, plan: Plan, name: str, step: Forward,
                      values_read: dict[tuple[str, tuple], tuple[Intervention, dict[str, int], Any]]) -> list[dict]:
     """The half of binding the schedule of `step` (a serving point of step `name`) that depends on the step alone, made
@@ -238,7 +298,9 @@ def schedule_binding(engine: Engine, plan: Plan, name: str, step: Forward,
     its decode `calls`, a write's ops' supplied values (`takes`, `supplied_to`) and on a component of ids the size they
     are under, a read's name and, a `grad` entry's, `capture`),
     a write's ops (`op_binding`, at the operand points the schedule resolved) and, found `online`, its scope and the
-    ids its rows stop on, and a read's ops at each call (`per_call`, `op_binding` at the point it is read for)."""
+    ids its rows stop on, and, where an operand from another step holds no value on some rows (`unreached_rows`), its
+    name and those rows (`write`, `unreached`), which `refuse_unreached` holds the rows it lands on to; and a read's ops
+    at each call (`per_call`, `op_binding` at the point it is read for)."""
     sites = []
     for site in step.schedule["sites"]:
         records = []
@@ -257,6 +319,10 @@ def schedule_binding(engine: Engine, plan: Plan, name: str, step: Forward,
                             if isinstance(v, dict) and "name" in v}
                 bound["ops"] = op_binding(plan, record, step.at, site["layer"], operands)
                 bound["fields"]["takes"] = supplied_to(bound["ops"])
+                unreached = {o: found for o, v in operands.items() if "live" not in v and o not in plan.featurizers
+                             and (found := unreached_rows(plan, o, step.at)) is not None}
+                if unreached:
+                    bound.update(write=f"{name}.{key}", unreached=unreached)
                 if axis := address.COMPONENTS[cast(Site, record.site).component].get("ids"):
                     bound["fields"]["ids"] = {"entry": f"{name}.{key}", "axis": axis, "size": engine.sizes()[axis]}
                 if site_record.get("online"):
@@ -300,7 +366,8 @@ def bind_schedule(engine: Engine, plan: Plan, step: Forward, binding: list[dict]
     layer, each in the order its parts are done (a forward's one record; beyond a generation's prefill the part over
     the prompt, where there is one, then the part at its decode calls). Records that reach the same selection in the
     batch (one component, selection and positions: an entry at each of its layers, entries alike but for their ops)
-    share its tensors, made once."""
+    share its tensors, made once. A write in the prefill lands on every row of the batch, so one whose operand holds no
+    value on one of them is refused here, before the batch's forward (`refuse_unreached`)."""
     schedule, span = step.schedule, findings.inputs[data.input_name(step.input)]["width"]
     device = model_device(engine)
     prompts = [len(e["ids"]) for e in data.by_id(findings.inputs[data.input_name(step.input)]["rows"], ids)]
@@ -313,6 +380,8 @@ def bind_schedule(engine: Engine, plan: Plan, step: Forward, binding: list[dict]
         records = []
         for bound in site["records"]:
             site_record, record, head_only = bound["scheduled"], bound["record"], bound["head_only"]
+            if "unreached" in bound and "calls" not in site_record:       # a write in the prefill lands on every row
+                refuse_unreached(plan, findings, bound, ids, [0] * len(ids))
             # The rows' positions, which records alike in the prefill hold as one list (`positions.prefill_positions`).
             row_positions = None if "calls" in site_record or site_record.get("prompt") else \
                 record.positions[cast(str, step.dataset)]

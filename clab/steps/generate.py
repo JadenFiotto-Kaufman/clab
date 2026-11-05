@@ -17,8 +17,8 @@ from clab.format import address, data
 from clab.format.sweeps import projection, put
 from clab.plan import Forward, Generate, Intervention, Plan, Site, entries, gathers, held_rows, writes
 from clab.steps.batches import (apply_bound_ops, apply_ops_after_edit, bind_schedule, in_run_order, input_batches,
-                                join_batches, layers_made_at, schedule_binding, scope_ids, stack_layers, stop_ids,
-                                value_in_prefill)
+                                join_batches, layers_made_at, refuse_unreached, schedule_binding, scope_ids,
+                                stack_layers, stop_ids, value_in_prefill)
 
 if TYPE_CHECKING:
     from transformers import PreTrainedTokenizerBase
@@ -39,7 +39,9 @@ def generate(engine: Engine, plan: Plan, name: str, step: Generate, state: Chain
     An entry in the prefill (`frame: 0`) reads as a forward's (`value_in_prefill`); one beyond it is bound in parts (a
     part over the prompt, where its frame holds it, and its decode calls: `schedule.parts`) and resolves after the
     generation from what each row generated (`positions_beyond_prefill`, `value_beyond_prefill`); a row that stopped
-    before a call a write selects is not written there and is recorded as missing. The resolution is recorded per row on
+    before a call a write selects is not written there and is recorded as missing, and a write at a decode call whose
+    operand holds no value on a row that made the call is refused once the batch's generation says so
+    (`batches.refuse_unreached`). The resolution is recorded per row on
     each point's record (`positions`) and each row's continuation, as token strings, in `plan.run.tokens[<step>]`, by a
     run over every row (not over a fit's minibatch). A batch whose rows all stopped early makes fewer calls; its ids are
     filled after their EOS to the longest batch's. Adds to `cost` the model calls it made, one per new token of each
@@ -74,6 +76,12 @@ def generate(engine: Engine, plan: Plan, name: str, step: Generate, state: Chain
         for k, record in beyond_prefill.items():
             beyond_positions[k] += positions_beyond_prefill(record, batch_rows, inputs, said, eos, engine.tokenizer,
                                                             reads_head(step, record))
+        for bound in (b for site in binding for b in site["records"] if "unreached" in b and "calls" in b["scheduled"]):
+            landed = beyond_positions[bound["scheduled"]["write"], tuple(projection(step.at, bound["record"].axes)
+                                                                         .items())][-len(ids):]
+            refuse_unreached(plan, findings, bound, ids, [
+                positions.call_of(at[0], len(row["ids"])) if isinstance(at, list) else None
+                for at, row in zip(landed, inputs)])
         for k, (record, own, point) in values_read.items():
             if k in beyond_prefill:
                 row_positions = beyond_positions[k][-len(ids):]

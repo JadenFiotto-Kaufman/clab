@@ -328,9 +328,10 @@ def test_a_swap_of_an_expert_reroutes_its_slot_and_moves_no_other_token_past_rou
 
 def test_an_id_a_write_lands_that_is_no_expert_is_refused_by_name_before_the_model_reads_it(engines):
     """A generation's `expert_indices` read at decode calls 1 to 3 holds the hole, -1, on the rows that stopped
-    first, and a swap of it into a forward's last 3 tokens is refused at its first hole, by entry, row and token;
-    a step's ids moved past the 4 experts (`add 3`), and a float read (the router logits' `max`), are refused the same
-    way at the first entry that is no id."""
+    first, and a swap of it into a forward's last 3 tokens is refused before the forward, naming the first such row
+    (`batches.refuse_unreached`); a step's ids that are the hole (`scale` by 0, `add -1`), ids moved past the 4 experts
+    (`add 3`), and a float read (the router logits' `max`), are refused as they land, at the first entry that is no
+    id, by entry, row and token."""
     def swapped(steps: dict, operand: str, pos) -> Plan:
         write = {"site": {"component": "expert_indices", "layers": 1}, "pos": pos,
                  "ops": [{"op": "swap", "with": operand}]}
@@ -341,14 +342,21 @@ def test_an_id_a_write_lands_that_is_no_expert_is_refused_by_name_before_the_mod
                   "eos_token_id": 5521,
                   "interventions": {"idx": at("expert_indices", 1, {"frame": "1:4", "index": ":3"})}}
     engine = engines("nnterp", Model.model_validate(MIXTRAL))
-    with pytest.raises(ValueError, match=r"^f\.w: writes a hole, -1, into expert_indices at row 0, token 5, where its "
-                                         r"operand holds no id \(a row that stopped before the call it was read at, "
-                                         r"or a position past a row's own\); an id is a whole number from 0 to 3 \(the "
-                                         r"model's num_experts, 4\), which the model indexes with$"):
+    with pytest.raises(ValueError, match=r"^f\.w: operand 'g\.idx' holds no value on row 0 \(alignment_missing\): 'g' "
+                                         r"made 3 calls on row 0 \(0 to 2\), and 'g\.idx' reads \{\"frame\": \"1:4\", "
+                                         r"\"index\": \":3\"\}, which they do not hold; a write takes an operand read on "
+                                         r"every row it lands on, and this one lands on row 0: "):
         engine.execute(swapped({"g": generation}, "g.idx", {"index": "-3:"}), batch_size=BATCH_SIZE)
     clean = {"kind": "forward", "input": "prompts.input", "interventions": {
         "idx": at("expert_indices", 1, -1),
         "top": {**at("router_logits", 1, -1), "ops": [{"op": "max", "over": ["num_experts"]}]}}}
+    hole = {"clean": clean, "zero": {"kind": "op", "op": "scale", "of": "clean.idx", "factor": 0},
+            "hole": {"kind": "op", "op": "add", "of": "zero", "with": -1}}
+    with pytest.raises(ValueError, match=r"^f\.w: writes a hole, -1, into expert_indices at row 0, token 7, where its "
+                                         r"operand holds no id \(a row that stopped before the call it was read at, "
+                                         r"or a position past a row's own\); an id is a whole number from 0 to 3 \(the "
+                                         r"model's num_experts, 4\), which the model indexes with$"):
+        engine.execute(swapped(hole, "hole", -1), batch_size=BATCH_SIZE)
     past = {"clean": clean, "past": {"kind": "op", "op": "add", "of": "clean.idx", "with": 3}}
     with pytest.raises(ValueError, match=r"^f\.w: writes 5 into expert_indices at row 0, token 7, which is no id; "):
         engine.execute(swapped(past, "past", -1), batch_size=BATCH_SIZE)

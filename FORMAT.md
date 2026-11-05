@@ -323,7 +323,10 @@ loaded read, which carries its rows' positions. In the prefill (`frame: 0`) an o
 or a static index that does not fit, is refused by name before any forward: the data decided. Anywhere else it
 is a result, as is a call the row never reached, and as is an index that picks none of a row's tokens (`"5:"`
 on a shorter row), in the prefill too: the row is `alignment_missing`, NaN all the way, and a write there is
-refused by name, since it has no token to write.
+refused by name, since it has no token to write. So is a later step's write that would take such a value as its
+operand on a row it lands on (a read at `{"frame": 3, "index": 0}` on a row whose generation made three calls),
+which would write NaN there: refused by name in the run, naming the row and the call, a forward's write before
+its batch's forward, one at a decode call once the batch's generation says which rows made that call.
 
 ## Step kinds
 
