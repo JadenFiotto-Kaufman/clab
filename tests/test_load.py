@@ -338,6 +338,18 @@ def refused(root: str, step: dict[str, Any], **more: Any) -> str:
     return str(e.value)
 
 
+def test_an_op_over_a_loaded_top_k_value_is_refused_at_compile(engines, root):
+    """A load of readout.json's `top3` brings its whole value, several tensors, which an op over it met at the run with
+    a raw error: refused by name at compile, as the run that saved it recorded the value."""
+    ran(engines, root, "readout", corpus("readout"))
+    doc = loading(corpus("readout"), {"top": {"kind": "load", "from": "out/readout", "value": "top3"},
+                                      "m": {"kind": "op", "op": "mean", "of": "top"}}, ["m"])
+    with pytest.raises(PlanError, match=r"^steps\.m\.of: 'top' is a top_k's value, several tensors \(its ids, their probs "
+                                        r"and their tokens\), and 'mean' takes one: rank what it needs with an op over "
+                                        r"the value the top_k ranks \(argmax gives the first of its ids\)$"):
+        written(root, "loaded_top", doc)
+
+
 def test_a_load_from_another_model_is_refused_naming_the_key(root):
     model = {**corpus("pca_harvest")["model"], "attn_implementation": "eager"}
     assert refused(root, LOAD, model=model) == (

@@ -1359,6 +1359,17 @@ def trained_featurizers(steps: dict[str, Entry]) -> list[str]:
     return [f"{n}.{f}" for n, e in steps.items() for s in points(e)[:1] if s.kind == "fit" for f in s.train]
 
 
+def top_k_of(record: Any) -> "Op | OpStep | None":
+    """The `top_k` whose whole value a record's is: an op step's own, or an entry's last op; None for any other value.
+    That value is several tensors (`ids`, one tensor per axis over a list of them, beside `probs` or `values`, and as
+    a step over `vocab_size` the picks' `tokens`), which no op takes whole."""
+    if isinstance(record, OpStep):
+        return record if record.op == "top_k" else None
+    if isinstance(record, Intervention) and record.ops and record.ops[-1].op == "top_k":
+        return record.ops[-1]
+    return None
+
+
 def walk(steps: dict[str, Entry], prefix: str = "") -> Iterator[tuple[str, Any]]:
     """Every step and point, a fit's body steps after the fit, each with its dotted name."""
     for name, entry in steps.items():

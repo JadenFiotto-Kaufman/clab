@@ -11,7 +11,7 @@ from clab import ops
 from clab.compile import positions
 from clab.compile.answers import check_text_ref, vocabulary
 from clab.compile.arguments import (featurizer_kind, layout, mismatch, narrowed_readout_refusal, references, resolver,
-                                    space_of)
+                                    several, space_of)
 from clab.compile.positions import check_calls_known
 from clab.compile.state import Compiling, Findings
 from clab.format import address, data, registry, selectors
@@ -199,6 +199,9 @@ def compile_entry(cx: Compiling, path: str, spec: Intervention, plan: Plan, step
                  "a gradient off the model, which writes nothing back")
         if o.op == "readout" and (why := ops.transforms.unstreamed(site.component)):
             fail(here, why)
+        if (top := next((t for t in spec.ops[:i] if t.op == "top_k"), None)) is not None:
+            fail(here, f"{o.op!r} follows top_k, whose value is several tensors ({several(top)}), and {o.op!r} takes "
+                 f"one: rank what it needs in this entry in place of the top_k (argmax gives the first of its ids)")
         if o.op == "readout" and "hidden_size" in (site.select or {}) and "hidden_size" in dims:
             fail(here, narrowed_readout_refusal(
                 f"{site.component} select hidden_size {(site.select or {})['hidden_size']!r}"))

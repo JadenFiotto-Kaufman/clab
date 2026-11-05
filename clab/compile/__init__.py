@@ -28,7 +28,7 @@ from typing import Any, Callable, cast
 from clab import featurizers, ops
 from clab.compile.answers import check_column_ref
 from clab.compile.arguments import (featurizer_kind, kept_labels, layout, mismatch, narrowed_readout_refusal,
-                                    references, resolver, space_of, value_record)
+                                    references, resolver, space_of, value_record, whole_top_k)
 from clab.compile.interventions import bundles_of, compile_entry, entries_with_paths
 from clab.compile.schedule import share_forwards
 from clab.compile.state import Compiling
@@ -488,6 +488,8 @@ def compile_op(cx: Compiling, path: str, name: str, spec: OpStep, plan: Plan, at
              "encode and the edits of its coordinates; as a step there is none to close (detokenize turns a "
              "generation's ids into text)")
     of, args = value_record(cx, spec.of, f"{path}.of", at), arguments(spec)
+    if spec.op != "permute" and (why := whole_top_k(cx, spec.of, of, repr(spec.op))):        # permute's own, below
+        fail(f"{path}.of", why)
     text = isinstance(of, OpStep) and of.op == "detokenize" and not arguments(of).get("tokens")
     if spec.op == "contains" and not text:
         fail(f"{path}.of", f"contains reads text, a detokenize's value (without tokens); {spec.of!r} is not one")

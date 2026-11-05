@@ -727,6 +727,48 @@ def test_a_permute_is_refused_by_name_where_it_cannot_mean_anything(change, mess
         edited("mean_ablation", change).compile()
 
 
+def ranked_whole(steps: dict, ops: list | None = None):
+    """readout.json with `steps` after its forward, and its head read with `ops` in place of none."""
+    def change(d):
+        if ops is not None:
+            d["steps"]["clean"]["interventions"]["logits"]["ops"] = ops
+            del d["steps"]["top3"], d["steps"]["p_answer"]
+        d["steps"].update(steps)
+        d["saves"] = list(steps) or ["clean.logits"]
+    return change
+
+
+TOP3 = r"'top3' is a top_k's value, several tensors \(its ids, their probs and their tokens\)"
+RANK = r"rank what it needs with an op over the value the top_k ranks"
+
+
+@pytest.mark.parametrize("change, message", [
+    (ranked_whole({"m": {"kind": "op", "op": "mean", "of": "top3"}}),
+     rf"^steps\.m\.of: {TOP3}, and 'mean' takes one: {RANK}, 'clean\.logits' \(argmax gives the first of its ids\)$"),
+    (ranked_whole({"m": {"kind": "op", "op": "argmax", "of": "top3", "over": "k"}}), rf"^steps\.m\.of: {TOP3}, and 'argmax'"),
+    (ranked_whole({"best": {"kind": "op", "op": "argmax", "of": "clean.logits"},
+                   "m": {"kind": "op", "op": "eq", "of": "best", "with": "top3"}}),
+     rf"^steps\.m\.with: {TOP3}, and an operand takes one: {RANK}, 'clean\.logits'"),
+    (ranked_whole({"t": {"kind": "op", "op": "top_k", "of": "clean.logits", "k": 2, "over": ["rows", "vocab_size"]},
+                   "m": {"kind": "op", "op": "mean", "of": "t", "over": ["k"]}}),
+     r"^steps\.m\.of: 't' is a top_k's value, several tensors \(its ids \(one tensor per axis it ranks\), their probs and "
+     r"their tokens\), and 'mean' takes one: "),
+    (ranked_whole({"m": {"kind": "op", "op": "max", "of": "clean.logits", "over": ["k"]}}, [{"op": "top_k", "k": 2}]),
+     rf"^steps\.m\.of: 'clean\.logits' is a top_k's value, several tensors \(its ids, their probs\), and 'max' takes one: "
+     rf"{RANK} \(argmax gives the first of its ids\)$"),
+    (ranked_whole({}, [{"op": "top_k", "k": 2}, {"op": "mean", "over": ["pos"]}]),
+     r"^steps\.clean\.interventions\.logits\.ops\[1\]: 'mean' follows top_k, whose value is several tensors \(its ids, "
+     r"their probs\), and 'mean' takes one: rank what it needs in this entry in place of the top_k \(argmax gives the "
+     r"first of its ids\)$"),
+], ids=["mean", "argmax", "operand", "over-a-list", "an-entry's", "after-it-in-an-entry"])
+def test_an_op_over_a_whole_top_k_value_is_refused_at_compile(change, message):
+    """A top_k's value is several tensors, which every op met at the run with a raw error: an op step over one, of
+    either form (`ids` one tensor, or one per axis over a list of them), an operand naming one, an op over an entry
+    whose last op is one, and an op after one in its entry are refused by name at compile."""
+    with pytest.raises(PlanError, match=message):
+        edited("readout", change).compile()
+
+
 def test_a_top_k_over_a_list_of_axes_is_a_step_and_refused_inside_an_entry():
     """Its `ids` are an index per ranked axis of each pick, which an entry's batches do not join."""
     def change(d):

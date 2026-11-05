@@ -215,7 +215,10 @@ def top_k(of: Tensor, k: int, dims: list[str], over: str | list[str] = RANKED
     ..., "pos": ...}`, each `[..., k]`; a list of one axis gives it too), beside `values`, or `probs` where one of the axes is a vocabulary (each
     pick's softmax over it, and, over `vocab_size`, the `tokens`, decoded). It ranks the entries as one axis laid
     out in the order the list names them, so an exact tie goes to the lower index along the first, then the next;
-    a missing (NaN) entry is ranked below every other, and a pick past those there is -1 on every axis."""
+    a missing (NaN) entry is ranked below every other, and a pick past those there is -1 on every axis.
+
+    Its value is several tensors, which no op takes whole: an op step over a top_k's value, an operand naming one, and
+    an op after a top_k in its entry are refused by name at compile."""
     axes = over if isinstance(over, list) else [over]
     x = of.movedim([dims.index(a) for a in axes], list(range(of.dim() - len(axes), of.dim())))
     sizes = x.shape[of.dim() - len(axes):]

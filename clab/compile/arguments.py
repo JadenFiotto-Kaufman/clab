@@ -11,8 +11,8 @@ from clab.compile import positions
 from clab.compile.answers import check_column_ref, check_text_ref, is_literal
 from clab.compile.state import Compiling
 from clab.format import address, data, registry, selectors
-from clab.plan import (Intervention, Labelled, Op, OpStep, Plan, arguments, fail, kind_of, produced, record_of,
-                       trained_featurizers)
+from clab.plan import (Intervention, Labelled, Load, Op, OpStep, Plan, arguments, fail, kind_of, produced, record_of,
+                       top_k_of, trained_featurizers)
 
 
 def narrowed_readout_refusal(what: str) -> str:
@@ -87,7 +87,10 @@ def resolver(cx: Compiling, path: str, classes: bool, at: dict[str, int],
     def resolve(key: str, value: Any, p: inspect.Parameter) -> Labelled | None:
         where = f"{path}.{key}"
         if p.annotation == ops.Value:
-            return value_record(cx, value, where, at, live)
+            record = value_record(cx, value, where, at, live)
+            if why := whole_top_k(cx, value, record, "an operand"):
+                fail(where, why)
+            return record
         if p.annotation == ops.Featurizer:
             check_featurizer_ref(cx, value, where)
             return None
@@ -146,6 +149,28 @@ def value_record(cx: Compiling, ref: str, path: str, at: dict[str, int],
         fail(path, f"{ref!r} names no value produced before this step; known: {', '.join(sorted(known)) or 'none'}")
     cx.used.add(ref)
     return record_of(cx.steps, ref, at)
+
+
+def several(top: Op | OpStep) -> str:
+    """What a top_k's value holds, as a refusal names it."""
+    over = arguments(top).get("over", ops.transforms.RANKED)
+    axes = over if isinstance(over, list) else [over]
+    return ("its ids" + (" (one tensor per axis it ranks)" if isinstance(over, list) else "") +
+            (", their probs" if set(axes) & set(ops.VOCABULARY) else ", their values") +
+            (" and their tokens" if isinstance(top, OpStep) and ops.transforms.RANKED in axes else ""))
+
+
+def whole_top_k(cx: Compiling, ref: str, record: Labelled, takes: str) -> str | None:
+    """Why value `ref` (its record `record`) is no value an op takes: a `top_k`'s whole value (`plan.top_k_of`; a
+    load's as the run that saved it recorded it), which is several tensors; None for any other value. `takes` names
+    what takes one value (an op, an operand)."""
+    loaded = isinstance(record, Load)
+    top = top_k_of(record_of(cx.sources[record.from_]["plan"].steps, record.value, record.at) if loaded else record)
+    if top is None:
+        return None
+    ranked = f", {top.of!r}" if isinstance(top, OpStep) and not loaded else ""
+    return (f"{ref!r} is a top_k's value, several tensors ({several(top)}), and {takes} takes one: rank what it needs "
+            f"with an op over the value the top_k ranks{ranked} (argmax gives the first of its ids)")
 
 
 def check_featurizer_ref(cx: Compiling, value: object, path: str) -> None:
