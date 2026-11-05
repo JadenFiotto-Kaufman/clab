@@ -7,6 +7,9 @@ Offline, on CPU, no model loaded, in seconds: `uv run pytest tests/test_docs.py 
   (`slug`; the FORMAT.md heading ### `data.<name>` is #dataname);
 * every page under `docs/` opens with YAML front matter holding `title`, `one_liner` and `tags`, and the files its
   `related:` and `sources:` lists name exist;
+* each line of a section's `index.md` (`docs/errors/index.md` aside, whose lines are refusals) that routes to a page
+  beside it, `- [text](page.md) — description`, has that page's front-matter `one_liner` as its description, word
+  for word: the page's front matter is the one place its line is written;
 * a repo path in backticks exists: one under `clab/`, `tests/`, `documents/`, `data/` or `docs/` with a file
   extension or a trailing slash, any other `.py` path with a slash (read from the repo root or from `clab/`), and a
   root file named in capitals (`FORMAT.md`) or `pyproject.toml`;
@@ -217,6 +220,28 @@ def test_every_page_has_front_matter_naming_files_that_exist():
                 continue
             wrong += [f"{rel(path)} {key}: {entry}" for entry in listed if not (ROOT / str(entry)).exists()]
     assert not wrong, "front matter:\n" + "\n".join(wrong)
+
+
+INDEX_LINE = re.compile(r"^- \[[^\]\n]*\]\(([\w.\-]+\.md)\) — (.*)$")
+
+
+def test_index_lines_are_their_pages_one_liners():
+    wrong = []
+    for index in sorted((ROOT / "docs").glob("*/index.md")):
+        if index.parent.name == "errors":
+            continue
+        for number, line in prose_lines(index):
+            match = INDEX_LINE.match(line)
+            if match is None:
+                continue
+            page = index.parent / match.group(1)
+            fields = front_matter(page) if page.exists() else None
+            one_liner = (fields or {}).get("one_liner")
+            if match.group(2) != one_liner:
+                wrong.append(f"{rel(index)}:{number} {match.group(1)}: the line says {match.group(2)!r}, the page's "
+                             f"one_liner {one_liner!r}")
+    assert not wrong, ("index lines that differ from their page's one_liner (copy the one_liner into the line):\n"
+                       + "\n".join(wrong))
 
 
 # --------------------------------------------------------------------------- paths and symbols
