@@ -10,8 +10,8 @@ from typing import TYPE_CHECKING, cast
 from clab import ops
 from clab.compile import positions
 from clab.compile.answers import check_text_ref, vocabulary
-from clab.compile.arguments import (featurizer_kind, layout, mismatch, narrowed_readout_refusal, references, resolver,
-                                    several, space_of)
+from clab.compile.arguments import (featurizer_kind, k_past, layout, mismatch, narrowed_readout_refusal, probe_classes,
+                                    references, resolver, several, space_of)
 from clab.compile.positions import check_calls_known
 from clab.compile.state import Compiling, Findings
 from clab.format import address, data, registry, selectors
@@ -235,6 +235,8 @@ def compile_entry(cx: Compiling, path: str, spec: Intervention, plan: Plan, step
         ours = Labelled(dims=dims, space=outside[closes[i]["at"]] if i in closes else space,
                         **{**labels, "kept": {a: v for a, v in labels["kept"].items() if a in dims},
                            "width": labels["width"] if "pos" in dims else None})
+        if why := k_past(o.op, args, ours, None, probe_classes(cx, ours)):
+            fail(f"{here}.k", why)
         operands = references(o.op, args, resolver(cx, here, "classes" in dims, at, live))
         for key, (written, theirs) in operands.items():
             if written in live and gathers(live[written]):

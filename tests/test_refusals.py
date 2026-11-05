@@ -781,6 +781,69 @@ def test_an_op_over_a_whole_top_k_value_is_refused_at_compile(change, message):
         edited("readout", change).compile()
 
 
+def ranked_past(read: dict, steps: dict, ops: list | None = None, featurizers: dict | None = None):
+    """readout.json with its forward reading `read` (running `ops` in the entry), then `steps`."""
+    def change(d):
+        d["steps"] = {"clean": {"kind": "forward", "input": "prompts.input", "interventions": {
+            "r": {**read, **({"ops": ops} if ops else {})}}}, **steps}
+        d["saves"] = list(steps) or ["clean.r"]
+        d["featurizers"] = featurizers or {}
+    return change
+
+
+TOP = {"kind": "op", "op": "top_k", "of": "clean.r"}
+LAYER0 = {"component": "layer_output", "layers": 0}
+NARROW = {"site": {"component": "logits", "select": {"vocab_size": [1, 2, 3]}}, "pos": -1}
+PICKS = r", each of which it picks once: k is at most "
+
+
+@pytest.mark.parametrize("change, message", [
+    (ranked_past(NARROW, {"t": {**TOP, "k": 5}}),
+     rf"^steps\.t\.k: k 5 is more than the 3 entries it ranks, 3 along vocab_size \(those its select keeps\){PICKS}3$"),
+    (ranked_past(NARROW, {}, [{"op": "top_k", "k": 4}]),
+     r"^steps\.clean\.interventions\.r\.ops\[0\]\.k: k 4 is more than the 3 entries it ranks, 3 along vocab_size \(those"),
+    (ranked_past({"site": {"component": "layer_output", "layers": [0, 1]}, "pos": -1},
+                 {"t": {**TOP, "k": 3, "over": "layers"}}),
+     rf"^steps\.t\.k: k 3 is more than the 2 entries it ranks, 2 along layers \(the value's\){PICKS}2$"),
+    (ranked_past({"site": LAYER0, "pos": {"index": "-3:"}}, {"t": {**TOP, "k": 4, "over": "pos"}}),
+     rf"^steps\.t\.k: k 4 is more than the 3 entries it ranks, 3 along pos \(each row's\){PICKS}3$"),
+    (ranked_past({"site": LAYER0, "pos": -1}, {}, [{"op": "encode", "featurizer": "probe"},
+                                                    {"op": "top_k", "k": 5, "over": "classes"}],
+                 {"probe": {"kind": "linear", "classes": "prompts.cf_answer"}}),
+     rf"^steps\.clean\.interventions\.r\.ops\[1\]\.k: k 5 is more than the 4 entries it ranks, 4 along classes \(the "
+     rf"probe's\){PICKS}4$"),
+], ids=["select", "select-in-an-entry", "layers", "static-width", "classes"])
+def test_a_top_k_past_a_static_axis_the_document_sizes_is_refused_at_compile(change, message):
+    """A `k` past the entries of an axis whose size the document fixes, a `select`'s indices, the layers it picks, a
+    static width, a probe's classes, failed at the run with torch's own error: refused at compile, naming the axis
+    and the most `k` can be."""
+    with pytest.raises(PlanError, match=message):
+        edited("readout", change).compile()
+
+
+@pytest.mark.parametrize("change, message", [
+    (ranked_past({"site": {"component": "logits"}, "pos": -1}, {"t": {**TOP, "k": 40000}}),
+     rf"^t: k 40000 is more than the 32000 entries it ranks, 32000 along vocab_size \(the model's\){PICKS}32000$"),
+    (ranked_past({"site": LAYER0, "pos": -1}, {}, [{"op": "top_k", "k": 17, "over": "hidden_size"}]),
+     rf"^clean\.r: k 17 is more than the 16 entries it ranks, 16 along hidden_size \(the model's\){PICKS}16$"),
+    (ranked_past({"site": {"component": "layer_output", "layers": ":"}, "pos": -1},
+                 {"t": {**TOP, "k": 3, "over": "layers"}}),
+     rf"^t: k 3 is more than the 2 entries it ranks, 2 along layers \(the value's\){PICKS}2$"),
+    (ranked_past({"site": LAYER0, "pos": {"scope": {"text": " tomorrow"}}}, {"t": {**TOP, "k": 3, "over": "pos"}}),
+     rf"^t: k 3 is more than the 2 entries it ranks, 2 along pos \(each row's\){PICKS}2$"),
+    (ranked_past({"site": LAYER0, "pos": {"index": "-2:"}}, {"t": {**TOP, "k": 33, "over": ["pos", "hidden_size"]}}),
+     rf"^t: k 33 is more than the 32 entries it ranks, 2 along pos \(each row's\) by 16 along "
+     rf"hidden_size \(the model's\){PICKS}32$"),
+], ids=["vocab_size", "hidden_size-in-an-entry", "a-slice-of-layers", "a-scope's-width", "a-list-of-axes"])
+def test_a_top_k_past_a_static_axis_the_model_or_the_rows_size_is_refused_before_any_forward(engines, change,
+                                                                                            message):
+    """A `k` past the entries of an axis the model sizes (`vocab_size`, `hidden_size`, the layers a slice picks) or
+    the rows do (a scope whose rows confirm one width), alone or among a list of axes, is refused in preflight, before
+    any forward, where it failed at the run with torch's own error."""
+    text, forwards = refused(engines, edited("readout", change).compile())
+    assert re.match(message, text) and forwards == 0, text
+
+
 def test_a_top_k_over_a_list_of_axes_is_a_step_and_refused_inside_an_entry():
     """Its `ids` are an index per ranked axis of each pick, which an entry's batches do not join."""
     def change(d):

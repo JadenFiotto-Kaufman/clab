@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any, cast
 from clab import featurizers, ops
 from clab.compile import positions
 from clab.compile.answers import answer, check_classes, check_tokens
-from clab.compile.arguments import kept_labels, mismatch, references
+from clab.compile.arguments import k_past, kept_labels, mismatch, references
 from clab.compile.interventions import check_operands, read_positions, refuse_unserved
 from clab.compile.positions import prefill_positions
 from clab.compile.schedule import write_schedule
@@ -27,6 +27,7 @@ from clab.plan import (
     adapts,
     arguments,
     body_view,
+    declared,
     entries,
     entry_of,
     gathers,
@@ -106,6 +107,8 @@ def prepare(engine: Engine, plan: Plan, steps: dict, classes: dict[str, list], f
                 args, of = arguments(step), record_of(plan.steps, step.of, step.at)
                 assert step.dims is not None and of.dims is not None
                 step.layers, step.kept, step.width = kept_labels(of, step.dims)     # completed from its producer's
+                if why := k_past(step.op, args, of, sizes, probe_of(plan, of, classes)):
+                    raise ValueError(f"{name}: {why}")
                 for key, (written, theirs) in references(step.op, args, preflight_resolver(plan, step.at)).items():
                     why = mismatch(of, theirs, step.op, key, written, repr(step.of), False, False, adapts(plan, step),
                                    lambda read: entry_of(plan.steps, read, step.at)[1])
@@ -186,6 +189,8 @@ def prepare(engine: Engine, plan: Plan, steps: dict, classes: dict[str, list], f
                     ours = Labelled(dims=dims, space=record.ops[i - 1].space if i else [], dataset=record.dataset,
                                     layers=record.layers, read=record.read, width=record.width if "pos" in dims else None,
                                     kept={a: v for a, v in record.kept.items() if a in dims})
+                    if why := k_past(o.op, arguments(o), ours, sizes, probe_of(plan, ours, classes)):
+                        raise ValueError(f"{where}: {why}")
                     for k, (written, theirs) in references(o.op, arguments(o),
                                                            preflight_resolver(plan, step.at)).items():
                         forward = written.rpartition(".")[0] == name
@@ -203,6 +208,14 @@ def prepare(engine: Engine, plan: Plan, steps: dict, classes: dict[str, list], f
             for step, served in cast("list[tuple[Forward, list[Forward]]]", serving(plan, name)):
                 write_schedule(engine, plan, name, step, served)
                 check_last_only(engine, name, step, findings)
+
+
+def probe_of(plan: Plan, record: Labelled, classes: dict[str, list]) -> list | None:
+    """The class list of the probe a value's `classes` axis is of (the last encode left open around it), among
+    `classes` by declared featurizer; None for a value with no `classes` axis."""
+    if "classes" not in (record.dims or []) or not record.space:
+        return None
+    return classes.get(declared(plan, record.space[-1]["featurizer"]))
 
 
 def check_last_only(engine: Engine, name: str, step: Forward, findings: Findings) -> None:

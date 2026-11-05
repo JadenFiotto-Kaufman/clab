@@ -7,7 +7,7 @@ import numpy
 import pytest
 import torch
 
-from conftest import BATCH_SIZE, edited, placed, same
+from conftest import BATCH_SIZE, edited, on_each, placed, same
 
 from clab import ops
 from clab.ops import edits, metrics, reductions, transforms
@@ -926,6 +926,29 @@ def test_argmax_and_top_k_rank_ids_with_their_hole_below_every_id():
     assert top["ids"].tolist() == [[[2, 3, 0, -1]], [[-1, -1, -1, -1]], [[0, 1, 3, -1]]]
     assert top["values"].dtype == torch.int64
     assert top["values"].tolist() == [[[7, 5, 3, -1]], [[-1, -1, -1, -1]], [[2**40 + 1, 2**40, 0, -1]]]
+
+
+def test_a_top_k_past_a_ragged_axis_picks_minus_one_however_large_its_k(engines):
+    """Along a ragged axis (`pos` where rows hold different numbers of positions, `key`) a pick past the entries there
+    is -1 with a missing value, `k` past the widest row's too, where torch's top-k refused a `k` past the axis; on
+    plain tensors, an `argmax` of an empty one is -1; and on weekdays/train read at every token (11, 9, 9 and 9),
+    twelve picks over `pos` are each row's own then -1, on both engines alike."""
+    x = torch.tensor([[1.0, 3.0], [2.0, NAN]])
+    for over in ("pos", "key"):
+        top = transforms.top_k(x, 4, ["rows", over], over=over)
+        assert top["ids"].tolist() == [[1, 0, -1, -1], [0, -1, -1, -1]]
+        assert same(top["values"], torch.tensor([[3.0, 1.0, NAN, NAN], [2.0, NAN, NAN, NAN]]))
+        assert transforms.argmax(torch.zeros(2, 0), ["rows", over], over=over).tolist() == [-1, -1]
+
+    def change(d: dict) -> None:
+        d["steps"] = {"clean": {"kind": "forward", "input": "pairs.input", "interventions": {"h": {
+                          "site": "target", "pos": {"index": ":"}, "ops": [{"op": "sum", "over": ["hidden_size"]}]}}},
+                      "top": {"kind": "op", "op": "top_k", "of": "clean.h", "k": 12, "over": "pos"}}
+        d["saves"] = ["top"]
+    runs = on_each(engines, edited("patching", change).compile())
+    assert same(runs["nnterp"].results, runs["hooks"].results)
+    ids = runs["nnterp"].results["top"]["ids"]
+    assert [int((row != -1).sum()) for row in ids] == [11, 9, 9, 9] and (ids[:, 11] == -1).all()
 
 
 def test_the_new_reductions_are_refused_by_name_where_they_cannot_mean_anything():

@@ -3,6 +3,7 @@ featurizer), the layout of its result, and the one rule an operand keeps against
 
 import inspect
 import json
+import math
 from collections.abc import Callable, Mapping
 from typing import Any, cast
 
@@ -11,6 +12,7 @@ from clab.compile import positions
 from clab.compile.answers import check_column_ref, check_text_ref, is_literal
 from clab.compile.state import Compiling
 from clab.format import address, data, registry, selectors
+from clab.format.sweeps import points
 from clab.plan import (Intervention, Labelled, Load, Op, OpStep, Plan, arguments, fail, kind_of, member_of, produced,
                        record_of, top_k_members, top_k_of, trained_featurizers)
 
@@ -190,6 +192,49 @@ def whole_top_k(cx: Compiling, ref: str, record: Labelled, at: dict[str, int], t
         fix = ("rank what it needs in that entry in place of the top_k, or make the top_k a step after the forward, "
                "whose members a later step names (`<step>.ids`)")
     return f"{ref!r} is a top_k's value, several tensors ({several(top)}), and {takes} takes one: {fix}"
+
+
+def k_past(name: str, args: dict, met: Labelled, sizes: dict[str, int] | None, classes: list | None) -> str | None:
+    """Why a `top_k`'s `k` (op `name`'s arguments `args`) cannot pick among the entries of the axes it ranks on the
+    value it meets, labelled `met`: more than there are, where their number is static. Compile knows a `select`'s
+    indices, the layers, a static width of `pos` and a probe's `classes`; preflight besides the model's sizes
+    (`sizes`, None at compile) and a width the rows confirm. Along a ragged axis (`transforms.RAGGED`: a `pos` whose
+    rows differ, the keys) there is no one number, and a pick past what is there is id -1. None where `k` fits."""
+    if name != "top_k" or not isinstance(args.get("k"), int):
+        return None
+    over = args.get("over", ops.transforms.RANKED)
+    counts: list[tuple[str, int, str]] = []
+    for axis in over if isinstance(over, list) else [over]:
+        kept = met.kept.get(axis)
+        if isinstance(kept, list) and kept:
+            counts.append((axis, len(kept), "those its select keeps"))
+        elif kept is not None:
+            return None                     # left to preflight, or keys relative to each query
+        elif axis == "layers" and met.layers:
+            counts.append((axis, len(met.layers), "the value's"))
+        elif axis == "pos" and met.width is not None:
+            counts.append((axis, met.width, "each row's"))
+        elif axis == "classes" and classes is not None:
+            counts.append((axis, len(classes), "the probe's"))
+        elif sizes is not None and axis in sizes and axis not in ops.transforms.RAGGED:
+            counts.append((axis, sizes[axis], "the model's"))
+        else:
+            return None
+    n = math.prod(c for _, c, _ in counts)
+    if args["k"] <= n:
+        return None
+    held = " by ".join(f"{c} along {axis} ({why})" for axis, c, why in counts)
+    return f"k {args['k']} is more than the {n} entries it ranks, {held}, each of which it picks once: k is at most {n}"
+
+
+def probe_classes(cx: Compiling, record: Labelled) -> list | None:
+    """The class list of the probe a value's `classes` axis is of (the last encode left open around it), at compile;
+    None for a value with no `classes` axis."""
+    if "classes" not in (record.dims or []) or not record.space:
+        return None
+    ref = record.space[-1]["featurizer"]
+    spec = points(cx.featurizers[ref if ref in cx.featurizers else ref.partition(".")[2]])[0]
+    return featurizers.labels(cx.rows, (spec.model_extra or {})["classes"])
 
 
 def check_featurizer_ref(cx: Compiling, value: object, path: str) -> None:
