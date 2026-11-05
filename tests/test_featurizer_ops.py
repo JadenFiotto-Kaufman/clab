@@ -17,6 +17,7 @@ from test_fit import TINY, corpus_copy
 from clab import Plan, featurizers, ops
 from clab.docs import describe
 from clab.featurizers.affine import Affine
+from clab.featurizers.constant import Constant
 from clab.featurizers.gate import Gate
 from clab.format.sweeps import points
 from clab.plan import PlanError
@@ -87,6 +88,29 @@ def test_an_affine_over_layers_takes_each_layers_map_by_its_id():
     assert torch.equal(ops.call("apply", H, {"featurizer": drawn}, dims=DIMS, layers=2), H)
     assert torch.equal(ops.call("apply", stacked, {"featurizer": drawn}, dims=["layers", *DIMS], layers=[3, 0]),
                        stacked)
+
+
+def test_a_constant_writes_its_vector_in_place_of_every_rows_value_exactly():
+    """Drawn from a number, every entry that number (0 a zero ablation); from a value, a copy of it: `apply` writes the
+    vector at every row and position, and over every axis before the last, in the value's dtype, a missing vector
+    staying missing; a loaded one is its bundle's `vector`."""
+    zero = featurizers.make("constant", {"init": 0}, 16, None, None, None)
+    assert torch.equal(ops.call("apply", H, {"featurizer": zero}), torch.zeros_like(H))
+    drawn = featurizers.make("constant", {"init": MEAN}, 16, None, None, None)
+    assert isinstance(drawn, Constant)
+    assert torch.equal(ops.call("apply", H, {"featurizer": drawn}), MEAN.expand_as(H))
+    assert torch.equal(drawn.vector, MEAN) and drawn.vector.data_ptr() != MEAN.data_ptr()     # a copy, trained alone
+    heads = torch.randn(3, 2, 4, 16, generator=G).to(torch.bfloat16)
+    assert torch.equal(ops.call("apply", heads, {"featurizer": drawn}), MEAN.to(torch.bfloat16).expand_as(heads))
+    assert torch.equal(ops.call("swap", heads, {"with": MEAN}), ops.call("apply", heads, {"featurizer": drawn}))
+    hole = H.clone()
+    hole[1, 0] = float("nan")
+    applied = ops.call("apply", hole, {"featurizer": drawn})
+    assert applied[1, 0].isnan().all() and torch.equal(applied[0], MEAN.expand(2, 16))
+    with pytest.raises(ValueError, match=r"^a constant's init is one vector of its width, \[16\], and this one is \[1\]$"):
+        featurizers.make("constant", {"init": MEAN[:1]}, 16, None, None, None)
+    loaded = featurizers.make("constant", {"file_path": "x"}, 16, {"vector": MEAN}, None, None)
+    assert torch.equal(loaded.call("apply", H, {}), MEAN.expand_as(H)) and loaded.tensors().keys() == {"vector"}
 
 
 HEADS = ["rows", "pos", "num_heads", "head_dim"]
@@ -213,7 +237,7 @@ def test_encode_is_the_coordinates_on_the_kinds_axis_and_select_keeps_some():
         assert ops.out_dims("encode", DIMS, {}, kind) == ["rows", "pos", "features"]
     assert ops.out_dims("encode", DIMS, {}, "linear") == ["rows", "pos", "classes"]
     assert [featurizers.KINDS[k].ops() for k in featurizers.KINDS] == [
-        ["encode", "decode", "apply"]] * 4 + [["encode"], ["apply"], ["apply"]]
+        ["encode", "decode", "apply"]] * 4 + [["encode"], ["apply"], ["apply"], ["apply"]]
 
 
 @pytest.mark.parametrize("select", [{"feature": 1}, [0, 1], 3, {"features": 1, "classes": 0}])

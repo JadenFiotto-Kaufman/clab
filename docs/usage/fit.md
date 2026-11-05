@@ -106,7 +106,7 @@ Nothing leaves the body except through these names:
 | `<fit>.history.<op>` | each body op's mean after each epoch, `[epochs run]` |
 | `<fit>.history.<featurizer>.<scalar>` | each trained featurizer's scalar after each epoch, `[epochs run]`; an sae's only when the body reads it with an `encode` no `decode` closes |
 
-**After the fit, the bare name is the declared featurizer as drawn at the run's start, never trained.** In `das.json`, the held-out steps after the fit encode with `fit.rot`; written with `rot` they score the untrained seed-0 subspace. Name `<fit>.<featurizer>` everywhere after the fit.
+**After the fit, the bare name is the declared featurizer as drawn, never trained.** In `das.json`, the held-out steps after the fit encode with `fit.rot`; written with `rot` they score the untrained seed-0 subspace. Name `<fit>.<featurizer>` everywhere after the fit.
 
 That draw comes from the featurizer's own `seed`, 0 when unset, whatever the fit's: with `"seed": 1` on the fit and none on `rot`, the fit starts from the seed-1 draw and the bare `rot` is the seed-0 one. To make the bare name the fit's starting draw, as a control of matched rank does ([trained subspaces](../patterns/trained-subspaces.md#controls-of-matched-rank)), give the featurizer the fit's seed.
 
@@ -120,6 +120,7 @@ A history holds one entry per epoch run: fewer when `early_stop` ends the fit, n
 
 - **an adapter** starts as the identity exactly: `documents/lora_train.json` at `epochs: 0` gives `fit.held_out.ce` bit-identical to a clean forward's;
 - **an affine map** starts as the identity exactly too, its `W` and `b` zero, and draws nothing from the seed;
+- **a constant** is its `init`: `documents/ablation_pair.json` at `epochs: 0` gives the logit difference of `{"op": "swap", "with": "mean"}`, mean ablation, to the bit;
 - **a subspace** is a uniformly random one of the fit's seed: `das.json` at `epochs: 0` gives the `held_iia` of a declared `{"kind": "subspace", "k": 8, "seed": 0}` used without a fit, to the bit;
 - **a probe** scores every class 0, and `match` breaks the tie to the lower class id, so its accuracy is the share of rows whose label sorts first.
 

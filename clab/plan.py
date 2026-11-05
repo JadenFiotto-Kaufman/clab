@@ -560,6 +560,10 @@ class Op(Record):
 
     @model_validator(mode="after")
     def _arguments(self) -> "Op":
+        if self.op == "permute":
+            raise ValueError("permute is no op of an entry, whose ops act on each row's live value: it is a step "
+                             "over a read, {'kind': 'op', 'op': 'permute', 'of': '<step>.<entry>', 'seed': ...}, "
+                             "whose value a later forward's entry swaps in")
         ops.check(self.op, arguments(self))
         return self
 
@@ -581,7 +585,9 @@ class Labelled(Record):
                                              "one reduced over its layers); `[]` until preflight resolves a slice or "
                                              "a layer counted from the last")
     read: str | None = derived(None, "the entry whose value this is, or descends from through op steps, whose "
-                                     "positions it holds where it has a `pos` axis; null for a value no read made")
+                                     "positions it holds where it has a `pos` axis; null for a value no read made, "
+                                     "and for one whose rows hold other rows' values (a `permute`'s and what "
+                                     "descends from it)")
     width: int | None = derived(None, "how many positions the value holds on every row, where it has a `pos` axis "
                                       "and that is one number: the static width its read's `pos` names, which "
                                       "compile writes, or, where the `pos` leaves it open, the number every row's "
@@ -900,6 +906,11 @@ class OpStep(Labelled):
     op: str
     of: str
     at: dict[str, int] = derived({}, AT)
+    permutation: list[int] | None = derived(None, "a `permute`'s: the dataset row whose value each of its rows "
+                                                  "holds, as the run drew it (in a fit's body, at the body's last "
+                                                  "run, which scores every training row, where each training "
+                                                  "minibatch drew its own over its rows); null before it runs and "
+                                                  "for any other op")
 
     @model_validator(mode="after")
     def _arguments(self) -> "OpStep":

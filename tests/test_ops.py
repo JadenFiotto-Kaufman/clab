@@ -26,7 +26,7 @@ def test_every_op_is_listed_once_in_order_under_its_own_name():
                              "apply", "noise", "clamp", "readout", "encode", "grad", "mean", "sum", "min", "max", "std",
                              "median", "count", "norm", "dot", "entropy", "pca", "match", "logit_diff", "token_prob",
                              "token_logit", "cross_entropy", "contains", "kl", "js", "top_k", "argmax", "detokenize",
-                             "abs", "exp", "log", "sign", "sqrt", "square", "neg", "mul", "div", "pow", "eq", "ne",
+                             "permute", "abs", "exp", "log", "sign", "sqrt", "square", "neg", "mul", "div", "pow", "eq", "ne",
                              "gt", "ge", "lt", "le", "cosine"]
     assert all(fn.__name__ == name for name, fn in ops.OPS.items())
     assert set(ops.DECLARED) == set(ops.OPS)
@@ -40,7 +40,7 @@ def test_each_op_declares_its_group_and_bundle():
     assert {n for n, g in groups.items() if g == "reductions"} == {"mean", "sum", "min", "max", "std", "median",
                                                                     "count", "norm", "dot", "entropy", "pca"}
     assert {n for n, g in groups.items() if g == "transforms"} == {"readout", "encode", "grad", "top_k", "argmax",
-                                                                    "detokenize", "abs", "exp", "log", "sign", "sqrt",
+                                                                    "detokenize", "permute", "abs", "exp", "log", "sign", "sqrt",
                                                                     "square", "neg", "mul", "div", "pow", "eq", "ne",
                                                                     "gt", "ge", "lt", "le"}
     assert {n for n, g in groups.items() if g == "metrics"} == {"match", "logit_diff", "token_prob", "token_logit",
@@ -903,3 +903,37 @@ def test_the_new_reductions_are_refused_by_name_where_they_cannot_mean_anything(
     for message, steps in cases.items():
         with pytest.raises(PlanError, match=message):
             edited("patching", with_steps(**steps)).compile()
+
+
+def test_permute_with_seed_null_is_the_identity_and_with_a_seed_the_permutation_it_draws():
+    """Row i holds row π(i)'s, π the identity where `seed` is null and otherwise `permutation`'s draw from the seed
+    alone, which a later draw repeats; applying the inverse gives `of` back, and the layout is kept, a leading
+    `layers` axis included."""
+    assert torch.equal(transforms.permute(X, None, DIMS), X)
+    pi = transforms.permutation(7, 3)
+    got = transforms.permute(X, 7, DIMS)
+    assert torch.equal(got, X[pi]) and torch.equal(pi, transforms.permutation(7, 3))
+    assert torch.equal(got[torch.argsort(pi)], X)
+    assert torch.equal(transforms.permute(X, 7, DIMS, rows=torch.tensor([4, 5, 6])), got)
+    stacked = torch.stack([X, 2 * X])
+    assert torch.equal(transforms.permute(stacked, 7, ["layers", *DIMS]), stacked[:, pi])
+    assert ops.out_dims("permute", DIMS, {"seed": 7}) == DIMS
+    assert sorted(transforms.permutation(1, 50).tolist()) == list(range(50))
+
+
+def test_a_derangement_leaves_no_row_where_it_was_and_over_one_row_is_refused():
+    """Drawn again from the seed's generator until no row is fixed, so it is the same draw every time; seed null,
+    the identity, moves no row and is refused beside it, and so is a value of one row."""
+    for seed in range(20):
+        pi = transforms.permutation(seed, 4, derangement=True)
+        assert not (pi == torch.arange(4)).any() and torch.equal(pi, transforms.permutation(seed, 4, True))
+    assert torch.equal(transforms.permutation(0, 2, True), torch.tensor([1, 0]))
+    assert transforms.permutation(0, 4, True).tolist() == [2, 3, 0, 1]          # the corpus's draw, pinned
+    with pytest.raises(ValueError, match="^a derangement moves every row to another, and over 1 row there is none"):
+        transforms.permute(X[:1], 0, DIMS, derangement=True)
+    with pytest.raises(ValueError, match="'permute' with seed null is the identity, which moves no row"):
+        ops.check("permute", {"seed": None, "derangement": True})
+    with pytest.raises(ValueError, match="'permute' needs 'seed'"):
+        ops.check("permute", {"derangement": True})
+    with pytest.raises(ValueError, match="seed: 'a' is not int or null"):
+        ops.check("permute", {"seed": "a"})

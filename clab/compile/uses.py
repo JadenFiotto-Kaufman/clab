@@ -6,14 +6,16 @@ from __future__ import annotations
 
 import json
 import math
-from typing import TYPE_CHECKING, cast
+from collections.abc import Mapping
+from typing import TYPE_CHECKING, Any, cast
 
 import torch
 
 from clab.featurizers import KINDS, Kind, bundles, labels, make
-from clab.format import address, selectors
+from clab.format import address, registry, selectors
+from clab.format.registry import Value
 from clab.format.selectors import selected
-from clab.format.sweeps import agreeing_point, points
+from clab.format.sweeps import agreeing_point, lookup, points
 from clab.plan import (
     Featurizer,
     Intervention,
@@ -28,7 +30,11 @@ from clab.plan import (
     entry_of,
     fail,
     held_rows,
+    kind_of,
+    made_by,
+    produced,
     record_of,
+    runnable,
     scope,
     visited,
     walk,
@@ -321,10 +327,97 @@ def check_input_site(plan: Plan, where: str, at: dict, f: Featurizer, o: Op | Op
                          f"(with), and this use's with {given!r} is {site.component} layer {made}")
 
 
-def instance(plan: Plan, spec: Featurizer, width: int, seed: int | None, device: str = "cpu") -> Kind:
+def check_named_values(plan: Plan) -> None:
+    """A featurizer's field that names a value (`named_values`: a constant's `init`) names one that a step makes before
+    every use of the featurizer and before the fit that trains it, so that the run has it where it makes the instance;
+    on no sweep axis, since the featurizer is one per point of its own fields; and one vector as each use meets the
+    value: laid out `[<that value's last axis>]`, with no rows, `layers` or other axis, in the use's coordinates. That
+    it keeps on that axis what the use keeps, and so is as wide, is preflight's (`check_named_widths`), once the
+    model's sizes resolve both selections."""
+    order, known = list(runnable(plan.steps)), produced(plan.steps, plan.featurizers)
+    used = uses(plan)
+    for name, spec in plan.featurizers.items():
+        for f in points(spec):
+            for field, ref in named_values(f).items():
+                path, kind = f"featurizers.{name}.{field}", f.kind
+                if ref not in known:
+                    fail(path, f"{ref!r} names no value a step makes; known: {', '.join(known) or 'none'}")
+                made = made_by(plan, ref)
+                fits = [n for n, step in plan.steps.items() if points(step)[0].kind == "fit"
+                        and name in points(step)[0].train]
+                firsts = [where.partition(".")[0] for where, *_ in used.get(name, [])] + fits
+                first = min(firsts, key=order.index, default=None)
+                if first is not None and order.index(first) <= order.index(made):
+                    when = "which uses it too" if first == made else f"after step {first!r}, which uses it"
+                    fail(path, f"{ref!r} is made by step {made!r}, {when}, and {name!r} is drawn from it: make the "
+                         "value in a step before the featurizer's first use")
+                record = record_of(plan.steps, ref, points(runnable(plan.steps)[made])[0].at)
+                if record.axes:
+                    fail(path, f"{ref!r} depends on the sweep axes {record.axes}, and a {kind} is drawn once per "
+                         f"point of its own fields: {field} names a value on no sweep axis")
+                for where, read, _, _, around in used.get(name, []):
+                    space = [{k: v for k, v in arguments(o).items() if k in ("featurizer", "select")} for o in around]
+                    last = KINDS[kind_of(plan, arguments(around[-1])["featurizer"])].axis if around else \
+                        address.dims(cast(Site, read.site).component)[-1]
+                    dims = record.dims or []
+                    if dims != [last]:
+                        why = "a rows axis, a value per row" if "rows" in dims else \
+                            "a layers axis, a value per layer" if "layers" in dims else f"no {last!r} axis alone"
+                        # an axis the site keeps several of: one vector is shared by all of them
+                        shared = [a for a in dims if a not in (last, *address.EXAMPLE_AXES)
+                                  and (read.kept.get(a) is None or len(read.kept[a]) > 1)]
+                        fix = (f"one vector is shared by every {shared[0]} the site keeps, so for each one's own, "
+                               f"declare a site per {shared[0]} (a select of one) with a {kind} of its own, each "
+                               f"{field} a mean of a read there over every axis but {last}") if shared else \
+                            f"reduce it to that, a mean of a read at the site over every axis but {last}"
+                        fail(path, f"{ref!r} is laid out {dims}, {why}, and a {kind}'s {field} is one vector of its "
+                             f"width, laid out {[last]} as {where} meets the value: {fix}")
+                    if record.space != space:
+                        fail(path, f"{ref!r} is in another coordinate space than {where}'s value; a {kind}'s {field} "
+                             "is in the coordinates of the value it is applied to")
+
+
+def check_named_widths(engine: Engine, plan: Plan) -> None:
+    """Preflight's half of `check_named_values`: with every selection resolved among the model's sizes, a field that
+    names a value keeps on its one axis the indices each use keeps there (the whole axis where the use's site selects
+    none), so it is as wide as the featurizer (`Featurizer.width`) and lies unit for unit on the value it is written
+    into; a use inside an `encode` is in the coordinates compile compared."""
+    sizes, used = engine.sizes(), uses(plan)
+    for name, spec in plan.featurizers.items():
+        for f in points(spec):
+            for field, ref in named_values(f).items():
+                record = record_of(plan.steps, ref, points(runnable(plan.steps)[made_by(plan, ref)])[0].at)
+                last = (record.dims or [""])[-1]
+                held = record.kept.get(last)
+                for where, read, _, _, around in [] if last == "" else used.get(name, []):
+                    kept = None if around else read.kept.get(last)
+                    if held != kept:
+                        wide = selectors.width_of(held) if held is not None else sizes.get(last)
+                        raise ValueError(f"{where}: featurizer {name!r} is drawn from {ref!r} ({field}), which keeps "
+                                         f"{last} {held if held is not None else 'whole'}, {wide} wide, and is applied "
+                                         f"here to a value keeping {last} {kept if kept is not None else 'whole'}, "
+                                         f"{f.width} wide; a {f.kind}'s {field} lies unit for unit on the value it is "
+                                         f"written into: make {ref!r} from a read at this use's select")
+
+
+def named_values(spec: Featurizer) -> dict[str, str]:
+    """A featurizer point's fields that name a value, each to the name: those its kind's signature annotates `Value`
+    and the document gives as a name (a constant's `init`); a number there is a literal."""
+    params = registry.signature(KINDS[spec.kind]).parameters
+    return {k: v for k, v in (spec.model_extra or {}).items()
+            if isinstance(v, str) and k in params and registry.thing(params[k].annotation) == Value}
+
+
+def instance(plan: Plan, spec: Featurizer, width: int, seed: int | None, device: str = "cpu",
+             state: Mapping[str, Any] | None = None) -> Kind:
     """A featurizer point `spec` made on `device`: from its bundle, or drawn from its seed, else `seed`; a probe's
-    class list from its `classes` column."""
+    class list from its `classes` column; and a field that names a value (`named_values`: a constant's `init`) as that
+    value, which the run holds in `state` once the step that made it has run."""
     fields = spec.model_extra or {}
     dataset = fields["classes"].partition(".")[0] if "classes" in fields else None
     classes = labels({dataset: held_rows(plan, dataset)}, fields["classes"]) if dataset else None
+    named = named_values(spec)
+    if named:
+        assert state is not None, "a field that names a value is drawn in the run, which holds it"
+        fields = {**fields, **{k: lookup(state, ref, {}) for k, ref in named.items()}}
     return make(spec.kind, fields, width, spec.bundle, seed, classes, spec.header, device, spec.kept)

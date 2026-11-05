@@ -26,7 +26,8 @@ def table(plan: Plan, names: tuple[str, ...], columns: list[str] | None) -> list
     layer), the token axes with their tokens (`pos`/`pos_token`, the position a read resolved to, as a document's
     `pos` counts them: the index into the row's prompt tokens, BOS first, then in a generation its generated ones,
     with the forward `call` holding it for a read in a generation; `key`/`key_token` on an attention pattern,
-    numbered the same way, the row's own keys only), the dataset columns the step used
+    numbered the same way, the row's own keys only; a `permute`'s value, whose rows hold other rows' positions, by
+    plain index), the dataset columns the step used
     (`columns=` to choose), and `value` last: the element, or the remaining axes as nested lists. A row a read
     did not reach (a call beyond the prefill it never made, a scope it does not say, an index that picks none of
     its tokens) gives one row, `alignment_missing` true, with no value; a row's positions past its own are left
@@ -74,7 +75,8 @@ def row_keys(plan: Plan, name: str) -> tuple[list[str], list[str], str | None]:
     """What a saved value's rows are keyed by, as its record says: the labels of the sweep axes it depends on (its
     `axes`), and its axis columns (`COLUMNS`): for a value with a rows axis `row`, and `layer`, `pos` and `key` where it has
     those axes; for one without, each of its axes under the same names. With a token axis, also what its `pos` and
-    `key` count: the positions of the input its read was made on, or, with no rows axis, a plain index along it."""
+    `key` count: the positions of the input its read was made on, or, with no rows axis or no read (a permuted value's
+    rows hold other rows' positions), a plain index along it."""
     first = points(plan.steps[name.partition(".")[0]])[0]
     record = record_of(plan.steps, name, first.at)
     dims = record.dims or []
@@ -82,7 +84,8 @@ def row_keys(plan: Plan, name: str) -> tuple[list[str], list[str], str | None]:
     counts = None
     if "pos" in dims or "key" in dims:
         counts = "a plain index along it (a value with no rows axis)" if "rows" not in dims else \
-            f"positions of {data.input_name(entry_of(plan.steps, cast(str, record.read), first.at)[0].input)}"
+            "a plain index along it (a permuted value, whose rows hold other rows' positions)" if record.read is None \
+            else f"positions of {data.input_name(entry_of(plan.steps, record.read, first.at)[0].input)}"
     return list(record.axes), axes, counts
 
 
@@ -247,7 +250,8 @@ def argument_columns(plan: Plan, args: dict[str, Any]) -> list[str]:
 def columns_used(plan: Plan, name: str, at: dict[str, int]) -> list[str]:
     """The dataset columns a value's chain of steps used, at the point agreeing with `at`: those its op steps'
     arguments name, back to the read (a load's, the one it carries; none where it carries none), then the read's
-    input columns first and the columns its entry's ops name."""
+    input columns first and the columns its entry's ops name; back to a `permute` alone, whose rows hold other rows'
+    values, so the read's columns are not the row's."""
     used: list[str] = []
     steps = runnable(plan.steps)
     while True:
@@ -255,6 +259,8 @@ def columns_used(plan: Plan, name: str, at: dict[str, int]) -> list[str]:
         step, member = agreeing_point(steps[made], at), name[len(made) + 1:]
         if step.kind == "op":
             used += argument_columns(plan, arguments(step))
+            if step.op == "permute":        # the read's columns are other rows' from here on
+                return list(dict.fromkeys(used))
             name = step.of
             continue
         if step.kind == "load":             # the read it carries, as the run that saved it made it

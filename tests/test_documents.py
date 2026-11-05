@@ -13,7 +13,7 @@ import os
 
 import pytest
 import torch
-from conftest import (BATCH_SIZE, FORWARD, GEMMA2, INSIDE, THREADS, close, document, edited, on_each, placed, plain,
+from conftest import (BATCH_SIZE, FORWARD, GEMMA2, INSIDE, ROOT, THREADS, close, document, edited, on_each, placed, plain,
                       plan_of, same, snapshot, within)
 
 from clab import Plan
@@ -21,7 +21,7 @@ from clab.cli import main
 from clab.format.sweeps import points
 from clab import ops
 from clab.ops import edits
-from clab.plan import PlanError
+from clab.plan import OpStep, PlanError, record_of
 
 ROWS = [
     {"input": "If the count is one, next is", "counterfactual_inputs": ["two"], "base_answer": " two", "cf_answer": " three"},
@@ -689,3 +689,137 @@ def test_a_key_relative_to_the_query_is_a_reads_on_the_key_axis(entry, message):
         d["saves"] = ["base.whole"]
     with pytest.raises(PlanError, match=message):
         edited("attention_knockout", change).compile()
+
+
+def resampled(change=None) -> Plan:
+    """mean_ablation's harvest read at the last three positions and permuted (`donor` by seed 0 as a derangement,
+    `donor_id` by seed null), each swapped in at those positions by a forward of its own; with `change` applied."""
+    def edit(d):
+        d["steps"]["harvest"]["interventions"]["acts"]["pos"] = {"index": "-3:"}
+        d["steps"]["donor"] = {"kind": "op", "op": "permute", "of": "harvest.acts", "seed": 0, "derangement": True}
+        d["steps"]["donor_id"] = {"kind": "op", "op": "permute", "of": "harvest.acts", "seed": None}
+        for name, donor in (("resampled", "donor"), ("null", "donor_id")):
+            d["steps"][name] = {"kind": "forward", "input": "prompts.input", "interventions": {
+                "abl": {"site": "target", "pos": {"index": "-3:"}, "ops": [{"op": "swap", "with": donor}]},
+                "logits": {"site": "head", "pos": -1}}}
+        d["saves"] = ["clean.logits", "null.logits", "resampled.logits", "donor", "harvest.acts"]
+        if change:
+            change(d)
+    return edited("mean_ablation", edit).compile()
+
+
+def drawn(plan: Plan, name: str) -> list[int]:
+    """The permutation op step `name` drew, as its record holds it."""
+    record = record_of(plan.steps, name, {})
+    assert isinstance(record, OpStep) and record.permutation is not None
+    return record.permutation
+
+
+@pytest.mark.parametrize("kind", ["nnterp", "hooks"])
+def test_a_permuted_read_resamples_another_rows_value_and_the_identity_is_the_clean_run_to_the_bit(engines, kind):
+    """The identity permutation swapped in is the clean run to the bit; a derangement's record holds the π it drew,
+    the value is the read's rows in that order, and its swap gives the numbers of a donor forward over a column
+    holding row π(i)'s prompt (the form a permutation took before `permute`), to the bit."""
+    plan = resampled()
+    filled = engines(kind, plan.model).execute(plan, batch_size=BATCH_SIZE)
+    got = filled.results
+    assert same(got["null.logits"], got["clean.logits"])
+    pi = drawn(filled, "donor")
+    assert pi == [2, 3, 0, 1] and drawn(filled, "donor_id") == [0, 1, 2, 3]
+    assert same(got["donor"], got["harvest.acts"][pi])
+    assert not same(got["resampled.logits"], got["clean.logits"])
+    with open(os.path.join(ROOT, "data", "weekdays", "train.json")) as f:
+        rows = json.load(f)
+
+    def by_column(d):
+        d["data"] = {"prompts": {"rows": [{**r, "resample": rows[p]["input"]} for r, p in zip(rows, pi)]}}
+        d["steps"]["harvest"]["input"] = "prompts.resample"
+        d["steps"]["resampled"]["interventions"]["abl"]["ops"][0]["with"] = "harvest.acts"
+        d["saves"] = ["resampled.logits"]
+    before = resampled(by_column)
+    assert same(engines(kind, before.model).execute(before, batch_size=BATCH_SIZE).results["resampled.logits"],
+                got["resampled.logits"])
+
+
+def test_a_permuted_value_tables_by_row_and_plain_index_and_joins_no_read(engines):
+    """Its rows still index the dataset, and its positions are other rows', so a table numbers them by index, with
+    no token and none of the read's input columns, and refuses to join it with the read it permutes."""
+    plan = resampled()
+    filled = engines("hooks", plan.model).execute(plan, batch_size=BATCH_SIZE)
+    rows = filled.table("donor")
+    assert [(r["row"], r["pos"]) for r in rows[:4]] == [(0, 0), (0, 1), (0, 2), (1, 0)]
+    assert set(rows[0]) == {"row", "pos", "value"}
+    assert rows[0]["value"] == filled.results["harvest.acts"][drawn(filled, "donor")[0], 0].tolist()
+    with pytest.raises(ValueError, match=r"'donor' one counting a plain index along it \(a permuted value, whose rows "
+                                         r"hold other rows' positions\): the column does not mean one thing"):
+        filled.table("harvest.acts", "donor")
+
+
+def test_a_ragged_permuted_value_is_refused_as_another_forwards_operand_and_may_be_reduced():
+    """A ragged read permuted holds a different number of positions on each row, which pair with no other value's,
+    as the ragged read's own do; a mean over its positions has none to pair."""
+    def ragged(d):
+        d["steps"]["harvest"]["interventions"]["acts"]["pos"] = {"scope": {"column": "prompts.entity"}, "index": ":"}
+    with pytest.raises(PlanError, match=r"^steps\.resampled\.interventions\.abl\.ops\[0\]\.with: 'donor' holds a "
+                                        r"different number of positions on each row, which pair with no other value's"):
+        resampled(ragged)
+
+    def reduced(d):
+        ragged(d)
+        for name in ("resampled", "null", "donor_id"):
+            d["steps"].pop(name)
+        d["steps"]["per_row"] = {"kind": "op", "op": "mean", "of": "donor", "over": ["pos"]}
+        d["saves"] = ["per_row"]
+    assert record_of(resampled(reduced).steps, "per_row", {}).dims == ["rows", "hidden_size"]
+
+
+def permuted_pair(width: int | dict | None, ragged: bool = False) -> Plan:
+    """resampled's harvest permuted twice, by seed 0 at its three last positions and by seed 1 at `width` (or both at
+    the ragged entity scope), and the one subtracted from the other."""
+    def change(d):
+        if ragged:
+            d["steps"]["harvest"]["interventions"]["acts"]["pos"] = {"scope": {"column": "prompts.entity"},
+                                                                     "index": ":"}
+        d["steps"]["harvest"]["interventions"]["other"] = {
+            "site": "target", "pos": d["steps"]["harvest"]["interventions"]["acts"]["pos"] if ragged else width}
+        d["steps"]["donor_other"] = {"kind": "op", "op": "permute", "of": "harvest.other", "seed": 1}
+        d["steps"]["diff"] = {"kind": "op", "op": "sub", "of": "donor", "with": "donor_other"}
+        for name in ("resampled", "null", "donor_id"):
+            d["steps"].pop(name)
+        d["saves"] = ["diff"]
+    return resampled(change)
+
+
+@pytest.mark.parametrize("width, message", [
+    (-1, r"'donor_other' holds 1 position\(s\) per row and the value 'sub' acts on holds 3; position i meets "
+         r"position i"),
+    ({"index": "-2:"}, r"'donor_other' holds 2 position\(s\) per row and the value 'sub' acts on holds 3"),
+    (None, r"'donor_other' holds a different number of positions on each row, which pair with no other value's"),
+], ids=["one", "two", "ragged"])
+def test_two_permuted_values_pair_positions_by_width_and_a_ragged_one_with_none(width, message):
+    """Neither has a read, so no read's positions are common to both: they meet position by position at one static
+    width, as two reads of different inputs do, and at another width, or ragged, they are refused by name."""
+    with pytest.raises(PlanError, match=r"^steps\.diff\.with: " + message):
+        permuted_pair(width, ragged=width is None)
+    assert record_of(permuted_pair({"index": "-3:"}).steps, "diff", {}).width == 3
+
+
+@pytest.mark.parametrize("kind", ["nnterp", "hooks"])
+def test_a_readout_of_a_permuted_stream_is_the_permuted_readout_and_is_held_to_the_stream(engines, kind):
+    """A permute keeps the site of the read it permutes, so a logit lens of the permuted residual stream gives the
+    lens's rows in π's order, to the bit, and one of a permuted value read off the stream is refused as the read's
+    own would be."""
+    def change(d):
+        d["steps"]["lens"] = {"kind": "op", "op": "readout", "of": "donor"}
+        d["steps"]["read_lens"] = {"kind": "op", "op": "readout", "of": "harvest.acts"}
+        d["saves"] = ["lens", "read_lens"]
+    plan = resampled(change)
+    filled = engines(kind, plan.model).execute(plan, batch_size=BATCH_SIZE)
+    assert same(filled.results["lens"], filled.results["read_lens"][drawn(filled, "donor")])
+
+    def normed(d):
+        change(d)
+        d["sites"]["target"]["component"] = "mlp_norm_output"
+    with pytest.raises(PlanError, match=r"^steps\.lens\.of: 'donor' is read at mlp_norm_output: readout projects a "
+                                        r"residual-stream value"):
+        resampled(normed)

@@ -3,7 +3,7 @@ title: Extending clab
 one_liner: "Adding an op, a featurizer kind, a component or a step kind: the decorator, the signature as the document's contract, where the tables come from, and the tests to add."
 tags: [developing, extending, ops, featurizers, components]
 related: [docs/developing/architecture.md, docs/developing/engines.md, docs/developing/testing.md, docs/developing/contributing.md, docs/usage/ops.md, docs/usage/featurizers.md]
-sources: [clab/ops/__init__.py, clab/format/registry.py, clab/featurizers/__init__.py, clab/format/address.py, clab/engines/standard.py, clab/plan.py, clab/steps/__init__.py, clab/compile/__init__.py, clab/docs.py]
+sources: [clab/ops/__init__.py, clab/format/registry.py, clab/featurizers/__init__.py, clab/compile/uses.py, clab/format/address.py, clab/engines/standard.py, clab/plan.py, clab/steps/__init__.py, clab/compile/__init__.py, clab/docs.py]
 ---
 
 # Extending clab
@@ -56,8 +56,8 @@ What the group gives it, with no code of its own: an edit runs in float32 and is
 ## Adding a featurizer kind
 
 1. One module under `clab/featurizers/` holding one class that subclasses `Kind` (`clab/featurizers/__init__.py` `Kind`). The class's name in lower case is the kind, and subclassing registers it in `KINDS`.
-2. Import the module in the line at the end of `clab/featurizers/__init__.py`. Until then the class never loads, and a document naming it (`"kind": "shift"` for the kind below) is refused: `unknown featurizer kind 'shift'; valid: subspace, gate, pca, sae, linear, lora, affine`. That line's order is the tables' order.
-3. Its constructor is the document's fields. Its class attributes say what its bundle holds, what a fit trains, its coordinates' axis, its header fields, what a drawn one needs, its scalars and which fields count directions; their meanings are in [FORMAT.md](../../FORMAT.md#featurizer-kinds). Its methods `encode(h)`, `replace(h, z, new)` and `apply(h, ...)` serve `encode`, `decode` and `apply`; define only those it has, and it serves exactly those.
+2. Import the module in the line at the end of `clab/featurizers/__init__.py`. Until then the class never loads, and a document naming it (`"kind": "shift"` for the kind below) is refused: `unknown featurizer kind 'shift'; valid: subspace, gate, pca, sae, linear, lora, affine, constant`. That line's order is the tables' order.
+3. Its constructor is the document's fields. A field annotated `Value` is a number or the name of a value a step makes, as an op's is: compile holds the name to one vector of the featurizer's width, made before its first use (`clab/compile/uses.py` `check_named_values`), and the run passes the constructor that value where it makes the instance (`instance`), as a constant's `init` is. Its class attributes say what its bundle holds, what a fit trains, its coordinates' axis, its header fields, what a drawn one needs, its scalars and which fields count directions; their meanings are in [FORMAT.md](../../FORMAT.md#featurizer-kinds). Its methods `encode(h)`, `replace(h, z, new)` and `apply(h, ...)` serve `encode`, `decode` and `apply`; define only those it has, and it serves exactly those.
 4. Hold tensors as plain attributes and move them to the value where they meet it (`self.b.to(h)`). The three methods run with autocast off, and a missing (NaN) vector goes in as zeros and comes out missing, without code of the kind's own (`clab/featurizers/__init__.py` `exact`, `Kind.call`). An `apply` whose every element of the result is made from that element of the value alone declares `elementwise = True`, as a gate's does, and then a missing element, not its whole vector, goes in as zero and comes out missing: at a `key` axis, NaN past a short row's own keys, a vector-wise rule would write the whole row back missing.
 
 A minimal kind, which a fit trains and saves as a bundle with clab's header like any other:

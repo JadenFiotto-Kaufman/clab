@@ -163,8 +163,10 @@ def mismatch(ours: Labelled, theirs: Labelled, name: str, key: str, written: str
     in the value's order, with the same label (`layers` by model layer, `rows` by dataset, a literal's, which names
     none, by any one, `pos` by the read whose positions both hold or by `width`, a selected axis by the indices kept
     in order, `features` by the encodes it is in); a `layers` axis it has covers the layers the op acts at and is
-    aligned by id. A number broadcasts in any coordinates; an adapter's `with` (`adapter`: the op is an `apply` of
-    one, `plan.adapts`) is compared on its rows and positions alone. `write` says the op is one of an
+    aligned by id. Two values with no `read` (a permute's, whose rows hold other rows' positions) hold no read's
+    positions in common, so they pair by width too, and a ragged one with none. A number broadcasts in any
+    coordinates; an adapter's `with` (`adapter`: the op is an `apply` of one, `plan.adapts`) is compared on its rows
+    and positions alone. `write` says the op is one of an
     entry's up to its last edit (what the messages call the value), `forward` that the operand is an entry of the
     value's own forward (a ragged pair there is compared row by row by `check_operands`, once preflight has the
     rows). A label preflight has yet to resolve (`[]`) is compared then, and so is a width: `reads` gives the entry a
@@ -215,7 +217,7 @@ def mismatch(ours: Labelled, theirs: Labelled, name: str, key: str, written: str
     if "rows" in their_axes and theirs.dataset is not None and theirs.dataset != ours.dataset:
         return (f"{mine} has a row per example of {ours.dataset!r} and {written!r} of {theirs.dataset!r}; an op "
                 "takes one dataset's rows")
-    if "pos" in their_axes and theirs.read != ours.read:
+    if "pos" in their_axes and (theirs.read != ours.read or theirs.read is None):   # a permute's pair by width
         # Each side whose width is open, the operand first: the value it meets is named as what the operand meets.
         for side, ragged, counted in ((theirs, repr(written), repr(written)),
                                       (ours, f"the value {name!r} {verb}",

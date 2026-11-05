@@ -112,7 +112,7 @@ Each technique has a page with documents that run:
 - [Activation patching](docs/patterns/activation-patching.md): swap a position, a window or an entity's tokens from a counterfactual run, and map layer by position.
 - [Head and neuron patching](docs/patterns/head-and-neuron-patching.md): patch one attention head or a few MLP neurons at a time.
 - [Attribution patching](docs/patterns/attribution-patching.md): estimate every component's patching effect from one backward, with `grad`.
-- [Ablation](docs/patterns/ablation.md): zero, mean, resample, noise and direction ablation.
+- [Ablation](docs/patterns/ablation.md): zero, mean, resample (a read's rows permuted), noise, direction and optimal-constant ablation.
 - [Expert ablation](docs/patterns/expert-ablation.md): knock out or force away one expert of a mixture of experts, and read its routing, usage and entropy.
 - [Attention](docs/patterns/attention.md): knock out a head or keys, patch a head's pattern, read queries and keys after RoPE.
 - [Logit lens](docs/patterns/logit-lens.md): decode every layer's residual stream in one forward, or train a tuned lens with a translator per layer.
@@ -146,7 +146,7 @@ It needs Python 3.10 or later; `uv sync` installs nnsight, nnterp, torch and the
 [ndif-team/nnterp](https://github.com/ndif-team/nnterp)'s `v2.0.0` branch, at the path `[tool.uv.sources]` in
 `pyproject.toml` names: point it at yours. The suite runs against nnterp commit
 `e5d0f8e755c6c04ce7c84eeab2832e2ef8dfce20`, the one CI checks out.
-A GPU is optional: the corpus under `documents/` (51 in all) runs on CPU
+A GPU is optional: the corpus under `documents/` (52 in all) runs on CPU
 on tiny random-weight checkpoints, and the six under `documents/real/` run Llama-3.2-1B, a gated checkpoint,
 and want one. The first run of a document downloads its checkpoint from the Hugging Face hub; after that,
 `HF_HUB_OFFLINE=1` runs it from the local cache.

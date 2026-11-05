@@ -32,7 +32,7 @@ from clab.compile.arguments import (featurizer_kind, kept_labels, layout, mismat
 from clab.compile.interventions import bundles_of, compile_entry, entries_with_paths
 from clab.compile.schedule import share_forwards
 from clab.compile.state import Compiling
-from clab.compile.uses import check_bundle_sites, check_gate_axes
+from clab.compile.uses import check_bundle_sites, check_gate_axes, check_named_values
 from clab.featurizers import KINDS, bundles, labels
 from clab.format import data, registry
 from clab.format.sweeps import agreeing_point, coordinate_spelling, find_sweeps
@@ -110,6 +110,7 @@ def compile(plan: Plan) -> Plan:
                                 "sha256": data.digest(rows[n]), "n_rows": len(rows[n])} for n in rows}})
     check_bundle_sites(done)
     check_gate_axes(done)
+    check_named_values(done)
     share_forwards(done)
     return done
 
@@ -507,8 +508,17 @@ def compile_op(cx: Compiling, path: str, name: str, spec: OpStep, plan: Plan, at
                        lambda read: entry_of(cx.steps, read, at)[1])
         if why:
             fail(f"{path}.{key}", why)
-    if spec.op == "readout" and of.read is not None:        # the one stream check, an entry's readout's too
-        site = cast(Site, entry_of(cx.steps, of.read, at)[1].site)
+    if spec.op == "permute" and isinstance(of, OpStep) and of.op in ("top_k", "detokenize"):
+        fail(f"{path}.of", f"{spec.of!r} is a {of.op}'s value, which permute does not reorder; a {of.op} acts row by "
+             f"row, so permute the value it is over ({of.of!r}) and {of.op} that")
+    if spec.op == "pca" and of.read is None and "hidden_size" in of.dims:     # a permute's, or after one
+        fail(f"{path}.of", f"{spec.of!r} holds other rows' values (a permute's), so no one read's site says what it "
+             "is, which a pca's bundle records: pca the read itself, whose vectors are the same")
+    source = of             # a permute's rows are other rows' values at the site of the read it permutes
+    while spec.op == "readout" and source.read is None and isinstance(source, OpStep):
+        source = record_of(cx.steps, source.of, at)
+    if spec.op == "readout" and source.read is not None:        # the one stream check, an entry's readout's too
+        site = cast(Site, entry_of(cx.steps, source.read, at)[1].site)
         if why := ops.transforms.unstreamed(site.component):
             fail(f"{path}.of", f"{spec.of!r} is read at {site.component}: {why}")
     if spec.op == "readout" and "hidden_size" in of.kept:
@@ -519,9 +529,14 @@ def compile_op(cx: Compiling, path: str, name: str, spec: OpStep, plan: Plan, at
     layers, kept, width = kept_labels(of, dims)
     dataset = of.dataset if of.dataset is not None else \
         next((t.dataset for _, t in operands.values() if "rows" in (t.dims or []) and t.dataset is not None), None)
+    if spec.op == "permute" and args.get("derangement") is True and dataset is not None and len(cx.rows[dataset]) < 2:
+        fail(path, f"a derangement moves every row to another, and {dataset!r} has {len(cx.rows[dataset])} row: "
+             "permute over two rows or more, or without derangement")
     axes = labels_under(cx, path_tuple(path)) | named_axes(cx, spec.of, at) | operand_axes(cx, [spec], at, {})
+    # A permute's rows hold other rows' values, whose positions are no read's of this row (`permute`).
     return OpStep(**spec.model_dump(exclude_defaults=True), at=at, dataset=dataset, dims=dims, layers=layers,
-                  read=of.read, kept=kept, width=width, space=space, axes=in_axis_order(cx, axes))
+                  read=None if spec.op == "permute" else of.read, kept=kept, width=width, space=space,
+                  axes=in_axis_order(cx, axes))
 
 
 def compile_load(cx: Compiling, path: str, name: str, spec: Load, plan: Plan, at: dict[str, int]) -> Load:
@@ -654,6 +669,11 @@ def compile_featurizer(cx: Compiling, plan: Plan, name: str, at: dict[str, int])
     if fields.get("file_path") is None and missing:
         fail(path, f"a {f.kind!r} featurizer drawn without a bundle needs {' and '.join(map(repr, missing))}; or "
              "load one with 'file_path'")
+    # A field it is drawn from that its bundle's header does not record (a constant's `init`) says nothing of a bundle.
+    unrecorded = [k for k in KINDS[f.kind].drawn if k not in KINDS[f.kind].header and fields.get(k) is not None]
+    if fields.get("file_path") is not None and unrecorded:
+        fail(f"{path}.{unrecorded[0]}", f"a {f.kind} loaded from file_path is its bundle's, and {unrecorded[0]} draws "
+             "one: write one of them")
     record = {**f.model_dump(exclude_defaults=True), "at": at}
     if isinstance(fields.get("site"), str):         # the site it was trained at, inlined as an entry's is
         if fields["site"] not in plan.sites:
@@ -767,6 +787,13 @@ def compile_fit(cx: Compiling, path: str, name: str, spec: Fit, plan: Plan, at: 
         fail(f"{path}.steps", f"the body's datasets have {counts} rows; it runs over minibatches of the same rows of "
              "each, paired row by row, so they have as many rows: repeat the smaller dataset's rows (or cut the "
              "larger's) to the same count, or fit on one")
+    size, total = cast(int, spec.batch_size), next(iter(counts.values()), 0)
+    for n, s in body.items():           # a derangement moves every row of the minibatch it runs over
+        if isinstance(s, OpStep) and s.op == "permute" and arguments(s).get("derangement") is True and \
+                1 in (size, total % size):
+            fail(f"{path}.steps.{n}", f"a derangement moves every row to another, and over {total} rows in minibatches "
+                 f"of {size} {'every minibatch' if size == 1 else 'the last of each epoch'} holds one row: give the "
+                 "fit a batch_size that leaves every minibatch two rows or more")
     # The rows a minibatch's ids are: of the datasets the body's forwards read, or, with none, its first harvest's.
     rows = {s.dataset for s in body.values() if s.kind != "op"} or \
         {record_of(cx.steps, r, at).dataset for r in list(harvests)[:1]}
