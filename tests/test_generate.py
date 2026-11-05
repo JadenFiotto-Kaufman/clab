@@ -650,7 +650,6 @@ def reached(max_new_tokens: int = 3, eos: int | None = None, writer: str = "forw
 
 # A forward's read of the base prompts' last token, which an op step over it combines with the generation's read.
 HELD = {"c": {"kind": "forward", "input": "pairs.input", "interventions": {"v": {"site": "target", "pos": -1}}}}
-ROW_0 = r"'g' made 3 calls on row 0 \(0 to 2\), and 'g\.v' reads call 3 \(\{\"frame\": 3, \"index\": 0\}\)"
 ROW_1 = r"'g' made 1 call on row 1 \(0\), and 'g\.v' reads call 3 \(\{\"frame\": 3, \"index\": 0\}\)"
 TAKES = r"; a write takes an operand read on every row it lands on, and this one lands on row "
 FIX = r": read 'g\.v' at a call every row of 'g' makes \(\{\"frame\": -1\} is each row's last\), or give it a " \
@@ -659,8 +658,6 @@ FIX = r": read 'g\.v' at a call every row of 'g' makes \(\{\"frame\": -1\} is ea
 
 @pytest.mark.parametrize("kind", ["nnterp", "hooks"])
 @pytest.mark.parametrize("plan, message", [
-    (lambda: reached(), rf"^patched\.patch: operand 'g\.v' holds no value on row 0 \(alignment_missing\): {ROW_0}"
-                        rf"{TAKES}0{FIX}"),
     (lambda: reached(4, eos=394), rf"^patched\.patch: operand 'g\.v' holds no value on row 1 \(alignment_missing\): "
                                   rf"{ROW_1}{TAKES}1{FIX}"),
     (lambda: reached(4, eos=394, writer="generate"),
@@ -675,18 +672,33 @@ FIX = r": read 'g\.v' at a call every row of 'g' makes \(\{\"frame\": -1\} is ea
                                                     "s": {"kind": "op", "op": "scale", "of": "c.v", "factor": "n"}}),
      rf"^patched\.patch: operand 's', which descends from 'g\.v', holds no value on row 1 \(alignment_missing\): "
      rf"{ROW_1}{TAKES}1{FIX}"),
-], ids=["review", "rows-that-stopped", "at-a-decode-call", "through-an-op-step", "through-with", "through-factor"])
+], ids=["rows-that-stopped", "at-a-decode-call", "through-an-op-step", "through-with", "through-factor"])
 def test_a_write_whose_operand_holds_no_value_on_a_row_it_lands_on_is_refused_naming_the_row_and_the_call(
         engines, kind, plan, message):
     """A generation's read at decode call 3 holds nothing on a row whose generation made fewer calls: NaN, the row
     `alignment_missing`. A later step's write with it as its operand lands on that row, and is refused naming the
     write, the operand, the row and the call, where it wrote NaN without a word: in a forward before the batch's
-    forward (the review's document, where no row reaches call 3; rows 1 and 3 stopping on 394), at a generation's
+    forward (rows 1 and 3 stopping on 394), at a generation's
     decode call once the batch's generation says which rows made that call, and through an op step over the read by
     any of its named arguments: `of`, an `add`'s `with` (beside a held value as `of`), a `scale`'s `factor`."""
     built = plan()
     with pytest.raises(ValueError, match=message):
         engines(kind, built.model).execute(built, batch_size=BATCH_SIZE)
+
+
+@pytest.mark.parametrize("writer", ["forward", "generate"])
+def test_a_write_whose_operand_is_read_at_a_call_past_max_new_tokens_is_refused_at_compile(writer):
+    """The review's document: under `max_new_tokens: 3` a generation makes calls 0 to 2, so its read at decode call 3
+    holds no value on any row, which the document alone decides; a later write with it as its operand, in a forward
+    or at a generation's decode call, is refused at compile naming the frame and `max_new_tokens`. At 4 it compiles,
+    the rows that stop on EOS first left to the run; a read there, nothing writing it, is `alignment_missing`."""
+    with pytest.raises(PlanError, match=r"^steps\.patched\.interventions\.patch\.ops\[0\]\.with: 'g\.v' is read at "
+                                        r"decode call 3, and 'g' makes calls 0 to 2 \(max_new_tokens 3\), so it holds no "
+                                        r"value on any row; a write takes an operand read on every row it lands on: read "
+                                        r"it at a call below 3 \(\{\"frame\": -1\} is each row's last\), or give 'g' a "
+                                        r"max_new_tokens past 3$"):
+        reached(writer=writer)
+    assert reached(4, writer=writer).compiled
 
 
 def test_a_write_takes_a_generation_read_on_every_row_that_reached_its_call_to_the_bit(engines):
