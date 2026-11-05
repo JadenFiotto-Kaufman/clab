@@ -8,7 +8,11 @@ sources: [clab/compile/positions.py, clab/steps/generate.py, clab/output/table.p
 
 # Alignment Missing
 
-A row is `alignment_missing` when a read or write beyond a generation's prefill names a position the row never had (a call it did not make, or text it did not generate), or when an index with an open end picks none of a row's tokens, in the prefill too. A read there is not refused: the run finishes, the row is recorded as missing, and every value computed from it on that row is NaN. A write there is refused, since it has no token to write.
+A row is `alignment_missing` when a read or write names a position the row does not have. Beyond a generation's prefill that is a call the row did not make or text it did not generate; in the prefill too, an index with an open end that picks none of the row's tokens.
+
+- **A read there is not refused.** The run finishes, the row is recorded as missing, and every value computed from it on that row is NaN.
+- **A write beyond the prefill is not refused either.** The row is not written, its `positions` say `alignment_missing`, and nothing else in the run says so.
+- **A write in the prefill whose positions hold no token of a row is refused** ([position-not-in-row.md](position-not-in-row.md#the-writes-positions-hold-no-token-of-this-row)).
 
 ## Symptom
 
@@ -37,29 +41,25 @@ What a record names beyond the prefill depends on what each row generates, so a 
 | an index with an open end that picks none of a row's tokens, in the prefill too | `{"index": "10:"}` read on prompts of 9 tokens and one of 11 | an index that every row holds (`-1`, `"-3:"`), or the rows that hold it |
 | a `before` scope whose first token is position 0, beyond the prefill | a scope on the prompt's first word under a tokenizer that adds no BOS | nothing comes before position 0; scope a later token |
 | a `before` read at the head on a prompt token of a `generate` | `{"frame": ":", "scope": {"text": " is", "before": true}}` at `lm_head_output` | the prefill computed the head at its last position only; read prompt positions in a `forward` |
-| an online scoped write found no occurrence | a write at `{"frame": "1:", "scope": {"text": " toss"}, "index": -1}` on rows that never say it | nothing: the row is not written, and its generation is the unwritten one |
+| an online scoped write found no occurrence | a write at `{"frame": "1:", "scope": {"text": " toss"}, "index": -1}` on rows that never say it | nothing: the row is not written, and its generation is the unwritten one; count it |
+
+**Check where a write landed, not only a read.** A steering write over decode calls that never lands on a row leaves that row's generation unsteered, and a mean over the rows dilutes the effect with nothing in the number to say so. Count the write's missing rows as the reads' [below](#count-it-prevent-it-or-refuse-it).
 
 ## In the prefill it is a refusal
 
-The same misses of a scope or a static index in the prefill (`frame: 0`, every `forward`) are decided by the prompt alone, so they are refused by name before any forward, naming the row ([position-not-in-row.md](position-not-in-row.md)):
+The same misses of a scope or a static index in the prefill (`frame: 0`, every `forward`) are decided by the prompt alone, so they are refused before any forward, naming the row. The messages and their fixes are [position-not-in-row.md](position-not-in-row.md). An index with an open end is not among them: its read is `alignment_missing` on a row it picks nothing of, in the prefill too.
 
-```text
-clab: counterfactual.v_cf: row 0: column 'pairs.cf_answer' (' Sunday') is not in its input
-clab: counterfactual.v_cf: row 0: text ' is' occurs 2 times in the row's input; it has no occurrence 2
-clab: counterfactual.v_cf: row 0: tokens 0:10 do not fit its 9 scope tokens
-clab: counterfactual.v_cf: row 0: text 'If' begins the row, at position 0, which no position comes before
-```
-
-The last is a `before` scope on GPT-2, which adds no BOS. A frame and index of static widths that can never meet are refused at compile, before any row is seen: `index '1:3' is 2 tokens wide and picks 1 of the 2 tokens of frame '1:3''s decode calls, one each, so it fits no row`.
+A frame and index of static widths that can never meet are refused at compile, before any row is seen: `index '1:3' is 2 tokens wide and picks 1 of the 2 tokens of frame '1:3''s decode calls, …`.
 
 ## How it propagates
 
 - **The entry's value** is NaN at every entry of a missing row; ids (`argmax`, `top_k`'s `ids`) are -1 there and `top_k` gives no token text.
-- **Metrics, edits, elementwise transforms and comparisons** of a hole are NaN: a NaN, and in ids a -1 too, so an agreement of two `argmax` steps is NaN where either has no id, never a 0 or 1 a `mean` takes. A write never lands on a row it did not reach.
-- **Reductions skip holes**, an id's -1 as a NaN. A `mean` over rows averages the rows that were reached: on six rows of which two stopped early, a mean of `token_prob` at `{"frame": 3}` is the mean of four. An accuracy computed this way is the accuracy on the rows that got there, with nothing in the number to say so. A `sum` or `min` over `pos` of a row with no value is NaN, and its `count` 0: `count` over `rows` of a scored read is the number of rows it scored.
-- **Tables** give a missing row one line with `alignment_missing` true and no value; when several names are tabled together, the row carries the flag. A read that no row reached tables to one flagged line per row too; `clab show` gives its `pos` width as 0 (`[4,0,32000]`) and its positions as `— on all 4 rows`. Positions past a row's own on a ragged read are a different hole: they are left out of the table, with no flag.
+- **Metrics, edits, elementwise transforms and comparisons** of a hole are NaN. A comparison of ids is float32, NaN where either side is -1, so an agreement of two `argmax` steps is NaN where either has no id, never a 0 or 1 a `mean` takes. A write never lands on a row it did not reach.
+- **Reductions skip holes**, an id's -1 as a NaN. A `mean` over rows averages the rows that were reached: a `mean` of `documents/generated_answer.json`'s `p_answer` is the mean of the 2 rows of 4 that said their word. An accuracy computed this way is the accuracy on the rows that got there, with nothing in the number to say so.
+- **A `sum` or `min` over `pos` of a row with no value is NaN, and its `count` 0.** So `count` over `rows` of a scored read is the number of rows it scored.
+- **Tables** give a missing row one line with `alignment_missing` true and no value; when several names are tabled together, the row carries the flag. A read that no row reached tables to one flagged line per row too, and `clab show` prints its positions as `— on all 4 rows`. Its saved shape is `[4,0,32000]` in a generation and `[4,1,32000]`, all NaN, in the prefill. Positions past a row's own on a ragged read are a different hole: they are left out of the table, with no flag.
 
-The layout of holes in general, keys and ragged positions included, is [values-and-layout.md](../concepts/values-and-layout.md#missing-entries).
+What a hole is, and where the others come from (keys and ragged positions), is [values-and-layout.md](../concepts/values-and-layout.md#missing-entries).
 
 ## Count it, prevent it, or refuse it
 
@@ -78,7 +78,7 @@ assert not missing, f"rows {missing} never said their word"
 AssertionError: rows [2, 3] never said their word
 ```
 
-A swept step is a list of points, each holding its own records, so count each point; from a dose sweep (`"scale": {"sweep": [0.0, 8.0, 32.0], "label": "dose"}`) of a steered generation with a read scoped to the word:
+A swept step is a list of points, each holding its own records, so count each point. For a dose sweep (`"scale": {"sweep": [0.0, 8.0, 32.0], "label": "dose"}`) of a steered generation with a read scoped to the word:
 
 ```python
 for point in plan.steps["steered"]:
@@ -87,14 +87,12 @@ for point in plan.steps["steered"]:
     print(dose, [row for row, where in enumerate(rows) if where == "alignment_missing"])
 ```
 
-```text
-0.0 [2, 3]
-8.0 [0, 1, 2, 3]
-32.0 [0, 1, 2, 3]
-```
+The rows a scope reached are not always the rows a `sum` of `contains` counts. `contains` finds the text anywhere in the decoded string, inside a longer word too, while a scope matches on word boundaries only. A row that says the word inside a longer one scores 1 under `contains` and is missing to the scope.
 
-The rows a scope reached are not always the rows a `sum` of `contains` counts. `contains` finds the text anywhere in the decoded string, inside a longer word too (`Finland` in `Finlandony`), while a scope matches on word boundaries only, so such a row scores 1 under `contains` and is missing to the scope.
+**Prevent** the causes that come from the generation's length:
 
-**Prevent** the causes that come from the generation's length: hold EOS off with `min_new_tokens` (a row held past its EOS goes on as a different generation from there, not the first one extended: [generate.md](../usage/generate.md#rows-that-stop-early)), leave room after the answer (`max_new_tokens` beyond its last token), or read the positions that chose a word with `before`, which include the row's last token.
+- **Hold EOS off with `min_new_tokens`.** A row held past its EOS goes on as a different generation from there, not the first one extended ([generate.md](../usage/generate.md#rows-that-stop-early)).
+- **Leave room after the answer**: `max_new_tokens` beyond its last token.
+- **Read the positions that chose a word with `before`**, which include the row's last token.
 
-**Refuse** instead: beyond the prefill no option turns a missing row into an error, since only the generation decides it, while in the prefill every miss is one. So when the question is whether the model gives an answer, ask it in the prefill by teacher forcing, as `documents/forced_answer.json` does: append the answer to the prompt (`"input": ["days.input", "days.base_answer"]`) and read the head with `{"scope": {"column": "days.base_answer", "occurrence": -1, "before": true}}` in a `forward`. Every row is then scored (`cross_entropy`, `match`) and none is missing; a row whose input does not hold the text is refused before any forward. To stop on a missing generated row, check the entry's `positions` after the run, as above.
+**Refuse** instead. Beyond the prefill no option turns a missing row into an error, since only the generation decides it. In the prefill every miss of a scope or a static index is one. So when the question is whether the model gives an answer, ask it in the prefill by teacher forcing, as `documents/forced_answer.json` does ([positions.md](../usage/positions.md#the-token-before-before)). Every row is then scored and none is missing; a row whose input does not hold the text is refused before any forward. To stop on a missing generated row, check the entry's `positions` after the run, as above.
