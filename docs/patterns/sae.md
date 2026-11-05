@@ -1,18 +1,27 @@
 ---
 title: Sparse Autoencoders
-one_liner: "Sparse autoencoders: splice a published JumpReLU or TopK dictionary in, ablate features through encode and decode, check its L0, and train a dictionary inside a run."
-tags: [patterns, sae, dictionary-learning, features, jumprelu, topk]
-related: [docs/usage/featurizers.md, docs/usage/fit.md, docs/usage/bundles.md, docs/usage/ops.md, docs/usage/sweeps.md, docs/errors/symptom-index.md]
-sources: [clab/featurizers/sae.py, clab/featurizers/__init__.py, clab/featurizers/bundles.py]
+one_liner: "How do I use a sparse autoencoder? Splice a published one in, check its L0, ablate features, find max-activating examples, train one."
+tags: [patterns, sae, dictionary-learning, features, jumprelu, topk, max-activating]
+related: [docs/usage/featurizers.md, docs/usage/fit.md, docs/usage/bundles.md, docs/usage/ops.md, docs/usage/sweeps.md, docs/usage/output.md, docs/errors/symptom-index.md]
+sources: [clab/featurizers/sae.py, clab/featurizers/__init__.py, clab/featurizers/bundles.py, clab/ops/transforms.py]
 ---
 
 # Sparse Autoencoders
 
-An `sae` featurizer is a sparse autoencoder at one site. `encode` reads its latents; an `encode`, edits, `decode` bracket changes latents and keeps the error term (what the dictionary does not explain) exactly; `apply` replaces the value with the dictionary's reconstruction, error term dropped. A dictionary is loaded from a published file, trained by a fit, or loaded from the bundle a fit wrote. Its fields are in [FORMAT.md](../../FORMAT.md#sae); the three a published file needs are explained in [featurizers.md](../usage/featurizers.md#loading-a-published-sparse-autoencoder).
+An `sae` featurizer is a sparse autoencoder at one site. `encode` reads its latents. An `encode`, edits, `decode` bracket changes latents and keeps the error term (what the dictionary does not explain) exactly. `apply` replaces the value with the dictionary's reconstruction, error term dropped. Its fields are in [FORMAT.md](../../FORMAT.md#sae); the three a published file needs are in [featurizers.md](../usage/featurizers.md#loading-a-published-sparse-autoencoder).
+
+The corpus documents load four dictionaries, each a random 16-to-32 fixture at layer 0's output (the mechanics are real, the latents mean nothing). A latent's id belongs to its file:
+
+| document | dictionary | file |
+|---|---|---|
+| `documents/sae_published_jumprelu.json` | JumpReLU, laid out as Gemma Scope publishes one | `documents/artifacts/sae_gemma_scope.safetensors` |
+| `documents/sae_published_topk.json` | TopK, laid out as SAELens publishes one | `documents/artifacts/sae_saelens.safetensors` |
+| `documents/sae_feature_ablation.json` | a clab bundle, `relu`, centered | `documents/artifacts/sae.safetensors` |
+| `documents/sae_train_ablation.json` | the one `documents/sae_train.json` trains | `documents/artifacts/fit.dictionary.safetensors` |
 
 ## Splice a published dictionary in
 
-`documents/sae_published_jumprelu.json` loads a file laid out as Gemma Scope publishes one (a random 16-to-32 fixture: the mechanics are real, the latents mean nothing), reads its latents in a clean forward, and in a second forward replaces layer 0's output at the last token with the reconstruction:
+`sae_published_jumprelu.json` reads the latents in a clean forward, and in a second forward replaces layer 0's output at the last token with the reconstruction:
 
 ```json
 "base": {
@@ -34,31 +43,42 @@ An `sae` featurizer is a sparse autoencoder at one site. `encode` reads its late
 "kl": {"kind": "op", "op": "kl", "of": "spliced.logits", "against": "base.logits"}
 ```
 
-`kl` measures how far the next-token distribution moves when the error term is dropped. On the fixture that term is about 1.9 times the norm of the residual stream it is cut from, so splicing moves `logit_diff` (base answer against counterfactual) by up to 0.26 on a row, where zeroing the three most active latents inside a bracket moves it by at most 0.10. Replace `apply` with `[encode, decode]` and the logits are bit-identical to `base.logits`, since that bracket puts the error term back. `documents/sae_published_topk.json` does the same with a SAELens-style file, `"activation": "topk", "k": 4`: a vector's latents have at most four nonzero entries (four on every row of the fixture).
+- **`kl` measures what dropping the error term costs.** The splice's effect can exceed a large feature edit's. On the fixture the error term is about 1.9 times the norm of the residual stream it is cut from. Splicing moves `logit_diff` (base answer against counterfactual) by up to 0.26 on a row; zeroing the three most active latents inside a bracket moves it by at most 0.10.
+- **`[encode, decode]` in place of `apply` gives `base.logits`**, since that bracket puts the error term back.
+- **The direction.** As written, `kl` is KL(spliced ‖ base). SAEBench reports KL(clean ‖ spliced): to match it, put `{"op": "kl", "against": "base.logits", "reverse": true}` in `spliced`'s head entry ([ops](../usage/ops.md#metrics)).
 
-As written, `kl` is KL(spliced ‖ base). SAEBench reports KL(clean ‖ spliced), so to match a published number add `"reverse": true`, which gives KL(base ‖ spliced) ([ops](../usage/ops.md#metrics)); on gemma-2-2b the two directions differ by 1.6× at a KL near 0.2. On a large model, score it inside a head entry rather than as a step over two saved full-vocabulary reads ([ops](../usage/ops.md#a-step-or-an-entry)): SAEBench's direction is then `{"op": "kl", "against": "base.logits", "reverse": true}` in `spliced`'s head entry.
+`sae_published_topk.json` does the same with `"activation": "topk", "k": 4`: a vector's latents have at most four nonzero entries.
 
 ## Check its L0
 
-A dictionary loaded at the wrong layer, with the wrong `centered`, or a TopK file stated as `relu`, runs and gives numbers; the file cannot say it was misused. Compare its L0 (nonzero latents per token) and its splice `kl` with the numbers its release reports before using it. L0 as op steps after `base`:
+A dictionary loaded at the wrong layer, with the wrong `centered`, or a TopK file stated as `relu`, runs and gives numbers ([featurizers.md](../usage/featurizers.md#loading-a-published-sparse-autoencoder)). Compare its L0 (nonzero latents per token) and its splice `kl` with the numbers its release reports before using it. L0 as op steps after `base`, a comparison and a sum over `features`:
 
 ```json
-"big": {"kind": "op", "op": "scale", "of": "base.latents", "factor": 1e30},
-"active": {"kind": "op", "op": "clamp", "of": "big", "max": 1.0},
+"active": {"kind": "op", "op": "gt", "of": "base.latents", "with": 0.0},
 "l0": {"kind": "op", "op": "sum", "of": "active", "over": ["features"]},
 "mean_l0": {"kind": "op", "op": "mean", "of": "l0"}
 ```
 
-Latents are never negative (every activation ends in a relu), so after the scale every latent above 1e-30 clamps to 1 and a zero stays 0; the sum over `features` counts the active ones per row and position. `clab table <out> l0` gives 10 on every row of `sae_published_jumprelu.json` and 4 on `sae_published_topk.json`. For a dictionary-wide number, read every token after BOS (`"pos": {"index": "1:"}`): positions past a row's own stay missing through these steps, and `mean_l0` averages the rest (9.94 on the JumpReLU fixture, as counting the saved latents in Python gives). Compare that mean with the release's, not one token's count: stated `centered: true`, the same fixture still gives 10 at the last token of every row, while the mean after BOS moves to 10.65 and the last token's three most active latents change. A per-token L0 recomputed outside clab can differ from clab's on a token whose pre-activation ties its JumpReLU threshold at float precision (one token in 6,096 on gemma-2-2b's layer 12): check a recomputation against the mean, not token by token.
+- **What it counts.** `active` is 1 where a latent is above zero and 0 where it is not, so `l0` is each row and position's count. `clab table <out> l0` gives 10 on every row of `sae_published_jumprelu.json` and 4 on `sae_published_topk.json`.
+- **Read every token after BOS for a dictionary-wide number** (`"pos": {"index": "1:"}`). Positions past a row's own stay missing through these steps, and `mean_l0` averages the rest: 9.94 on the JumpReLU fixture, as counting the saved latents in Python gives.
+- **Compare that mean with the release's, not one token's count.** Stated `centered: true`, the JumpReLU fixture still gives 10 at the last token of every row, while the mean after BOS moves to 10.65.
+- **A recomputation outside clab can differ on a tie.** A pre-activation that ties its JumpReLU threshold at float precision can count differently; check a recomputation against the mean, not token by token.
 
 ## Ablate features
 
-`documents/sae_feature_ablation.json` zeroes one latent per sweep point, at the last position, inside an `encode` with `select` and its `decode` (the bracket is shown in [featurizers.md](../usage/featurizers.md#selecting-features)). Because `decode` writes back only the change, a zeroed latent removes its decoder row times its value and nothing else; the error term and every other latent stay. Its saves:
+`sae_feature_ablation.json` zeroes one latent per sweep point, at the last position, inside an `encode` with `select` and its `decode` ([featurizers.md](../usage/featurizers.md#selecting-features)). Because `decode` writes back only the change, a zeroed latent removes its decoder row times its value and nothing else; the error term and every other latent stay. Its saves:
 
 - `base.latents`, the latents of the clean forward, which says which latents were active;
 - `logit_diff` and `p_answer`, one entry per point, keyed `features=0` to `features=3`.
 
-On the fixture, latents 1 and 3 are zero at the last position of every row, and their points are bit-identical to the clean forward. Other edits go in the same place: `{"op": "scale", "factor": 5.0}` on a selected latent amplifies it, `{"op": "add", "with": 1.0}` adds to it.
+On its dictionary, latents 1 and 3 are zero at the last position of every row, so their points equal the clean forward's. The document reads no clean logits; add these to check it:
+
+```json
+"logits": {"site": "head", "pos": -1},
+"clean_ld": {"kind": "op", "op": "logit_diff", "of": "base.logits", "a": "prompts.cf_answer", "b": "prompts.base_answer"}
+```
+
+The first is an entry of `base`, the second a step. Other edits go where the `swap` is: `{"op": "scale", "factor": 5.0}` on a selected latent amplifies it, `{"op": "add", "with": 1.0}` adds to it.
 
 **Rank, then ablate.** `select` takes indices written in the document, never a value a step computed (`'top.ids' is not a selector`). So rank the latents in one run and write the ids you read into the next. On `sae_published_jumprelu.json`'s `base.latents`:
 
@@ -66,9 +86,38 @@ On the fixture, latents 1 and 3 are zero at the last position of every row, and 
 "top": {"kind": "op", "op": "top_k", "of": "base.latents", "k": 3, "over": "features"}
 ```
 
-gives 31, 19 and 24 on every row, and `{"op": "encode", "featurizer": "dictionary", "select": {"features": [19, 24, 31]}}` with its `swap` and `decode` zeroes the three together; a sweep over the ids zeroes one per point.
+gives 31, 19 and 24 on every row. `{"op": "encode", "featurizer": "dictionary", "select": {"features": [19, 24, 31]}}` with its `swap` and `decode` zeroes the three together; a sweep over the ids zeroes one per point.
 
-**A latent that never fires is the bracket's null.** The `active` step above, read at every token after BOS and summed with `"over": ["rows", "pos"]`, counts how often each latent fires. On the JumpReLU fixture latents 10, 21 and 22 never do, and zeroing one of them leaves `logit_diff` unchanged to the bit. Recount whenever `centered` or `activation` changes: under `centered: true` the silent ones are 18, 21 and 22.
+**A latent that never fires is the bracket's null.** Count how often each latent fires with `{"kind": "op", "op": "sum", "of": "active", "over": ["rows", "pos"]}`, `active` read at every token after BOS. On the JumpReLU fixture latents 10, 21 and 22 never do, and zeroing one of them gives the clean `logit_diff`. Recount whenever `centered` or `activation` changes: under `centered: true` the silent ones are 18, 21 and 22.
+
+## Find a latent's max-activating examples
+
+A latent's max-activating examples are a `top_k` step over `["rows", "pos"]` of its latents read at every token after BOS ([ops](../usage/ops.md#transforms)). With `sae_published_jumprelu.json`'s dictionary:
+
+```json
+"base": {"kind": "forward", "input": "prompts.input", "interventions": {
+  "latents": {"site": "target", "pos": {"index": "1:"},
+              "ops": [{"op": "encode", "featurizer": "dictionary", "select": {"features": [19, 24, 31]}}]}}},
+"top": {"kind": "op", "op": "top_k", "of": "base.latents", "k": 3, "over": ["rows", "pos"]}
+```
+
+`clab table` prints each pick's row, position and token:
+
+```text
+clab table out/maxact top
+features  k  row  pos  pos_token  input                              value
+0         0  0    9    orrow      If today is Thursday, tomorrow is  0.04615912586450577
+0         1  1    7    orrow      If today is Friday, tomorrow is    0.045574791729450226
+0         2  2    7    orrow      If today is Saturday, tomorrow is  0.04504638537764549
+1         0  3    4    ▁Sunday    If today is Sunday, tomorrow is    0.027981538325548172
+1         1  3    8    ▁is        If today is Sunday, tomorrow is    0.021905064582824707
+1         2  0    3    ▁is        If today is Thursday, tomorrow is  0.021579559892416
+2         0  2    8    ▁is        If today is Saturday, tomorrow is  0.05331781134009361
+2         1  0    3    ▁is        If today is Thursday, tomorrow is  0.05251988023519516
+2         2  1    3    ▁is        If today is Friday, tomorrow is    0.05251988023519516
+```
+
+`features` indexes the `select` list: 0, 1 and 2 are latents 19, 24 and 31. A position past a row's own is missing, and `top_k` ranks it below every entry that is there.
 
 ## Train a dictionary
 
@@ -88,15 +137,14 @@ and in the fit:
 }
 ```
 
-The objective is the dictionary's own scalars: `reconstruction`, the mean squared error between each vector read and its decoding, and `l1`, the mean absolute latent. They are computed over the vectors the body's open `encode` saw, positions past a row's own left out, so the body reads the dictionary with an `encode` no `decode` closes: an `encode` step, as here, or an entry whose ops end in `encode` ([fit.md](../usage/fit.md#the-objective)). After each optimizer step the decoder rows are put back to unit norm. `fit.history.dictionary.reconstruction` and `fit.history.dictionary.l1` hold one value per epoch; on the fixture, reconstruction falls about sevenfold over the 20 epochs while `l1` rises.
-
-`"activation": "topk", "k": 4` beside `latents` trains a TopK dictionary instead; `jumprelu` is refused for a drawn dictionary, since its threshold comes only from a published file.
+- **The objective is the dictionary's own scalars**: `reconstruction`, the mean squared error between each vector read and its decoding, and `l1`, the mean absolute latent. They are over the vectors an `encode` no `decode` closes saw, as here ([fit.md](../usage/fit.md#the-objective)).
+- **After each optimizer step the decoder rows are put back to unit norm.**
+- **The history.** `fit.history.dictionary.reconstruction` and `fit.history.dictionary.l1` hold one value per epoch; on the fixture, reconstruction falls about sevenfold over the 20 epochs while `l1` rises.
+- **`"activation": "topk", "k": 4`** beside `latents` trains a TopK dictionary instead. `jumprelu` is refused for a drawn dictionary, since its threshold comes only from a published file.
 
 `documents/sae_train_ablation.json` loads the saved `fit.dictionary` (run `sae_train.json` with `--out documents/artifacts` first; [bundles.md](../usage/bundles.md)) and ablates its latents as `sae_feature_ablation.json` does. Its `activation`, `centered` and `latents` come from the bundle's header.
 
 ## Pitfalls
 
 - **`apply` is the splice, the bracket is the edit.** An effect measured through `apply` against the clean forward includes dropping the error term. Edit latents inside `encode` and `decode`, which keep it, and the difference from the clean forward is the edit's alone.
-- **State the release's layer inline** in `site`, not the name of the site you use, so the check has something to check ([featurizers.md](../usage/featurizers.md#loading-a-published-sparse-autoencoder)).
-- **An `sae` objective term needs an open `encode`.** A body whose only use of the dictionary is a closed bracket has no vectors for `reconstruction` or `l1`, and compile refuses the term by name (`steps.fit.objective.dictionary.reconstruction: 'reconstruction' is over the coordinates the body reads of 'dictionary', an encode no decode closes ...`).
-- **One dictionary per layer.** A published file is trained at one layer, and every use is checked against it: a site whose `layers` picks any other layer is refused before any forward.
+- **A latent id from one file means nothing in another.** `[19, 24, 31]` and the silent 10, 21 and 22 are the JumpReLU fixture's; `sae_feature_ablation.json` loads another dictionary.
