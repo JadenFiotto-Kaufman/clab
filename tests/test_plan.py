@@ -145,6 +145,21 @@ def test_an_op_argument_the_run_supplies_is_refused_as_the_runs(name, value, fie
         edited("patching", change).compile()
 
 
+def test_a_row_id_not_among_a_tables_rows_is_refused_naming_the_id_and_the_dataset():
+    """`data.by_id` takes a table that holds some rows of its dataset (`among`, a fit body's minibatch) at ids among
+    them, a list's, a tensor's and a dict's alike; an id that is not among them is a ValueError naming the id and the
+    dataset, where it was a bare KeyError. No path asks for one today: a body's values are read at its rows."""
+    import torch
+    table = {"x": [10, 20, 30], "t": torch.tensor([[1.0], [2.0], [3.0]])}
+    taken = data.by_id(table, [5, 2], [2, 0, 5], dataset="pairs")
+    assert taken["x"] == [30, 10] and taken["t"].tolist() == [[3.0], [1.0]]
+    for value in (table, table["x"], table["t"]):
+        with pytest.raises(ValueError, match=r"^row 7 of dataset 'pairs' is not among the 3 rows this value holds "
+                                             r"\(\[2, 0, 5\]\); a value made over some rows \(a fit body's minibatch\) "
+                                             r"is read at those rows alone$"):
+            data.by_id(value, [2, 7], [2, 0, 5], dataset="pairs")
+
+
 def test_a_fits_minibatch_holds_at_least_one_row():
     with pytest.raises(PlanError, match=r"^steps\.fit: batch_size 0: a minibatch holds at least one row$"):
         edited("das", lambda d: d["steps"]["fit"].update(batch_size=0))

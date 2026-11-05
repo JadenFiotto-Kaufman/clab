@@ -551,10 +551,10 @@ def argument_binding(plan: Plan, name: str, args: dict, at: dict, *, operands: d
     `bind_arguments` completes with what a batch holds: by argument, a value as written (`value`: a literal, a number,
     an entry of the same forward as `{"live": <the name of its read>}`, from `operands`), whether an edit takes it as a
     value (`number`), or what to look up and where: a value's `name` at the point the schedule resolved it to for a
-    write's ops (`operands`, by name: its own coordinates), else at the consumer's point `at`, with its layout (`dims`,
-    its record's), the slice of its `layers` axis the op takes (`layer`) and the shape it broadcasts by (`shape`); a
-    column, through the value's vocabulary (`tokens`) or as text with its flags (`text`, `flags`); a featurizer at its
-    point (`featurizer`, `at`).
+    write's ops (`operands`, by name: its own coordinates), else at the consumer's point `at`, with its layout and
+    dataset (`dims`, `dataset`, its record's), the slice of its `layers` axis the op takes (`layer`) and the shape it
+    broadcasts by (`shape`); a column, through the value's vocabulary (`tokens`) or as text with its flags (`text`,
+    `flags`); a featurizer at its point (`featurizer`, `at`).
 
     The op acts at `layers` (inside an entry one of its layers, in a step `of`'s labels or its one layer, None at no
     layer), and an operand with a `layers` axis is aligned to them by label, its record's: its slice labelled L where
@@ -583,7 +583,7 @@ def argument_binding(plan: Plan, name: str, args: dict, at: dict, *, operands: d
                 elif layers != labels:
                     layer = [labels.index(each) for each in layers]
             out[key] = {"name": value, "at": operands[value]["at"] if value in operands else at,
-                        "dims": record.dims or [], "layer": layer, "number": number,
+                        "dims": record.dims or [], "dataset": record.dataset, "layer": layer, "number": number,
                         "shape": [axes.index(a) if a in axes else None for a in dims]
                         if axes and not (key == "with" and adapter) else None}
         elif annotation == ops.Tokens:
@@ -610,9 +610,11 @@ def bind_arguments(plan: Plan, binding: dict[str, dict], state: ChainMap, ids: l
     out = {}
     for key, how in binding.items():
         if "name" in how:
-            value = value_at(plan, state, how["name"], how["at"], ids, dims=how["dims"]) if shared is None else \
-                make_once(shared, ("operand", how["name"], tuple(how["at"].items())), lambda how=how: value_at(
-                    plan, state, how["name"], how["at"], ids, shared=shared, dims=how["dims"]))
+            value = value_at(plan, state, how["name"], how["at"], ids, dims=how["dims"], dataset=how["dataset"]) \
+                if shared is None else make_once(shared, ("operand", how["name"], tuple(how["at"].items())),
+                                                 lambda how=how: value_at(plan, state, how["name"], how["at"], ids,
+                                                                          shared=shared, dims=how["dims"],
+                                                                          dataset=how["dataset"]))
             if how["layer"] is not None:
                 value = value[how["layer"]]
             if how["shape"] is not None and isinstance(value, Tensor):
@@ -638,23 +640,28 @@ def bind_arguments(plan: Plan, binding: dict[str, dict], state: ChainMap, ids: l
 
 
 def value_at(plan: Plan, state: ChainMap, name: str, at: dict, ids: list[int] | None,
-             own: dict[str, int] | None = None, shared: dict | None = None, dims: list[str] | None = None) -> Any:
+             own: dict[str, int] | None = None, shared: dict | None = None, dims: list[str] | None = None,
+             dataset: str | None = None) -> Any:
     """Value `name` at the consumer's point `at` (or at `own`, its coordinates on the value's own axes, where the
     schedule resolved them; its record is the one at `at`, whose point names every axis of the producer's step, and its
-    layout `dims` where given), at the dataset row `ids` (every one: None) of those it holds, which the scope it was
-    found in says (`ROWS`: a fit body's values hold its minibatch's rows, the root's every row of their dataset), taken
-    by id (`data.by_id`). In a batch (`shared`, `bind_schedule`'s) a tensor is taken at its rows once, by the index of
-    those rows its scope holds them at, made once on its device."""
+    layout `dims` and `dataset` where given), at the dataset row `ids` (every one: None) of those it holds, which the
+    scope it was found in says (`ROWS`: a fit body's values hold its minibatch's rows, the root's every row of their
+    dataset), taken by id (`data.by_id`, which refuses an id it does not hold naming the dataset). In a batch
+    (`shared`, `bind_schedule`'s) a tensor is taken at its rows once, by the index of those rows its scope holds them
+    at, made once on its device."""
     value = lookup(state, name, at if own is None else own)
-    dims = (record_of(plan.steps, name, at).dims or []) if dims is None else dims
+    if dims is None:
+        record = record_of(plan.steps, name, at)
+        dims, dataset = record.dims or [], record.dataset
     scope = next(m for m in state.maps if name in m)
     if "rows" not in dims:
         return value
     held_ids = scope.get(ROWS)
     if shared is None or ids is None or not isinstance(value, Tensor):
-        return data.by_id(value, ids, held_ids, dims.index("rows"))
+        return data.by_id(value, ids, held_ids, dims.index("rows"), dataset)
     index = make_once(shared, ("index", id(scope), str(value.device)), lambda: tensor_on_device(
-        ids if held_ids is None else data.by_id(list(range(len(held_ids))), ids, held_ids), value.device))
+        ids if held_ids is None else data.by_id(list(range(len(held_ids))), ids, held_ids, dataset=dataset),
+        value.device))
     return make_once(shared, ("value", id(value)), lambda: value.index_select(dims.index("rows"), index))
 
 
