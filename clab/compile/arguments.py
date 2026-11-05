@@ -164,20 +164,26 @@ def several(top: Op | OpStep) -> str:
 
 def whole_top_k(cx: Compiling, ref: str, record: Labelled, at: dict[str, int], takes: str) -> str | None:
     """Why value `ref` (its record `record`, at the consumer's point `at`) is no one tensor an op takes: a `top_k`'s
-    whole value (`plan.top_k_of`; a load's as the run that saved it recorded it), which is several tensors, whose
-    members a step's names (`plan.top_k_members`); a top_k step's `ids` over a list of axes, one tensor per axis; its
-    `tokens`, text. None for any other value. `takes` names what takes one (an op, an operand)."""
-    if (found := member_of(cx.steps, ref, at)) is not None:
-        step, member = found
-        over = arguments(step).get("over")
-        if member == "ids" and isinstance(over, list):
-            return (f"{ref!r} is a top_k's ids over a list of axes, one tensor per axis it ranks, and {takes} takes "
-                    f"one: name the axis's ({', '.join(repr(f'{ref}.{a}') for a in over)})")
-        if member == "tokens":
-            return (f"{ref!r} is a top_k's tokens, its picks' token strings, which are text, and {takes} takes a "
-                    f"tensor: name their ids ({ref.removesuffix('.tokens') + '.ids'!r})")
-        return None
+    whole value (`plan.top_k_of`), which is several tensors, whose members a step's names (`plan.top_k_members`); a
+    top_k step's `ids` over a list of axes, one tensor per axis; its `tokens`, text. A load's value is each of these
+    as the run that saved it recorded it, and the fix is the member to save there. None for any other value. `takes`
+    names what takes one (an op, an operand)."""
     loaded = record.value if isinstance(record, Load) else None          # the name the run that saved it gave it
+    found = member_of(cx.sources[record.from_]["plan"].steps, record.value, record.at) if isinstance(record, Load) \
+        else member_of(cx.steps, ref, at)
+    if found is not None:
+        step, member = found
+        named, over = loaded or ref, arguments(step).get("over")
+        what, fix = (f"{ref!r} loads {loaded!r}, a top_k's", "save {} in the run that made it and load that") \
+            if loaded else (f"{ref!r} is a top_k's", "name {}")
+        if member == "ids" and isinstance(over, list):
+            axes = ", ".join(repr(f"{named}.{a}") for a in over)
+            return (f"{what} ids over a list of axes, one tensor per axis it ranks, and {takes} takes one: "
+                    + fix.format(f"the axis's ({axes})"))
+        if member == "tokens":
+            return (f"{what} tokens, its picks' token strings, which are text, and {takes} takes a tensor: "
+                    + fix.format(f"their ids ({named.removesuffix('.tokens') + '.ids'!r})"))
+        return None
     top = top_k_of(record if not isinstance(record, Load) else
                    record_of(cx.sources[record.from_]["plan"].steps, record.value, record.at))
     if top is None:
