@@ -18,8 +18,8 @@ from clab.compile.positions import reads_head, scope_texts
 from clab.compile.state import Findings
 from clab.format import address, data, registry, selectors
 from clab.format.sweeps import lookup, put
-from clab.plan import (Forward, Generate, Intervention, OpStep, Plan, Site, arguments, bracketed, entries, gathers,
-                        gradient_of, held_rows, kind_of, made_by, record_of)
+from clab.plan import (Forward, Generate, Intervention, Op, OpStep, Plan, Site, arguments, bracketed, entries,
+                        gathers, gradient_of, held_rows, kind_of, made_by, record_of)
 
 if TYPE_CHECKING:
     from transformers import PreTrainedTokenizerBase
@@ -228,30 +228,42 @@ def stop_ids(engine: Engine, step: Generate) -> list[int]:
     return engine.eos if given is None else [given] if isinstance(given, int) else list(given)
 
 
-def unreached_rows(plan: Plan, name: str, at: dict) -> tuple[str, dict, Intervention, dict[int, int]] | None:
-    """The read that value `name` (at the point `at`) is, or descends from row for row through op steps (a `permute`'s
-    rows by the permutation it drew), with its point and record, and each row of the value whose read holds no
-    position, with that read's row (a permute's, the row it drew): as the run recorded the read's positions
-    (`positions.MISSING`: a call the row's generation never made, or an index that picks none of its tokens). None
-    where the value has no `rows` axis, every row is held, it comes through a `count` (which counts such a row 0, a
-    number), or it descends from no read whose positions the run recorded (a generation in a fit's body records none).
-    """
+def unreached_rows(plan: Plan, name: str, at: dict) -> dict[int, tuple[str, dict, Intervention, int]] | None:
+    """Each row of value `name` (at the point `at`) that holds no value because a read it is, or descends from row for
+    row, holds no position there, as the run recorded the read's positions (`positions.MISSING`: a call the row's
+    generation never made, or an index that picks none of its tokens): by row, the read, its point and record, and the
+    read's row (a `permute`'s, the row it drew). A value descends from every named `Value` its op step binds (`of`,
+    then each argument in the op's order: an `add`'s `with`, a `scale`'s `factor`) and every one an entry's ops bind,
+    each row for row; where two miss one row, the first is named. None where no row misses: the value, or every
+    operand that misses, has no `rows` axis, it comes through a `count` (which counts such a row 0, a number), or
+    no read it descends from has positions the run recorded (a generation in a fit's body records none)."""
     record = record_of(plan.steps, name, at)
     if "rows" not in (record.dims or []):
         return None
+    found: dict[int, tuple[str, dict, Intervention, int]] = {}
     if isinstance(record, OpStep):
         if record.op == "count":
             return None
-        found = unreached_rows(plan, record.of, record.at)
-        if found is None or record.op != "permute":
-            return found
-        moved = {row: found[3][source] for row, source in enumerate(record.permutation or []) if source in found[3]}
-        return (*found[:3], moved) if moved else None
+        for operand in [record.of, *operands_named(record)]:
+            for row, missing in (unreached_rows(plan, operand, record.at) or {}).items():
+                found.setdefault(row, missing)
+        if record.op == "permute":      # row i holds the row the permutation drew
+            found = {row: found[source] for row, source in enumerate(record.permutation or []) if source in found}
+        return found or None
     if not isinstance(record, Intervention):
         return None
-    missing = {row: row for row, p in enumerate(record.positions.get(cast(str, record.dataset)) or [])
-               if p == positions.MISSING}
-    return (name, at, record, missing) if missing else None
+    found = {row: (name, at, record, row) for row, p in enumerate(record.positions.get(cast(str, record.dataset)) or [])
+             if p == positions.MISSING}
+    for operand in (n for o in record.ops for n in operands_named(o)):
+        for row, missing in (unreached_rows(plan, operand, at) or {}).items():
+            found.setdefault(row, missing)
+    return found or None
+
+
+def operands_named(o: Op | OpStep) -> list[str]:
+    """The values op `o` binds by name, in its arguments' order: each `Value` argument written as a name."""
+    args, takes = arguments(o), ops.parameters(o.op)
+    return [args[k] for k, p in takes.items() if p.annotation == ops.Value and isinstance(args.get(k), str)]
 
 
 def refuse_unreached(plan: Plan, findings: Findings, bound: dict, ids: list[int], landed: list[int | None]) -> None:
@@ -260,14 +272,14 @@ def refuse_unreached(plan: Plan, findings: Findings, bound: dict, ids: list[int]
     which it would otherwise write NaN into. `landed` is, per row of the batch (dataset row `ids`), the call the write
     lands at there (0, the prefill), or None where it lands on none (a generation's row that stopped first). The
     refusal names the write, the operand, the row and the call its read names that the row's generation never made."""
-    for operand, (read, at, record, missing) in bound["unreached"].items():
+    for operand, missing in bound["unreached"].items():
         row, call = next(((row, call) for row, call in zip(ids, landed) if call is not None and row in missing),
                          (None, None))
         if row is None:
             continue
+        read, at, record, source = missing[row]
         pos = positions.parse(record.pos)
         producer = made_by(plan, read)
-        source = missing[row]
         said = lookup(findings.said, producer, at)[source] if producer in findings.said else None
         frame, shown = pos["frame"], json.dumps(record.pos if isinstance(record.pos, int) else
                                                 record.pos.model_dump(mode="json", exclude_defaults=True))
