@@ -636,6 +636,24 @@ def test_max_mirrors_min_each_keeping_an_infinity_and_std_is_the_sample_standard
         ["rows", "hidden_size"]
 
 
+def test_min_and_max_keep_an_infinity_beside_holes_to_the_bit():
+    """Over rows with NaN holes, ids with their -1 hole, and bfloat16, each step's `min` is -inf where its row holds
+    -inf and `max` +inf where it holds +inf, to the bit (never the dtype's lowest or highest finite number, which
+    `nan_to_num` would give), NaN where nothing is there, and each mirrors the other: `max` of `-x` is `-min` of x."""
+    d = ["rows", "pos"]
+    x = torch.tensor([[-math.inf, 1.0, NAN, 2.0], [NAN, NAN, NAN, NAN], [math.inf, -2.0, NAN, NAN],
+                      [math.inf, -math.inf, NAN, 0.5]])
+    assert same(reductions.min(x, d, over=["pos"]), torch.tensor([-math.inf, NAN, -2.0, -math.inf]))
+    assert same(reductions.max(x, d, over=["pos"]), torch.tensor([2.0, NAN, math.inf, math.inf]))
+    assert same(reductions.max(-x, d, over=["pos"]), -reductions.min(x, d, over=["pos"]))
+    assert same(reductions.min(x.bfloat16(), d, over=["pos"]), reductions.min(x, d, over=["pos"]))
+    assert same(reductions.min(x, d), torch.tensor(-math.inf)) and same(reductions.max(x, d), torch.tensor(math.inf))
+    assert same(reductions.max(-x.bfloat16(), d, over=["pos"]), torch.tensor([math.inf, NAN, 2.0, math.inf]))
+    ids = torch.tensor([[3, -1, 7], [-1, -1, -1]])
+    assert same(reductions.min(ids, d, over=["pos"]), torch.tensor([3.0, NAN]))
+    assert same(reductions.max(ids, d, over=["pos"]), torch.tensor([7.0, NAN]))
+
+
 def test_median_is_numpys_over_the_values_there_and_the_mean_of_the_middle_two_at_an_even_count():
     """Over one axis and several, at odd and even counts of the values there, on random values with NaNs and signed
     zeros: the bits of numpy's `nanmedian` of the float32 values, a zero's sign included (+0.0, where the sort alone
