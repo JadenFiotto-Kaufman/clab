@@ -346,7 +346,9 @@ def compile_step(cx: Compiling, path: str, name: str, spec: Entry, plan: Plan, a
 
     A reference is "thing, then member", split at the first dot: `counterfactual.v_cf` is step
     `counterfactual`'s entry `v_cf`; `mean` is an op step's value; `pairs.cf_answer` is a dataset's column; `rot`
-    is a declared featurizer and `mask.mask` its scalar; `fit.rot` is a fit's member. Values are produced in
+    is a declared featurizer and `mask.mask` its scalar; `fit.rot` is a fit's member; `top3.ids` is a `top_k` step's
+    member (`ids`, `probs` or `values`, `tokens`, and over a list of axes `top.ids.rows`, each laid out as the step's
+    value). Values are produced in
     document order and referenced only after they exist. A fit's body is a scope of its own: it sees every
     value produced before the fit, and nothing leaves it except through `<fit>.<member>`. A bundle of entries
     is a template, so the names inside it resolve where a step pulls it in. Under a sweep, a name means the
@@ -488,7 +490,7 @@ def compile_op(cx: Compiling, path: str, name: str, spec: OpStep, plan: Plan, at
              "encode and the edits of its coordinates; as a step there is none to close (detokenize turns a "
              "generation's ids into text)")
     of, args = value_record(cx, spec.of, f"{path}.of", at), arguments(spec)
-    if spec.op != "permute" and (why := whole_top_k(cx, spec.of, of, repr(spec.op))):        # permute's own, below
+    if spec.op != "permute" and (why := whole_top_k(cx, spec.of, of, at, repr(spec.op))):    # permute's own, below
         fail(f"{path}.of", why)
     text = isinstance(of, OpStep) and of.op == "detokenize" and not arguments(of).get("tokens")
     if spec.op == "contains" and not text:

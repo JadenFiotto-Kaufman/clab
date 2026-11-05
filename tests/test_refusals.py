@@ -744,27 +744,39 @@ RANK = r"rank what it needs with an op over the value the top_k ranks"
 
 @pytest.mark.parametrize("change, message", [
     (ranked_whole({"m": {"kind": "op", "op": "mean", "of": "top3"}}),
-     rf"^steps\.m\.of: {TOP3}, and 'mean' takes one: {RANK}, 'clean\.logits' \(argmax gives the first of its ids\)$"),
+     rf"^steps\.m\.of: {TOP3}, and 'mean' takes one: name the member it needs \('top3\.ids', 'top3\.probs'\), or "
+     rf"{RANK}, 'clean\.logits'$"),
     (ranked_whole({"m": {"kind": "op", "op": "argmax", "of": "top3", "over": "k"}}), rf"^steps\.m\.of: {TOP3}, and 'argmax'"),
     (ranked_whole({"best": {"kind": "op", "op": "argmax", "of": "clean.logits"},
                    "m": {"kind": "op", "op": "eq", "of": "best", "with": "top3"}}),
-     rf"^steps\.m\.with: {TOP3}, and an operand takes one: {RANK}, 'clean\.logits'"),
+     rf"^steps\.m\.with: {TOP3}, and an operand takes one: name the member it needs \('top3\.ids', 'top3\.probs'\), "
+     rf"or {RANK}, 'clean\.logits'$"),
     (ranked_whole({"t": {"kind": "op", "op": "top_k", "of": "clean.logits", "k": 2, "over": ["rows", "vocab_size"]},
                    "m": {"kind": "op", "op": "mean", "of": "t", "over": ["k"]}}),
      r"^steps\.m\.of: 't' is a top_k's value, several tensors \(its ids \(one tensor per axis it ranks\), their probs and "
-     r"their tokens\), and 'mean' takes one: "),
+     r"their tokens\), and 'mean' takes one: name the member it needs \('t\.ids\.rows', 't\.ids\.vocab_size', "
+     r"'t\.probs'\), or "),
     (ranked_whole({"m": {"kind": "op", "op": "max", "of": "clean.logits", "over": ["k"]}}, [{"op": "top_k", "k": 2}]),
-     rf"^steps\.m\.of: 'clean\.logits' is a top_k's value, several tensors \(its ids, their probs\), and 'max' takes one: "
-     rf"{RANK} \(argmax gives the first of its ids\)$"),
+     r"^steps\.m\.of: 'clean\.logits' is a top_k's value, several tensors \(its ids, their probs\), and 'max' takes one: "
+     r"rank what it needs in that entry in place of the top_k, or make the top_k a step after the forward, whose "
+     r"members a later step names \(`<step>\.ids`\)$"),
     (ranked_whole({}, [{"op": "top_k", "k": 2}, {"op": "mean", "over": ["pos"]}]),
      r"^steps\.clean\.interventions\.logits\.ops\[1\]: 'mean' follows top_k, whose value is several tensors \(its ids, "
-     r"their probs\), and 'mean' takes one: rank what it needs in this entry in place of the top_k \(argmax gives the "
-     r"first of its ids\)$"),
-], ids=["mean", "argmax", "operand", "over-a-list", "an-entry's", "after-it-in-an-entry"])
+     r"their probs\), and 'mean' takes one: rank what it needs in this entry in place of the top_k, or make the top_k a "
+     r"step after the forward and 'mean' a step over the member it needs \(`<step>\.ids`\)$"),
+    (ranked_whole({"t": {"kind": "op", "op": "top_k", "of": "clean.logits", "k": 2, "over": ["rows", "vocab_size"]},
+                   "m": {"kind": "op", "op": "eq", "of": "t.ids", "with": 0}}),
+     r"^steps\.m\.of: 't\.ids' is a top_k's ids over a list of axes, one tensor per axis it ranks, and 'eq' takes one: "
+     r"name the axis's \('t\.ids\.rows', 't\.ids\.vocab_size'\)$"),
+    (ranked_whole({"m": {"kind": "op", "op": "eq", "of": "top3.tokens", "with": 0}}),
+     r"^steps\.m\.of: 'top3\.tokens' is a top_k's tokens, its picks' token strings, which are text, and 'eq' takes a "
+     r"tensor: name their ids \('top3\.ids'\)$"),
+], ids=["mean", "argmax", "operand", "over-a-list", "an-entry's", "after-it-in-an-entry", "ids-over-a-list", "tokens"])
 def test_an_op_over_a_whole_top_k_value_is_refused_at_compile(change, message):
     """A top_k's value is several tensors, which every op met at the run with a raw error: an op step over one, of
     either form (`ids` one tensor, or one per axis over a list of them), an operand naming one, an op over an entry
-    whose last op is one, and an op after one in its entry are refused by name at compile."""
+    whose last op is one, and an op after one in its entry are refused by name at compile, naming the members a later
+    step takes in its place; and so are its `ids` over a list of axes (one tensor per axis) and its `tokens` (text)."""
     with pytest.raises(PlanError, match=message):
         edited("readout", change).compile()
 

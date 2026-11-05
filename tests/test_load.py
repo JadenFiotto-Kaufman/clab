@@ -345,8 +345,9 @@ def test_an_op_over_a_loaded_top_k_value_is_refused_at_compile(engines, root):
     doc = loading(corpus("readout"), {"top": {"kind": "load", "from": "out/readout", "value": "top3"},
                                       "m": {"kind": "op", "op": "mean", "of": "top"}}, ["m"])
     with pytest.raises(PlanError, match=r"^steps\.m\.of: 'top' is a top_k's value, several tensors \(its ids, their probs "
-                                        r"and their tokens\), and 'mean' takes one: rank what it needs with an op over "
-                                        r"the value the top_k ranks \(argmax gives the first of its ids\)$"):
+                                        r"and their tokens\), and 'mean' takes one: save the member it needs in the run "
+                                        r"that made it \('top3\.ids', 'top3\.probs'\) and load that, or rank what it "
+                                        r"needs with an op over the value the top_k ranks$"):
         written(root, "loaded_top", doc)
 
 

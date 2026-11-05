@@ -193,9 +193,10 @@ def ranking_k(dims: list[str], args: dict, kind: str | None) -> list[str]:
 
 
 def picked(x: Tensor, k: int) -> tuple[Tensor, Tensor]:
-    """The ids of the `k` largest of the entries of `x`'s last axis that are there, a missing one (NaN) ranked
-    below every other, and which of them pick no entry that is there: past a vector's own along a ragged axis,
-    or every one of a vector that is missing whole."""
+    """The ids of the `k` largest of the entries of `x`'s last axis that are there, a missing one (NaN; in ids, an
+    integer value, the hole -1, ranked as the float64 it is exactly) ranked below every other, and which of them pick
+    no entry that is there: past a vector's own along a ragged axis, or every one of a vector that is missing whole."""
+    x = x if x.is_floating_point() else x.double().masked_fill(x == -1, math.nan)
     ids = ranked(x.masked_fill(x.isnan(), -math.inf), k)
     return ids, x.gather(-1, ids).isnan()
 
@@ -218,7 +219,12 @@ def top_k(of: Tensor, k: int, dims: list[str], over: str | list[str] = RANKED
     a missing (NaN) entry is ranked below every other, and a pick past those there is -1 on every axis.
 
     Its value is several tensors, which no op takes whole: an op step over a top_k's value, an operand naming one, and
-    an op after a top_k in its entry are refused by name at compile."""
+    an op after a top_k in its entry are refused by name at compile. A later step names a `top_k` step's members as
+    it names a fit's, each a value laid out as the step's value is, with its labels: `<step>.ids` (an integer value,
+    its hole -1), `<step>.probs` (float32) or `<step>.values` (the value's dtype), and over `vocab_size`
+    `<step>.tokens`, which is text, as the op that takes a tensor refuses it; over a list of axes `<step>.ids` is one
+    tensor per axis, which an op takes by axis, `<step>.ids.rows`. Ids rank as the integers they are (an `argmax` of
+    `<step>.ids`), their hole below every id."""
     axes = over if isinstance(over, list) else [over]
     x = of.movedim([dims.index(a) for a in axes], list(range(of.dim() - len(axes), of.dim())))
     sizes = x.shape[of.dim() - len(axes):]
@@ -232,7 +238,8 @@ def top_k(of: Tensor, k: int, dims: list[str], over: str | list[str] = RANKED
         second = {"values": flat.gather(-1, ids)}
     picks = {a: (ids // math.prod(sizes[j + 1:]) % sizes[j]).masked_fill(gone, -1) for j, a in enumerate(axes)} \
         if isinstance(over, list) else ids.masked_fill(gone, -1)
-    return {"ids": picks, **{k: v.masked_fill(gone, float("nan")) for k, v in second.items()}}
+    return {"ids": picks, **{k: v.masked_fill(gone, float("nan") if v.is_floating_point() else -1)
+                             for k, v in second.items()}}
 
 
 @op("transforms", layout=ranking, positionwise=True)

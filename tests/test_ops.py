@@ -915,6 +915,19 @@ def test_a_reduction_or_an_elementwise_transform_of_ids_takes_their_hole_as_miss
     assert r["sum"].tolist() == [float(ids.sum()) for ids in own]
 
 
+def test_argmax_and_top_k_rank_ids_with_their_hole_below_every_id():
+    """Ids (a top_k step's `ids`, an `argmax`'s) rank as the integers they are, exactly, their hole -1 missing as NaN is:
+    ranked below every id, a pick past the ids there -1, and a vector of holes -1; `top_k`'s `values` keep the ids'
+    dtype, the hole -1 in them."""
+    ids = torch.tensor([[[3, -1, 7, 5]], [[-1, -1, -1, -1]], [[2**40 + 1, 2**40, -1, 0]]])
+    dims = ["rows", "pos", "k"]
+    assert transforms.argmax(ids, dims, over="k").tolist() == [[2], [-1], [0]]
+    top = transforms.top_k(ids, 4, dims, over="k")
+    assert top["ids"].tolist() == [[[2, 3, 0, -1]], [[-1, -1, -1, -1]], [[0, 1, 3, -1]]]
+    assert top["values"].dtype == torch.int64
+    assert top["values"].tolist() == [[[7, 5, 3, -1]], [[-1, -1, -1, -1]], [[2**40 + 1, 2**40, 0, -1]]]
+
+
 def test_the_new_reductions_are_refused_by_name_where_they_cannot_mean_anything():
     """At compile, with the step's path: `norm` of a metric with no `over` (it has no `hidden_size`), `count` of a
     value with no `pos`, a `count` over `rows` inside an entry (it sees one batch), a `p` of 0, and a `p` of
