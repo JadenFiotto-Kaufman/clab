@@ -118,36 +118,65 @@ def over_of(f: Featurizer) -> list[str] | None:
     return given if given is not None or f.header is None or "over" not in f.header else json.loads(f.header["over"])
 
 
+def header_value(text: str) -> Any:
+    """A header field's value as a draw takes it: the JSON it holds (`8`, `true`, a list), else the text (`relu`)."""
+    try:
+        return json.loads(text)
+    except ValueError:
+        return text
+
+
+def check_bundle_shapes(plan: Plan) -> None:
+    """A loaded clab bundle's tensors have the shapes one drawn from its header has, every kind's: drawn at the
+    header's `width` from the kind's fields it records (a subspace's `k`, an sae's `latents`, a lora's `rank`, a probe's
+    `classes`, a pca's `k`; a field a draw takes that no header records, a constant's `init`, draws no other shape),
+    and for a featurizer over axes at the indices it records (`layer`, `kept.<axis>`): a gate's `theta` as many units
+    on each axis as it records indices there, or `[width]` on the last axis of its site's selection, an affine's `W`
+    and `b` a map per layer at that width (`Kind.stacked`). The draw is made on the meta device, which holds no data,
+    and a refusal names the tensor and the `file_path`. A header that records no `width`, or none of a field the draw
+    needs that its kind records (a hand-made sae's `latents`), says nothing a draw could be made from, and a
+    published file has no header: its kind reads its shapes (`Kind.published`)."""
+    for name, spec in plan.featurizers.items():
+        for f in points(spec):
+            if f.bundle is None or f.header is None or "width" not in f.header:
+                continue
+            kind, over, width = KINDS[f.kind], over_of(f), f.header["width"]
+            if any(k in kind.header and k not in f.header for k in kind.drawn):
+                continue
+            fields = {k: header_value(f.header[k]) for k in kind.header if k in f.header and k != "classes"}
+            fields.update({k: 0 for k in kind.drawn if k not in kind.header})     # a constant's init: any number
+            taken = registry.signature(kind).parameters
+            fields.update({"over": over} if "over" in taken else {}, **{k: (f.model_extra or {})[k] for k in
+                                                                         ("classes", "file_path") if k in taken})
+            keys = {axis: "layer" if axis == "layers" else f"kept.{axis}" for axis in over or []}
+            recorded = [bundles.recorded(f.header.get("layer")) if axis == "layers" else
+                        json.loads(f.header.get(key) or "[]") for axis, key in keys.items()]
+            classes = header_value(f.header["classes"]) if "classes" in f.header else None
+            with torch.device("meta"):
+                drawn = make(f.kind, fields, int(width), None, None, classes, device="meta",
+                             kept=cast("dict[str, list[int]]", dict(zip(over or [], recorded))) if over else None)
+            for tensor in kind.saves:
+                shape, laid_out = list(f.bundle[tensor].shape), list(getattr(drawn, tensor).shape)
+                if shape == laid_out:
+                    continue
+                file, a = (f.model_extra or {})["file_path"], "an" if f.kind[0] in "aeiou" else "a"
+                if over is not None:
+                    said = ", ".join(f"{key} {f.header.get(key)}" for key in keys.values()) + \
+                        (f", width {width}" if kind.stacked else "")
+                    fail(f"featurizers.{name}.file_path", f"{file}: {tensor!r} is {shape}, and its header lays {a} "
+                         f"{f.kind} over {over} out on {said}: {tensor!r} is {laid_out}, one "
+                         f"{'map' if kind.stacked else 'unit'} per index it keeps on each axis")
+                said = ", ".join([f"width {width}"] + [f"{k} {f.header[k]}" for k in kind.header
+                                                        if k in f.header and k != "over"])
+                fail(f"featurizers.{name}.file_path", f"{file}: {tensor!r} is {shape}, and its header lays {a} "
+                     f"{f.kind} out at {said}: {tensor!r} is {laid_out}")
+
+
 def check_gate_axes(plan: Plan) -> None:
     """A featurizer over axes (a gate's units, an affine's maps) is used by `apply` alone, on its site's own layout
     (inside no `encode`, whose coordinates are no axes of the site's), whose selection has each axis it names, in
     the selection's order, `layers` only where the site picks several. A refusal names the featurizer's `over` and
-    the use. A loaded one's tensors have the shapes one drawn at its header's `width` and indices has (`layer`,
-    `kept.<axis>`): a gate's `theta` as many units on each axis as it records indices there, an affine's `W` and `b`
-    a map per layer at that width (`Kind.stacked`). The draw is made on the meta device, which holds no data, and a
-    refusal names the tensor and the `file_path`."""
-    for name, spec in plan.featurizers.items():
-        for f in points(spec):
-            over = over_of(f)
-            if over is None or f.bundle is None or f.header is None:
-                continue
-            keys = {axis: "layer" if axis == "layers" else f"kept.{axis}" for axis in over}
-            recorded = [bundles.recorded(f.header.get("layer")) if axis == "layers" else
-                        json.loads(f.header.get(key) or "[]") for axis, key in keys.items()]
-            stacked, width = KINDS[f.kind].stacked, f.header.get("width") or "0"
-            with torch.device("meta"):
-                drawn = make(f.kind, {"over": over}, int(width), None, None, None, device="meta",
-                             kept=cast("dict[str, list[int]]", dict(zip(over, recorded))))
-            for tensor in KINDS[f.kind].saves:
-                shape, laid_out = list(f.bundle[tensor].shape), list(getattr(drawn, tensor).shape)
-                if shape == laid_out:
-                    continue
-                said = ", ".join(f"{key} {f.header.get(key)}" for key in keys.values()) + \
-                    (f", width {width}" if stacked else "")
-                fail(f"featurizers.{name}.file_path", f"{(f.model_extra or {})['file_path']}: {tensor!r} is {shape}, "
-                     f"and its header lays {'an' if f.kind[0] in 'aeiou' else 'a'} {f.kind} over {over} out on "
-                     f"{said}: {tensor!r} is {laid_out}, one {'map' if stacked else 'unit'} per index it keeps on "
-                     "each axis")
+    the use. A loaded one's tensors are checked against its header before (`check_bundle_shapes`)."""
     for name, records in uses(plan).items():
         for where, read, at, o, around in records:
             over = over_of(agreeing_point(plan.featurizers[name], at))

@@ -33,7 +33,7 @@ from clab.compile.arguments import (featurizer_kind, kept_labels, layout, mismat
 from clab.compile.interventions import bundles_of, compile_entry, entries_with_paths
 from clab.compile.schedule import share_forwards
 from clab.compile.state import Compiling
-from clab.compile.uses import check_bundle_sites, check_gate_axes, check_named_values
+from clab.compile.uses import check_bundle_shapes, check_bundle_sites, check_gate_axes, check_named_values
 from clab.featurizers import KINDS, bundles, labels
 from clab.format import data, registry
 from clab.format.sweeps import agreeing_point, coordinate_spelling, find_sweeps
@@ -110,6 +110,7 @@ def compile(plan: Plan) -> Plan:
                    "data": {n: {**doc["data"][n], **({} if plan.data[n].hf is not None else {"rows": rows[n]}),
                                 "sha256": data.digest(rows[n]), "n_rows": len(rows[n])} for n in rows}})
     check_bundle_sites(done)
+    check_bundle_shapes(done)
     check_gate_axes(done)
     check_named_values(done)
     share_forwards(done)

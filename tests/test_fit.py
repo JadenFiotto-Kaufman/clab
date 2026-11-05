@@ -39,7 +39,7 @@ from clab.cli import main
 from clab.featurizers.gate import Gate
 from clab.featurizers.subspace import Subspace
 from clab.format.sweeps import points
-from clab.plan import Fit, Model, OpStep, PlanError, entries, record_of
+from clab.plan import Featurizer, Fit, Model, OpStep, PlanError, entries, record_of
 
 TINY = {"key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
         "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998", "dtype": "float32"}
@@ -359,7 +359,9 @@ def test_a_bundle_of_another_width_is_refused_before_any_forward(engines, corpus
                     dirs_exist_ok=True)
     file = os.path.join(root, "documents", "artifacts", "fit.rot.safetensors" if name == "das_apply" else
                         "basis.safetensors")
-    save_file(load_file(file), file, metadata=bundle_header(**{
+    tensors = {"basis": torch.zeros(32, 8)} if name == "das_apply" else {"basis": torch.zeros(32, 4),
+                                                                          "mean": torch.zeros(32)}
+    save_file(tensors, file, metadata=bundle_header(**{
         "kind": "subspace", "k": "8", "parametrization": "cayley", "width": "32"} if name == "das_apply" else
         {"kind": "pca", "k": "4", "width": "32"}))
     plan = Plan(os.path.join(root, "documents", f"{name}.json")).compile()
@@ -1618,6 +1620,57 @@ def test_a_loaded_gate_whose_theta_its_header_does_not_lay_out_is_refused_at_com
                                         r"out on layer \[0, 1, 2, 3, 4\], kept\.num_heads \[0, 1, 2, 3\]: 'theta' is "
                                         r"\[5, 4\], one unit per index it keeps on each axis$"):
         plan.compile()
+
+
+def unit_gated(root: str, theta: torch.Tensor) -> Plan:
+    """patching.json's swap made through a gate on the last axis of layer 0's output (`over` null), loaded from a
+    bundle holding `theta` whose header is a fit's at that site, width 16."""
+    save_file({"theta": theta.contiguous()}, os.path.join(root, "documents", "artifacts", "g.safetensors"),
+              metadata=bundle_header(kind="gate"))
+
+    def change(d):
+        d["featurizers"] = {"g": {"kind": "gate", "file_path": "documents/artifacts/g.safetensors"}}
+        d["steps"]["patched"]["interventions"]["patch"]["ops"] = [
+            {"op": "apply", "featurizer": "g", "with": "counterfactual.v_cf"}]
+    return Plan(**edited("patching", change).model_dump(exclude_defaults=True, exclude={"document"}),
+                document=os.path.join(root, "documents", "patching.json"))
+
+
+@pytest.mark.parametrize("theta", [torch.ones(17), torch.ones(2, 16), torch.ones(16, 1)])
+def test_a_loaded_unit_gate_whose_theta_is_not_its_widths_is_refused_at_compile(tmp_path, theta):
+    """A gate on the last axis of its site's selection (`over` null) lays `theta` out `[width]`, 16 at layer 0's
+    output: a bundle of another width, or with an axis besides, is refused naming the file and the tensor, where it
+    loaded and failed later; one of its width runs."""
+    root = corpus_copy(tmp_path)
+    shape = re.escape(str(list(theta.shape)))
+    with pytest.raises(PlanError, match=rf"^featurizers\.g\.file_path: documents/artifacts/g\.safetensors: 'theta' is "
+                                        rf"{shape}, and its header lays a gate out at width 16: 'theta' is \[16\]$"):
+        unit_gated(root, theta).compile()
+    loaded = unit_gated(root, torch.ones(16)).compile().featurizers["g"]
+    assert isinstance(loaded, Featurizer) and loaded.bundle is not None and loaded.bundle["theta"].shape == (16,)
+
+
+@pytest.mark.parametrize("name, file, tensors, message", [
+    ("das_apply", "fit.rot", {"basis": torch.zeros(16, 4)},
+     r"'basis' is \[16, 4\], and its header lays a subspace out at width 16, k 8, parametrization cayley: 'basis' is "
+     r"\[16, 8\]$"),
+    ("pca_control", "basis", {"basis": torch.zeros(16, 4), "mean": torch.zeros(8)},
+     r"'mean' is \[8\], and its header lays a pca out at width 16, k 4: 'mean' is \[16\]$"),
+    ("lora_apply", "fit.lora", {"A": torch.zeros(16, 4), "B": torch.zeros(4, 8)},
+     r"'B' is \[4, 8\], and its header lays a lora out at width 16, rank 4, alpha 8: 'B' is \[4, 16\]$"),
+])
+def test_every_kinds_loaded_tensors_are_checked_against_a_draw_from_its_header(tmp_path, name, file, tensors, message):
+    """A subspace's `basis`, a pca's `mean` and a lora's `B` of shapes their header does not draw (`k`, the width,
+    `rank`) are refused at compile naming the file and the tensor, as a gate's and an affine's are."""
+    root = corpus_copy(tmp_path)
+    stand = {"fit.rot": {"kind": "subspace", "k": "8", "parametrization": "cayley", "document": "das"},
+             "basis": {"kind": "pca", "k": "4", "document": "pca_harvest"},
+             "fit.lora": {"kind": "lora", "rank": "4", "alpha": "8", "document": "lora_train"}}[file]
+    save_file(tensors, os.path.join(root, "documents", "artifacts", f"{file}.safetensors"),
+              metadata=bundle_header(**stand))
+    with pytest.raises(PlanError, match=rf"^featurizers\.\w+\.file_path: documents/artifacts/{re.escape(file)}"
+                                        rf"\.safetensors: {message}"):
+        Plan(os.path.join(root, "documents", f"{name}.json")).compile()
 
 
 def pattern_gates(root: str) -> Plan:
