@@ -69,7 +69,7 @@ The harvest-then-ablate chain of `documents/mean_ablation.json`:
 - **In a fit's body, write `derangement: true`.** Each training minibatch draws π over its own rows from the seed alone. Over two rows a seed may draw the identity (seed 0 does), and then no training step resamples anything. The step's record holds the π of the scoring pass over every training row, which no training step used, so nothing on the run shows it.
 - **A fit's minibatches of one size pair their rows the same way.** With two rows and `derangement`, each row's donor is always its minibatch partner. To pair rows across the whole dataset, permute a read made before the fit: the body takes its rows by id, row i's being row π(i)'s.
 - **Positions pair by index.** Row i holds row π(i)'s positions, so the swap meets them as it would a read of another input. Both are at one static width (`{"index": "0:12"}`, or `"-3:"`), and every prompt is one token length where the write covers whole prompts. A ragged read permuted is refused as the operand of another forward; a reduction of it is not.
-- **π pairs any two rows.** A constraint on which rows pair (a donor with another name, or another template) is data: a column holding each row's donor prompt, read by a forward of its own, as `documents/hydra_effect.json` reads its `resample_input`.
+- **π pairs any two rows.** A constraint on which rows pair (a donor with another name, or another template) is data. Give each row's donor prompt a column and read it by a forward of its own, as `documents/hydra_effect.json` reads its `resample_input`.
 
 ## The optimal constant
 
@@ -91,13 +91,8 @@ A `constant` featurizer holds one vector of the site's width: drawn from `init`,
 
 - **Drawn as the mean, it is mean ablation, the fit's null control.** The document's `mean_ablated` applies the bare `c`, which gives `{"op": "swap", "with": "mean"}`'s numbers, and so does `fit.c` at `epochs: 0` ([fit](../usage/fit.md#epochs-0-is-a-null-control)). `"init": 0` is zero ablation the same way.
 - **Training starts from there.** In `documents/ablation_pair.json`'s two epochs the squared change of each row's logit difference falls from mean ablation's 8.2e-5 to 8.9e-6.
-- **`init` is one vector laid out on the site's last axis.** The mean is over every other axis, `num_heads` included, which the site's `select` keeps one of. Refused by name when the document compiles:
-  - an `init` with rows, a `layers` axis or another axis;
-  - one in another featurizer's coordinates, or on a sweep axis;
-  - one a step makes after the constant's first use.
-
-  One that keeps other indices of the last axis than the use does is refused before any forward, once the model's sizes resolve them.
-- **A head set needs a site and a constant per head.** The vector is shared across every axis but the last, so at a site that keeps several heads every head takes the same vector, and `init: "mean"` is the heads' common mean. For each head's own mean and optimum, declare a site per head (`"select": {"num_heads": [h]}`) with a constant of its own, as `documents/ablation_pair.json` does for its one head.
+- **`init` is one vector laid out on the site's last axis.** The recipe's `mean` reduces every other axis, `num_heads` included, which the site's `select` keeps one of. What else an `init` must be is in [featurizers.md](../usage/featurizers.md#drawn-trained-or-loaded).
+- **A head set needs a site and a constant per head.** The vector is shared across every axis but the last. At a site that keeps several heads, every head takes the same vector, and `init: "mean"` is the heads' common mean. For each head's own mean and optimum, declare a site per head (`"select": {"num_heads": [h]}`) with a constant of its own, as `documents/ablation_pair.json` does for its one head.
 - **It fits the score it is trained on, and may move the rest to do it.** A constant trained to hold one logit difference can hold it by distorting the rest of the next-token distribution. Score it on held-out rows and against a second measure (a `kl` against the clean logits) before reading the remaining loss as what the head's input-specific part carries. `fit.c` after the fit is an ordinary featurizer: saved, it is a bundle holding `vector`, which another document loads with `file_path` ([bundles.md](../usage/bundles.md)).
 
 ## A mean from another dataset

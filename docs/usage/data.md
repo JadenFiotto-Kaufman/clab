@@ -70,7 +70,7 @@ The five fields apply in this order: `split`, `shuffle`, `skip`, `take`, `column
 | `take: N` | keeps the first N of the rows left; after `shuffle`, a random sample of N | N beyond the rows there are (after `skip`) |
 | `columns` | `{"<new name>": "<column as the source has it>"}` renames columns; `{"<new name>": {"from": "<column>", "after"?, "before"?, "strip"?}}` derives one ([below](#a-column-cut-from-another)) | a source the rows lack; a new name that is a column the rows keep; a derived column's text absent on a row |
 
-- **A renamed column is no longer under its old name.** In the example, `days.input` is refused and `days.prompt` is the column. Renaming lets one file serve under another dataset's column names, which a fit's `eval` substitution needs ([fit.md](fit.md)).
+- **A renamed column answers to its new name only.** In the example, `days.input` is refused and `days.prompt` is the column. Renaming lets one file serve under another dataset's column names, which a fit's `eval` substitution needs ([fit.md](fit.md)).
 - **A swap, `{"a": "b", "b": "a"}`, is allowed**, since neither old name is kept.
 - **A rename into a name the steps read changes what they read, unrefused.** On `weekdays/train`, `{"input": "entity", "prompt": "input"}` runs every `pairs.input` step on the entity alone (`<s> ▁Friday` on row 1). Check `run.tokens` after renaming.
 - **`take` without `shuffle` keeps the first N rows.** On a file sorted by label or difficulty, that is not a sample.

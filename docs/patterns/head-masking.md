@@ -44,7 +44,7 @@ At layer L the write takes row L of the mask and the slice of `corrupt.z` labell
 - **The untrained gate is the clean run.** Every θ starts at +1, and `apply` with `with` is the value itself where a unit is on. Set the fit's `"epochs": 0`: its `train` eval scores that draw ([fit.md](../usage/fit.md#epochs-0-is-a-null-control)), and `fit.train.ld` equals `clean_ld` on every engine (`tests/test_fit.py` `test_an_untrained_head_gate_with_the_corrupt_value_is_the_clean_run_to_the_bit`).
 - **A gate off everywhere writes `with` itself.** Where a unit is off the write is `corrupt.z` exactly, which saving the write's own value (`fit.train.run.gated`) shows.
 - **That is not the corrupt run.** With every head off the logits are not the corrupt run's, since the embeddings and the MLPs still see the clean prompt.
-- **Write the interpolation with `with`.** `[{"op": "sub", "with": "corrupt.z"}, {"op": "apply", "featurizer": "fit.heads"}, {"op": "add", "with": "corrupt.z"}]` means the same thing and computes `(h − c)·1 + c`, which rounds: its null moves the logits in their last bits (`tests/test_fit.py` `test_the_sub_apply_add_form_of_the_interpolation_is_not_exact`).
+- **Write the interpolation with `with`.** `[{"op": "sub", "with": "corrupt.z"}, {"op": "apply", "featurizer": "fit.heads"}, {"op": "add", "with": "corrupt.z"}]` means the same thing and computes `(h − c)·1 + c`, which rounds. Its null moves the logits in their last bits (`tests/test_fit.py` `test_the_sub_apply_add_form_of_the_interpolation_is_not_exact`).
 
 ## Reading the heads kept
 

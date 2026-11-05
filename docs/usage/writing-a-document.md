@@ -113,4 +113,4 @@ Each name in `saves` is a step's value or a step's member: `iia`, `patched.logit
 ## Pitfalls
 
 - **`description` is not checked against anything.** A document says what it does through its steps; keep the prose in step with them.
-- **A layer past the model's last compiles.** Compile does not know the model, so `"layers": 5` on a two-layer model is refused only after the checkpoint loads (`counterfactual.v_cf: layer 5; the model has 2 layers`), which on a large model is the slow part. The same holds for positions, `select` indices and answer tokens.
+- **A layer past the model's last compiles.** Compile does not know the model, so `"layers": 5` on a two-layer model is refused only after the checkpoint loads (`counterfactual.v_cf: layer 5; the model has 2 layers`). On a large model, that load is the slow part. The same holds for positions, `select` indices and answer tokens.

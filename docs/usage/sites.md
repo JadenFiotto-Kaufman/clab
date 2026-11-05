@@ -63,7 +63,7 @@ At a block whose MLP is a mixture of experts, these components are its values, b
 - **One forward reads any of a mixture's values**, in forward order.
 - **Which values a family serves** is nnterp's `support()`, per block, and so is what its router logits mean (a softmax router, a sigmoid one, a top-k then softmax). The hooks engine serves fewer ([engines](engines.md#a-mixture-of-experts-on-hooks)).
 
-A write to `expert_indices` takes a `swap` of ids only; knockouts, forced routes, usage and routing entropy are [expert ablation](../patterns/expert-ablation.md), and how the engine instruments a mixture is [developing/engines.md](../developing/engines.md).
+A write to `expert_indices` takes a `swap` of ids only ([expert ablation](../patterns/expert-ablation.md#the-knockout) says why). Forced routes, usage and routing entropy are on the same page. How the engine instruments a mixture is [developing/engines.md](../developing/engines.md#registering-and-loading).
 
 ## `layers`
 

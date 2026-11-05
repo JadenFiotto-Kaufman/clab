@@ -77,7 +77,7 @@ A gradient check compares `grad` with a central difference of the metric: two fo
 }
 ```
 
-A central difference's own error falls as the step squared. So a gap that falls about 100 times when the step falls 10 times says the gradient is right. A gap that does not shrink with the step is a gradient of something other than the metric: check that `of` names the entry you meant. On the corpus model in float32 (`tests/test_grad.py` `test_the_gradient_is_the_central_difference_of_the_metric`):
+A central difference's own error falls as the step squared. So a gap that falls about 100 times when the step falls 10 times says the gradient is right. A `grad` of the wrong entry runs without a refusal and maps that entry, so run this check once on each new document. A gap that does not shrink with the step is that case: check that `of` names the entry you meant. On the corpus model in float32 (`tests/test_grad.py` `test_the_gradient_is_the_central_difference_of_the_metric`):
 
 - the gradients are about ±6.8, and `gap` is at most 0.0068, a thousandth of the largest;
 - at a step of 0.01 the gap is 95 times larger;
@@ -93,13 +93,13 @@ Three nulls, each exact on both engines:
   "g0": {"site": "target", "pos": -1, "ops": [{"op": "grad", "of": "zero"}]}
   ```
 
-  Use `mul`, not `scale`, which is an edit ([interventions](../usage/interventions.md#a-gradient-at-a-site)).
+  Use `mul`, not `scale`. A `scale` 0 entry alone at the head, listed before the metric, is a write: it zeroes the logits the metric reads, so the real `grad` is zero too ([interventions](../usage/interventions.md#a-gradient-at-a-site)).
 - **A counterfactual that is the base prompt gives zero.** Read `v_cf` in a forward over `pairs.input` instead: `difference` is exactly zero, and so is every row's attribution. It checks that the two reads are one selection, which a constant's null does not.
 - **A `grad` sees the order at its site.** A `grad` listed before a write of `{"op": "scale", "factor": 2}` at its site is exactly twice the `grad` listed after it.
 
 ## Variations
 
-- **Every layer and position.** A site at `"layers": ":"` read at a window of static width (`{"index": "-3:"}`) gives a `[layers, rows, pos, hidden_size]` gradient from the same one backward; each layer's slice equals a forward that takes it at that layer alone. The `difference` it is scaled by is read at the same site and positions on both prompts.
+- **Every layer and position.** A site at `"layers": ":"` read at a window of static width (`{"index": "-3:"}`) gives a `[layers, rows, pos, hidden_size]` gradient from the same one backward. Each layer's slice equals a forward that takes it at that layer alone. The `difference` it is scaled by is read at the same site and positions on both prompts.
 - **Heads.** On `attention_premix` the gradient keeps the `num_heads` and `head_dim` axes; sum over `head_dim` (and `pos`) for one number per head. A `select` on `num_heads` keeps the gradient of the heads it picks.
 - **Several sites, one backward.** Every `grad` entry naming the same `of` is served by one backward, so the residual stream and the heads of a model come from one forward together.
 

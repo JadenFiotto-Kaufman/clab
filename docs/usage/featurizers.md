@@ -56,7 +56,7 @@ An entry uses a featurizer in one of three shapes:
 
 - **`[encode f]` reads coordinates.** The entry's value is `[rows, pos, k]`, its last axis `features` (a probe's: `classes`). Nothing is written. `counterfactual.v_cf` above is one.
 - **`[encode f, <edits>, decode f]` edits coordinates and writes the change back.** The ops between the pair act on the coordinates. `decode` adds the change of coordinates to the original value as a delta, so `[encode f, decode f]` with nothing between returns the value exactly. What the space does not hold (a subspace's complement, a sparse autoencoder's error term) passes through untouched.
-- **`[apply f]` replaces the value with the featurizer's own version of it**: a subspace's or a `pca`'s projection, a gate's masked value, a dictionary's reconstruction without its error term, an adapter's adapted value, an affine map's `h + h W + b`, a constant's vector. It is an edit, so it writes back. Splicing an `sae` in with `apply` moves the site's value by exactly its error term, and so the model's output, with no edit at all.
+- **`[apply f]` replaces the value with the featurizer's own version of it.** That is a subspace's or a `pca`'s projection, a gate's masked value, or a dictionary's reconstruction without its error term. For an adapter it is the adapted value, for an affine map `h + h W + b`, and for a constant its vector. It is an edit, so it writes back. Splicing an `sae` in with `apply` moves the site's value by exactly its error term, and so the model's output, with no edit at all.
 
 ## As a step
 
@@ -154,7 +154,13 @@ A declared featurizer with no `file_path` is drawn before the run's first step, 
 
 - **The seed** is the featurizer's own `seed`, 0 when unset. `documents/random_subspace.json` sweeps it to get three random rank-4 subspaces with no fit.
 - **A fit draws the featurizers it trains at its own start**, from the fit's `seed` unless the featurizer has one. The names a fit gives them are in [fit.md](fit.md#members).
-- **A constant whose `init` names a value is drawn once the step that makes it has run.** Compile holds that step before the constant's first use and before the fit that trains it. It holds the value to one vector of the site's width, on no sweep axis.
+- **A constant whose `init` names a value is drawn once the step that makes it has run.** That step must come before the constant's first use and before the fit that trains it.
+- **That value is one vector laid out on the site's last axis, in the use's coordinates.** Compile refuses by name:
+  - an `init` with rows, a `layers` axis or another axis;
+  - one in another featurizer's coordinates, or on a sweep axis;
+  - one a step makes at or after the constant's first use.
+
+  One that keeps other indices of the last axis than the use does is refused before any forward, once the model's sizes resolve them.
 - **With `file_path` the featurizer is loaded and fixed.** The fields its bundle's header records may be left out ([bundles.md](bundles.md#file_path)).
 
 ## Loading a published sparse autoencoder

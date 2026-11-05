@@ -162,7 +162,7 @@ for name in ["patching", "zero_ablation", "pos_sweep"]:
     clab.run(f"documents/{name}.json", engine=engine, out=f"out/{name}")
 ```
 
-Every document must pin the same `model` block as the one the engine loaded; another is refused, naming each field that differs (`the plan's model is not the one this engine loaded: key 'hf-internal-testing/tiny-random-gpt2' where the engine's is 'hf-internal-testing/tiny-random-LlamaForCausalLM', revision …`). The engine keeps the device and options it loaded with, so `clab.run(..., engine=engine, device="cuda:0")` is refused (`the loaded nnterp engine runs on cpu with {'tp': 1}; device and options are given when an engine loads`).
+Every document must pin the same `model` block as the one the engine loaded. Another is refused, naming each field that differs (`the plan's model is not the one this engine loaded: key 'hf-internal-testing/tiny-random-gpt2' where the engine's is 'hf-internal-testing/tiny-random-LlamaForCausalLM', revision …`). The engine keeps the device and options it loaded with, so `clab.run(..., engine=engine, device="cuda:0")` is refused (`the loaded nnterp engine runs on cpu with {'tp': 1}; device and options are given when an engine loads`).
 
 ### The four calls behind `clab.run`
 
@@ -194,4 +194,4 @@ clab: tp 2 shards the model over 2 processes, one per rank, that torchrun starts
 
 ## Real models
 
-The documents under `documents/real/` want a GPU and a gated checkpoint in the local cache; how to run them and their tests is [testing.md](../developing/testing.md).
+The documents under `documents/real/` want a GPU and a gated checkpoint in the local cache; how to run them and their tests is [testing.md](../developing/testing.md#gpu-real-model-tests).

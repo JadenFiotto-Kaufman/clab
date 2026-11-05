@@ -57,7 +57,7 @@ Sweep `layers` on the patched site. Each sweep is labelled by its field (`layers
 }
 ```
 
-The counterfactual reads `every_layer` and the patch writes `target`. The two `num_heads` sweeps share a label and zip, so the counterfactual holds one value per head, `[layers, rows, pos, num_heads, head_dim]`, where reading at `target` holds one per layer and head; either way it is one forward, and the patched logits are equal.
+The counterfactual reads `every_layer` and the patch writes `target`. The two `num_heads` sweeps share a label and zip, so the counterfactual holds one value per head, `[layers, rows, pos, num_heads, head_dim]`. Read at `target`, it would hold one per layer and head. Either way it is one forward, and the patched logits are equal.
 
 The corpus Llama has 2 layers (`plan.run.sizes["num_layers"]`) of 4 heads, each `head_dim` 4. A sweep lists its values, so every head of a layer is `[0, 1, 2, 3]` here, and on another model as many as its config's `num_attention_heads` (preflight refuses a head past them).
 

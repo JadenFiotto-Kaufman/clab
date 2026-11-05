@@ -43,7 +43,7 @@ What a record names beyond the prefill depends on what each row generates, so a 
 | a `before` read at the head on a prompt token of a `generate` | `{"frame": ":", "scope": {"text": " is", "before": true}}` at `lm_head_output` | the prefill computed the head at its last position only; read prompt positions in a `forward` |
 | an online scoped write found no occurrence | a write at `{"frame": "1:", "scope": {"text": " toss"}, "index": -1}` on rows that never say it | nothing: the row is not written, and its generation is the unwritten one; count it |
 
-**Check where a write landed, not only a read.** A steering write over decode calls that never lands on a row leaves that row's generation unsteered, and a mean over the rows dilutes the effect with nothing in the number to say so. Count the write's missing rows as the reads' [below](#count-it-prevent-it-or-refuse-it).
+**Check where a write landed, not only a read.** A steering write over decode calls that never lands on a row leaves that row's generation unsteered. A mean over the rows then dilutes the effect, and nothing in the number says so. Count the write's missing rows as the reads' [below](#count-it-prevent-it-or-refuse-it).
 
 ## In the prefill it is a refusal
 

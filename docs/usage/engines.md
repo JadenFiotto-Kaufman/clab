@@ -47,7 +47,7 @@ clab: counterfactual.v_cf: the hooks engine does not serve attention_queries: nn
 
 - **Module boundaries are served.** `attention_premix`, a dense MLP's `mlp_activation` and the residual-stream components are module boundaries, and hooks serves them.
 - **Without `attn_implementation: "eager"`** in the model block, both engines refuse the interior components above. nnterp's reason asks for eager ([sites.md](sites.md#attention-needs-eager)); hooks refuses with the reason above under either attention implementation.
-- **On a model whose blocks are of two kinds**, both engines serve a component at the blocks that have its module and refuse it at the others by the same reason, naming the block (`the nnterp engine does not serve attention_output: no self_attn module on this block`).
+- **On a model whose blocks are of two kinds**, both engines serve a component at the blocks that have its module and refuse it at the others for the same reason. The refusal names the block (`the nnterp engine does not serve attention_output: no self_attn module on this block`).
 
 ### A mixture of experts on hooks
 
@@ -178,7 +178,7 @@ Three things vLLM does not give, each refused by name before any forward:
 - **The head is the last position's.** vLLM computes `logits` for the prompt's last token alone. `lm_head_output` is served as the logits where the model does nothing after the head; on a Gemma-2 or a Cohere it is refused with what the model does. Preflight refuses a read or write of either at any other prefill position (`base.logits: the vllm engine serves logits at the prompt's last position alone ...`). A generation's head at its decode calls is each call's one position, as on every engine.
 - **No gradient.** The engine's `execute` refuses a fit (`fit: a fit trains through the model's gradient, which vLLM's kernels do not take; ...`). `start_run` refuses a `grad` entry (`<step>.<entry>: a grad entry takes the model's gradient, ...`). Both come before vLLM's worker starts.
 
-Also refused by name: a quantized `dtype` when the engine loads (`model.dtype 'nf4': the vllm engine cannot honor it: ...`); in preflight, a gated MLP's `mlp_activation` (nnterp's reason: vLLM fuses it) and a mixture's routing values (`vLLM runs the mixture of experts inside its fused MoE kernel, which serves no routing value; ...`).
+A quantized `dtype` is refused by name when the engine loads (`model.dtype 'nf4': the vllm engine cannot honor it: ...`). Preflight refuses by name a gated MLP's `mlp_activation` (nnterp's reason: vLLM fuses it) and a mixture's routing values (`vLLM runs the mixture of experts inside its fused MoE kernel, which serves no routing value; ...`).
 
 A generate step's options map onto vLLM's sampling (`clab/engines/vllm.py` `sampling`). What the step leaves out is taken from the generation config, as transformers takes it:
 

@@ -51,7 +51,7 @@ The client decides only from the document, the data files, the bundle headers an
 
 ## The engine and its model are the only client-side objects in the session
 
-Besides the modules it calls, the session body closes over the engine, the plan (which is data) and the run's settings, such as the batch size. The engine holds its model and its configuration: the model block, device and options, and what it measured at load (the model's sizes, for one). nnsight ships every name a block closes over, and on the server it replaces the client's model with the deployed one. The engine therefore arrives as configuration plus a handle to the server's model.
+Besides the modules it calls, the session body closes over the engine, the plan (which is data) and the run's settings, such as the batch size. The engine holds its model and its configuration: the model block, device and options, and what it measured at load (the model's sizes, for one). On the client, nnsight ships every name a block closes over. On the server, it replaces the client's model with the deployed one. The engine therefore arrives as configuration plus a handle to the server's model.
 
 This is also why an engine holds nothing else: no open files, no handles, nothing that would not serialize. Any of them would ship with every request, or fail to. The protocol an engine follows is [developing/engines.md](../developing/engines.md).
 

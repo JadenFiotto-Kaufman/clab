@@ -8,7 +8,7 @@ sources: [clab/compile/interventions.py, clab/compile/arguments.py, clab/steps/b
 
 # Interventions
 
-An entry of a step's `interventions` names a site, the positions `pos` picks there, and the `ops` it runs on that selection. An entry with no edit among its ops reads; an entry with an edit writes its result back into the forward. The fields and grammar are in [FORMAT.md#an-entry-of-interventions](../../FORMAT.md#an-entry-of-interventions).
+An entry of a step's `interventions` names a site, the positions `pos` picks there, and the `ops` it runs on that selection. **An entry with an edit in its `ops` writes; one without only reads.** The edit writes its result back into the forward, and the model runs on from there. The fields and grammar are in [FORMAT.md#an-entry-of-interventions](../../FORMAT.md#an-entry-of-interventions).
 
 ## Canonical example
 
@@ -41,8 +41,8 @@ The model's logits equal those of `[add]` alone, and `x` is one probability per 
 Within one entry:
 
 - **The elementwise transforms and the comparisons write nothing** ([ops](ops.md#transforms)). In an entry with no edit they change only what it binds: `{"ops": [{"op": "abs"}]}` reads the absolute value and leaves the forward as it was.
-- **Before a write's last edit they act on the live value that edit writes back.** `[{"op": "sign"}, {"op": "scale", "factor": 0.1}]` writes a tenth of each entry's sign, and a read listed after it at the site sees exactly that.
-- **A comparison read in another forward is a mask for a write.** With `clean.positive` read at the write's selection as `{"op": "gt", "with": 0}`, a write of `{"op": "scale", "factor": "clean.positive"}` keeps the entries that were above zero and zeroes the rest.
+- **Before a write's last edit they act on the live value that edit writes back.** `[{"op": "sign"}, {"op": "scale", "factor": 0.1}]` writes a tenth of each entry's sign. A read listed after it at the site sees exactly that.
+- **A comparison read in another forward is a mask for a write.** Read `clean.positive` at the write's selection as `{"op": "gt", "with": 0}`. A write of `{"op": "scale", "factor": "clean.positive"}` then keeps the entries that were above zero and zeroes the rest.
 - **An edit in a read is still an edit.** `add`, `sub`, `scale` and `normalize` write back what they compute, whatever ops follow them. `[{"op": "sub", "with": "clean.h"}, {"op": "div", "with": "clean.h"}]` writes the difference back before `div` reads it. A relative effect is `sub` then `div` as steps after the forward; a product in a read is `mul`, which writes nothing.
 - **The reductions change the layout** (`norm`, `dot`, `count`, ...), so in a write they come after its last edit, on what it wrote.
 
@@ -79,7 +79,7 @@ An edit's operand (`with`, `direction`, `scale`, `factor`) is a number or a name
 
 - **A value with a rows axis belongs to its dataset, not to its file.** Two datasets that read the same `path` are two. Written on another dataset's rows, or met with one in an op step (a `kl` and its `against`), it is refused: `'other.input' has a row per example of 'other' and 'harvest.acts' of 'pairs'; an op takes one dataset's rows`.
 - **Keep a counterfactual in its base rows' dataset.** Put both prompts in columns of one dataset, as `data/weekdays/train.json` holds `input` and `counterfactual_inputs`, and run the counterfactual forward on that column (`pairs.counterfactual_inputs[0]`). A `mean` step removes the rows, so a mean harvested on one dataset can be written into any other.
-- **An operand from another forward needs a width every row shares.** An open `pos` (`{"index": ":"}`, an `until` scope, several occurrences) pairs with nothing in another forward, whatever the prompts; one occurrence of a scope in the prefill pairs where every row's scope holds as many tokens ([positions](positions.md#static-width-or-ragged)). Otherwise read it at a static index (`-1`, `{"index": "-6:"}`) or reduce it first.
+- **An operand from another forward needs a width every row shares.** An open `pos` (`{"index": ":"}`, an `until` scope, several occurrences) pairs with nothing in another forward, whatever the prompts. One occurrence of a scope in the prefill pairs where every row's scope holds as many tokens ([positions](positions.md#static-width-or-ragged)). Otherwise read it at a static index (`-1`, `{"index": "-6:"}`) or reduce it first.
 - **Positions pair in order**: the operand's i-th with the write's i-th. Where the two prompts of a row differ in length, preflight refuses a pair that may be two different tokens and names them; locate the token in each prompt with a scope instead ([positions](positions.md)).
 - **An operand from a narrowed site** holds the same heads or neurons in the same order ([head and neuron patching](../patterns/head-and-neuron-patching.md)).
 

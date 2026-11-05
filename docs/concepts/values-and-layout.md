@@ -64,7 +64,7 @@ An op that returns an index, `argmax` or `top_k`'s `ids`, counts along the axis 
 
 ## The key axis
 
-An attention pattern's `key` axis is each row's own keys, numbered as positions: key 0 is BOS where there is one, key j the row's token j. Unselected, it is as wide as the input's longest row. Past a shorter row's own keys a read is NaN, and a write leaves the padding's keys as they were. A selector on `key` picks a fixed number of keys counted from the start (`0`, `[0, 2]`, `"0:3"`), the same keys on every row long enough to have them; one counted from the end is refused, since rows differ in length. The axis grows with every decode call, so a pattern is read in the prefill only.
+An attention pattern's `key` axis is each row's own keys, numbered as positions: key 0 is BOS where there is one, key j the row's token j. Unselected, it is as wide as the input's longest row. Past a shorter row's own keys a read is NaN, and a write leaves the padding's keys as they were. A selector on `key` picks a fixed number of keys counted from the start (`0`, `[0, 2]`, `"0:3"`), the same keys on every row long enough to have them. One counted from the end is refused, since rows differ in length. The axis grows with every decode call, so a pattern is read in the prefill only.
 
 ## Missing entries
 

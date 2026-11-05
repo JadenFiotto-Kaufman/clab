@@ -189,7 +189,7 @@ Metrics, every reduction but `pca` and the elementwise arithmetic (`abs` to `pow
 - It cannot undo the model's own rounding. Logits a bfloat16 model returns are bfloat16: one near 20 is a multiple of 0.125, and a `logit_diff` of two of them moves in those steps. A difference finer than that needs the model in float32.
 - Ranks are the same either way: `match`, `argmax` and `top_k` pick the same ids from a bfloat16 value and its float32 copy.
 - A bundle is float32 whatever the model's dtype, a `pca`'s as a fit's. Its basis is orthonormal to float32's precision in the file.
-- A featurizer rounds its bundle to the value's dtype where it meets the value, since every featurizer's math runs in that dtype.
+- A featurizer's `encode` and a bracket's `decode` run in the value's dtype; `apply` is an edit, computed in float32 and rounded once ([featurizers.md](featurizers.md#the-dtype-a-featurizer-computes-in)).
 - A null that equals the clean run in bfloat16 proves the read and the write are at one place. It does not make an effect below the dtype's rounding readable.
 - In bfloat16 every write that changes a value changes the rounding of every operation after it. A component with no effect in float32 still moves a bfloat16 run's logits by about their rounding step, at every layer. Recompute a few points in float32 before reading effects near that size.
 

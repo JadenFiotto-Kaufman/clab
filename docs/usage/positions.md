@@ -80,7 +80,7 @@ A `scope` names text, and `index` then counts that text's tokens. `{"column": "<
 - **`until` with `before` takes a frame of decode calls** (`"1:"`). Over a frame that holds the prompt it is refused at compile: `frame ':' holds the prompt, and until with before starts before the frame's first token, …`.
 - **An `until` scope has no static width** and pairs with no other forward's value.
 - **A write beyond the prefill cannot take an `until` scope**: `a write's positions beyond the prefill are decided call by call, …`. A read can, and so can a write in the prefill.
-- **A `count` over `pos` of an `until` read is a length in tokens.** In a thinking model's generation, a `count` of a read at `{"frame": "1:", "scope": {"text": "</think>", "until": true}}` is each row's thinking length; a row that never closes it counts every input it was fed.
+- **A `count` over `pos` of an `until` read is a length in tokens.** A thinking trace's length is that recipe ([generation experiments](../patterns/generation-experiments.md#a-reasoning-traces-length-count-of-an-until-read)).
 
 ## The token before: `before`
 
@@ -113,7 +113,7 @@ A read pairs, position by position, with a value of another forward only where i
 | such an index on one occurrence of a scope in the prefill, not `until` (`{"scope": {"column": "pairs.entity"}, "index": -1}`) | static | yes |
 | one occurrence of a scope in the prefill, not `until`, read whole, `before` or not | the count each row's scope holds, which preflight confirms | where every row's scope holds as many tokens (`documents/entity_patch_scope.json`) |
 | an open index: `{"index": ":"}`, `"2:"`, no `pos` | open | no, whatever the prompts |
-| several occurrences (`"occurrence": ":"`), an `until` scope, a scope beyond the prefill | open | no |
+| several occurrences (`"occurrence": ":"`) or an `until` scope, with an `index` or without; a scope beyond the prefill | open | no |
 | a frame of no fixed number of calls (`"1:"`, `":"`), or a decode call with an open index (`{"frame": 3}`) | open | no |
 
 - **Preflight records an open width where the rows agree.** In the prefill it resolves every row's positions before any forward and writes the count they share as the record's `width`. That recorded width pairs with nothing: `{"index": ":"}` over prompts of one length is refused at compile all the same.

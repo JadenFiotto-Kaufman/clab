@@ -42,7 +42,7 @@ Run it with `--out out/prompts_l0` inside the corpus. A later document that uses
 - **`basis` equals pca_harvest.json's basis** ([running.md](../usage/running.md#when-two-runs-give-the-same-numbers)). Its bundle's header names the site, layer and width of the read the load carries, so `documents/pca_control.json` loads it as it loads the original.
 - **A probe or a dictionary fits the same way.** A fit's body takes the loaded value's rows by id, as it takes a harvest made in its own document ([fit.md](../usage/fit.md)). `sae_train.json` with its harvest loaded trains an equal dictionary.
 - **A document of loads and op steps loads no weights.**
-- **An `encode` of a loaded read uses the featurizer at the read's site.** A run that loads a value and saves it passes on the read it carries, so a load of that save encodes as the first load does.
+- **An `encode` of a loaded read uses the featurizer at the read's site.** A run that loads a value and saves it passes on the read it carries. A load of that save encodes as the first load does.
 - **An op's value over a read, loaded or not, is no read's own,** and an `encode` of it is refused.
 
 ## What the load checks
@@ -104,7 +104,7 @@ The two shards' values, joined in order, equal the harvest of all 42 shuffled ro
 
 The loaded value travels in the request, inside the plan, as a loaded bundle's tensors do, so the server reads no file of yours. `-o remote=local` runs what a server runs, and its result equals the nnterp engine's. A small cached operand therefore serves a model you cannot load yourself, as a counterfactual read saved from one NDIF run and patched into another.
 
-A request carries at most 512 MiB of loaded tensors over a document's loads. A document that loads more is refused before anything is sent, with each load's size. Run it where the file is, on the nnterp or hooks engine:
+A request carries at most 512 MiB of loaded tensors over a document's loads (`clab/steps/__init__.py` `LOADED`). A document that loads more is refused before anything is sent, with each load's size. Run it where the file is, on the nnterp or hooks engine:
 
 ```text
 clab: harvest, held: the values this document loads hold 805.7 MiB of tensors (harvest 402.8 MiB, held 402.8 MiB), and a request carries at most 512 MiB inside its plan; …

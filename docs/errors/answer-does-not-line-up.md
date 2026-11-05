@@ -17,7 +17,7 @@ iia: pairs.ans row 0: ' Tuesday' is 3 tokens; the read has 1 position on that ro
 ```
 
 - **The answer is several tokens and the read one position** (`pos: -1`). Teacher-force the answer, reading the positions before each of its tokens with a `before` scope ([generation-experiments.md](../patterns/generation-experiments.md#a-fixed-answer-token-by-token-teacher-forcing)), or give the column an answer of one token per row.
-- **A missing leading space is a common cause on a byte-level BPE tokenizer.** The corpus GPT-2 tokenizer writes `three` as `th`, `ree` and ` three` as one token, so a column holding `three` is refused where ` three` would score.
+- **A missing leading space is a common cause on a byte-level BPE tokenizer.** The corpus GPT-2 tokenizer writes `three` as `th`, `ree`, and ` three` as one token. A column holding `three` is refused where ` three` would score.
 - **A hub column without the space cannot be fixed inside a document:** write its rows with the space added.
 
 One ending names a whitespace-only token as the difference:

@@ -8,7 +8,7 @@ sources: [clab/compile/arguments.py, clab/compile/interventions.py, clab/compile
 
 # An Operand Does Not Fit
 
-An operand is a named value an op takes beside the value it acts on: `swap`'s and `add`'s `with`, `scale`'s `factor`, `kl`'s `against`, `cosine`'s `with`. clab refuses an operand that cannot meet that value element for element, at compile where the document decides it and at preflight where the model's order or the tokenized rows do (`clab/compile/arguments.py` `mismatch`).
+An operand is a named value an op takes beside the value it acts on: `swap`'s and `add`'s `with`, `scale`'s `factor`, `kl`'s `against`, `cosine`'s `with`. An operand that cannot meet that value element for element is refused (`clab/compile/arguments.py` `mismatch`). Compile refuses it where the document decides it, and preflight where the model's order or the tokenized rows do.
 
 ## What an operand may be
 
@@ -35,7 +35,7 @@ steps.patched.interventions.patch.ops[0].with: 'counterfactual.v_cf' holds a dif
 steps.patched.interventions.patch.ops[0].with: the value 'swap' acts on holds a different number of positions on each row, …
 ```
 
-In the first the operand's width is open, in the second the write's. Compile refuses a per-position value from another forward wherever a side's `pos` leaves its width open, whatever the prompts hold; [positions.md](../usage/positions.md#static-width-or-ragged) says which `pos` forms do. An `index` does not close an `until` scope or a scope of several occurrences. One occurrence of a scope in the prefill is the exception, since its rows say its width ([the next section](#-a-scoped-read-pairs-with-another-forwards-value-when-every-rows-scope-holds-the-same-number-of-tokens)). The fixes:
+In the first the operand's width is open, in the second the write's. A side whose `pos` leaves its width open pairs with no value of another forward, whatever the prompts; [positions.md](../usage/positions.md#static-width-or-ragged) lists which `pos` forms do. One occurrence of a scope in the prefill is the exception, since its rows say its width ([the next section](#-a-scoped-read-pairs-with-another-forwards-value-when-every-rows-scope-holds-the-same-number-of-tokens)). The fixes:
 
 - read both at a static index without a scope (`"index": -1`, `"index": "-3:"`);
 - read at one occurrence of a scope in the prefill;
@@ -137,7 +137,7 @@ An entry may use an earlier entry of its own forward, live, as the forward reach
 - where either side's width is open, holds a value on every row the write lands on (the fourth message: a read at `{"index": "10:"}` that a short row does not reach);
 - where either side's width is open, holds as many positions as the write on each row (the fifth: a read at `"9:"` against a write at `-1`).
 
-Inside a `generate` step an entry of the same step is no operand (`… is an entry of this generation; an operand from an entry of its own step is served in a forward, not inside a generate`); read it in a `forward`.
+Inside a `generate` step an entry of the same step is no operand (`… is an entry of this generation; an operand from an entry of its own step is served in a forward, not inside a generate`). Read it in a `forward`.
 
 ## Two inputs of different lengths
 

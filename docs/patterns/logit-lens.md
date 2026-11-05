@@ -77,7 +77,7 @@ At the last layer, `layer_output` through `readout` is what the model itself com
 On the corpus model `to_final` is exactly `0.0` at layer 1, the last, on every row, and positive at layer 0. A nonzero value at the last layer means the engine's `readout` is not the model's own last computation:
 
 - **nnterp's `readout` is the model's own.**
-- **hooks' `readout` is the final norm, the head and the config's softcap.** On a model that does more after its head, such as one that scales its logits, the hooks lens at the last layer matches `lm_head_output`, not `logits` ([engines.md](../usage/engines.md#cross-checking-with-hooks)).
+- **hooks' `readout` is the final norm, the head and the config's softcap.** A model may do more after its head, such as scaling its logits. There the hooks lens at the last layer matches `lm_head_output`, not `logits` ([engines.md](../usage/engines.md#cross-checking-with-hooks)).
 
 Read `lm_head_output` beside `logits` to see which one the lens matches before reading any other layer.
 
@@ -126,16 +126,16 @@ and in the fit's body, after the forward that reads `h` at `resid` and `final` a
 ```
 
 - **The lens reads; it never writes.** `apply` and `readout` are op steps over a plain read, so the forward is the model's own. `apply` inside the entry would write each translated layer back, and every layer after it would see that.
-- **One forward per minibatch trains every layer.** The affine takes each layer's map by its id, `kl` keeps the `layers` axis, and the objective averages it over every axis, so each map takes the gradient of its own layer's loss alone. A sweep of the site's `layers` instead would make a fit, and its forwards, per layer.
+- **One forward per minibatch trains every layer.** The affine takes each layer's map by its id, and `kl` keeps the `layers` axis. The objective averages it over every axis, so each map takes the gradient of its own layer's loss alone. A sweep of the site's `layers` instead would make a fit, and its forwards, per layer.
 - **The objective is KL(final ‖ lens).** An operand cannot carry a `layers` axis that `of` lacks, so the lens is `of` and the `kl` takes `"reverse": true` ([ops.md](../usage/ops.md#metrics)). The document scores the logit lens the same way, `{"op": "kl", "of": "lfw.ll", "against": "lfw.final", "reverse": true}`, and `gain` is the tuned lens's held-out mean KL less the logit lens's, one number per layer. This is the other direction from `to_final` above, so the two KLs differ away from the last layer.
 - **The null is the logit lens.** Every translator starts at zero, so at `epochs: 0` the tuned lens's held-out KL equals the logit lens's at every layer and `gain` is `0.0`. That holds when the run's `--batch-size` is the fit's `batch_size`, 2 here: `lfw` runs in batches of `--batch-size`, the fit's eval in batches of its own, and another batch shape moves the last bits ([running.md](../usage/running.md#when-two-runs-give-the-same-numbers)). Run the null with `--batch-size 2`. On CUDA, write the logit lens as a `readout` step too ([above](#the-document)).
-- **Memory is the scored pass's.** After each epoch the body's `readout` step binds a `[layers, rows, positions, vocab_size]` value over every training row, whatever the fit's `batch_size` ([fit.md](../usage/fit.md#what-a-fit-costs)). On a large vocabulary, keep the positions and the training rows few.
+- **Memory is the scored pass's**: after each epoch the body's `readout` step binds a `[layers, rows, positions, vocab_size]` value over every training row, whatever the fit's `batch_size` ([fit.md](../usage/fit.md#what-a-fit-costs)).
 
 On the corpus model two epochs take the held-out KL at layer 0 from 0.0032 nats (the logit lens's) to 0.0008, below the logit lens's at all four layers (`tests/snapshots/tuned_lens.nnterp.json`). The model is random, so that shows the mechanics and nothing about what a lens learns.
 
 ## Variations
 
-- **The last few tokens.** `"pos": {"index": "-3:"}` on both `logits` and `final` lenses each row's last three tokens, the last included. `kl` pairs position with position, and `clab table OUT to_final` prints a line per layer, row and position, its `pos` and `pos_token` saying which token: 8, 9 and 10 (`▁tom`, `orrow`, `▁is`) on row 0, `to_final` 0.0 at layer 1 on each.
+- **The last few tokens.** `"pos": {"index": "-3:"}` on both `logits` and `final` lenses each row's last three tokens, the last included. `kl` pairs position with position. `clab table OUT to_final` prints a line per layer, row and position, its `pos` and `pos_token` saying which token. On row 0 those are 8, 9 and 10 (`▁tom`, `orrow`, `▁is`), with `to_final` 0.0 at layer 1 on each.
 - **Every position.** `"pos": {"index": ":"}` lenses every prompt token. A one-token answer column is then scored at every position of its row, a ragged value NaN past each row's own tokens.
 - **Keep only the score.** `"ops": [{"op": "readout"}, {"op": "token_prob", "token": "prompts.base_answer"}]` inside the entry gives the same numbers as the `token_prob` step on the CPU. It holds no vocabulary-wide logits past each batch, and `layers × rows × positions × vocab_size` adds up quickly on a real model.
 - **Sublayers.** `attention_output` and `mlp_output` lens what one sublayer writes; `layer_mid` the stream between them.
