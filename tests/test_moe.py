@@ -21,9 +21,9 @@ import pytest
 import torch
 from conftest import BATCH_SIZE, GLM4_MOE, JETMOE, MIXTRAL, OLMOE, QWEN3_MOE, document, edited, plan_of, same
 
-from clab import Plan
-from clab.format.sweeps import points
-from clab.plan import Model, entries
+from nnspec import Plan
+from nnspec.format.sweeps import points
+from nnspec.plan import Model, entries
 
 # Each tiny mixture by name, read at block 1 (GLM-4-MoE's block 0 is dense); every one has 4 experts and routes each
 # token to 2.
@@ -223,7 +223,7 @@ def test_on_a_fresh_engine_jetmoe_reads_its_router_logits_with_its_indices_in_on
     nnsight instruments lazily; on an engine no trace has warmed, one forward reading both raised `OutOfOrderError`
     until `ready` touched the router's `.source` at load. The indices are the top 2 of the logits, on nnterp and on
     `remote="local"` alike, to the bit."""
-    from clab.engines import load
+    from nnspec.engines import load
 
     plan = reading(JETMOE, {"logits": at("router_logits"), "indices": at("expert_indices")})
     r = dict(load(kind, plan.model, **options).execute(plan, batch_size=BATCH_SIZE).results)
@@ -239,7 +239,7 @@ def test_under_nnterps_default_family_a_mixtures_value_is_refused_as_unaddressed
     from nnterp import StandardizedTransformer
     from nnterp.families import default
 
-    from clab.engines import standard
+    from nnspec.engines import standard
 
     shell = StandardizedTransformer(MIXTRAL["key"], revision=MIXTRAL["revision"], family=default)
     answer = standard.own(standard.unserved(shell))
@@ -289,7 +289,7 @@ def test_an_edit_of_expert_indices_other_than_swap_is_refused_at_compile(op):
     """`add 1`, `scale 0.5` and `noise` would compute on ids as numbers and the write would truncate them back to
     int64 (3 * 0.5 lands as 1, 3 + 1 as 4, outside the 4 experts), so each, and every other edit, is refused by name
     before the model is loaded."""
-    from clab.plan import PlanError
+    from nnspec.plan import PlanError
 
     with pytest.raises(PlanError, match=rf"^steps\.f\.interventions\.w\.ops\[0\]: '{op['op']}' would compute on "
                                         r"expert_indices, the ids the model indexes its num_experts with, as numbers, "
@@ -373,7 +373,7 @@ def test_a_reduction_of_a_ragged_expert_indices_read_leaves_its_hole_out():
     `mean`, `min`, `max`, `std`, `norm`, `dot` and `entropy` (over the slots) and `square` of it are each that op of
     the ids with the hole as NaN, to the bit, so a row's `min` is the least of its own experts, never -1, and its
     `sum` is its own ids' sum."""
-    from clab.engines import load
+    from nnspec.engines import load
 
     rows = [{"input": "If today is Monday, tomorrow is Tuesday and then"}, {"input": "Hi"},
             {"input": "One two three four five six seven eight nine ten"}, {"input": "Yes no"}]
@@ -391,7 +391,7 @@ def test_a_reduction_of_a_ragged_expert_indices_read_leaves_its_hole_out():
     assert hole.any(-1).sum(-1).tolist() == [0, 9, 0, 8]
     floated = idx.float().masked_fill(hole, float("nan"))
     dims = ["rows", "pos", "top_k"]
-    from clab import ops
+    from nnspec import ops
     for op, args in reduced.items():
         assert same(r[f"f.{op}"], ops.call(op, floated, args, dims=dims)), op
     assert (r["f.min"] >= 0).all() and r["f.sum"].tolist() == [int(idx[i][~hole[i]].sum()) for i in range(4)]

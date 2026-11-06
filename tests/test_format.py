@@ -6,20 +6,20 @@ import shutil
 import pytest
 from conftest import ROOT
 
-from clab.docs import describe, markdown
+from nnspec.docs import describe, markdown
 
 
 def test_format_md_is_what_the_code_generates():
     with open(os.path.join(ROOT, "FORMAT.md")) as f:
         committed = f.read()
-    assert committed == markdown(), "FORMAT.md is stale: run `clab describe --markdown`"
+    assert committed == markdown(), "FORMAT.md is stale: run `nnspec describe --markdown`"
 
 
 def test_describe_markdown_writes_format_md_at_the_repo_root_from_anywhere(tmp_path, monkeypatch, capsys):
-    """`clab describe --markdown` writes FORMAT.md beside the package (the root `docs.ROOT` finds from the package's
+    """`nnspec describe --markdown` writes FORMAT.md beside the package (the root `docs.ROOT` finds from the package's
     file), not into the working directory, prints nothing, and says where on `--verbose`."""
-    from clab import docs
-    from clab.cli import main
+    from nnspec import docs
+    from nnspec.cli import main
 
     root = tmp_path / "root"
     (root / "documents").mkdir(parents=True)
@@ -52,7 +52,7 @@ def test_the_edits_group_in_the_prose_is_generated_from_the_declared_ops():
     so a new edit joins both and FORMAT.md goes stale until regenerated (the first test here)."""
     import inspect
 
-    from clab import ops, plan
+    from nnspec import ops, plan
 
     edits = [n for n in ops.OPS if ops.DECLARED[n]["group"] == "edits"]
     listed = ops.listed("edits")
@@ -95,8 +95,8 @@ def test_describe_lists_the_engines_and_spells_literals_as_json():
 
 def test_every_engine_option_says_what_it_takes():
     """`describe engines` reads what each option takes off the docstring of the method that declares it."""
-    from clab.docs import run_options
-    from clab.engines import ENGINES
+    from nnspec.docs import run_options
+    from nnspec.engines import ENGINES
 
     for name in ENGINES:
         listed = run_options(name)

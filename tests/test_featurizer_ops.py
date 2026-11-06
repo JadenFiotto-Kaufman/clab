@@ -14,14 +14,14 @@ from safetensors.torch import save_file
 from test_featurizers import every_kind
 from test_fit import TINY, chain, corpus_copy
 
-from clab import Plan, featurizers, ops
-from clab.docs import describe
-from clab.featurizers.affine import Affine
-from clab.featurizers.constant import Constant
-from clab.featurizers.gate import Gate
-from clab.format.sweeps import points
-from clab.plan import Fit, PlanError
-from clab.steps import batches
+from nnspec import Plan, featurizers, ops
+from nnspec.docs import describe
+from nnspec.featurizers.affine import Affine
+from nnspec.featurizers.constant import Constant
+from nnspec.featurizers.gate import Gate
+from nnspec.format.sweeps import points
+from nnspec.plan import Fit, PlanError
+from nnspec.steps import batches
 
 G = torch.Generator().manual_seed(3)
 H = torch.randn(3, 2, 16, generator=G)
@@ -570,7 +570,7 @@ def test_a_featurizer_sweep_that_names_one_featurizer_twice_is_refused_at_compil
 
 
 def test_a_bundle_header_a_featurizer_sweep_point_contradicts_is_refused_at_compile_naming_the_point():
-    """sae_published_jumprelu at layer 1, swept over its published dictionary (stated at layer 1) and the clab
+    """sae_published_jumprelu at layer 1, swept over its published dictionary (stated at layer 1) and the nnspec
     fixture, whose header says layer 0: refused when the document compiles, naming the point."""
     def at_layer_1(d):
         published = {**d["featurizers"]["dictionary"], "site": {"component": "layer_output", "layers": 1}}

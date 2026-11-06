@@ -1,8 +1,8 @@
-"""On a GPU: every tensor clab builds where the plan runs (positions, masks, per-row indices, token ids,
+"""On a GPU: every tensor nnspec builds where the plan runs (positions, masks, per-row indices, token ids,
 operands) meets an activation on that activation's device, and the engines run a document on `device`.
 
 The project's CPU-only suite skips this file. Where the venv's torch cannot use the driver, an env whose torch
-can, with clab installed in it, runs it with one command from the repo root:
+can, with nnspec installed in it, runs it with one command from the repo root:
 
     CUDA_VISIBLE_DEVICES=0 HF_HUB_OFFLINE=1 python -m pytest tests/test_device.py -q
 """
@@ -16,11 +16,11 @@ import torch
 from conftest import BATCH_SIZE, edited, plan_of, same
 from test_ops import taken
 
-from clab import featurizers, ops
-from clab.engines import load, standard
-from clab.format import data
-from clab.ops import metrics
-from clab.steps import batches
+from nnspec import featurizers, ops
+from nnspec.engines import load, standard
+from nnspec.format import data
+from nnspec.ops import metrics
+from nnspec.steps import batches
 
 pytestmark = pytest.mark.skipif(not torch.cuda.is_available(), reason="needs a CUDA device")
 
@@ -120,8 +120,8 @@ def test_a_batch_bound_on_the_gpu_reaches_its_values_without_the_host_waiting(mo
     whether or not one is), toward a value or toward a number, and a scale by a number, each number as `bind_ops` binds
     it (on the device, once per batch): under torch's sync debug mode set to raise, none of it raises, and each value
     is the CPU's. A mean taken off the model makes its one sync, asking whether any value is missing (`asking`)."""
-    from clab.format.sweeps import points
-    from clab.plan import entries
+    from nnspec.format.sweeps import points
+    from nnspec.plan import entries
 
     plan = plan_of("patching")
     record = entries(points(plan.steps["patched"])[0])["patch"]
@@ -201,7 +201,7 @@ def test_an_op_step_runs_without_the_host_waiting(monkeypatch):
     model is timed as the host runs it and its ops wait for nothing but the mean's one question, whether any value
     is missing (`asking`: one sync, cheaper than computing both means), and the values are a plain run's to the
     bit."""
-    from clab import steps
+    from nnspec import steps
 
     engine = load("nnterp", plan_of("mean_ablation").model, "cuda")
     want = engine.execute(plan_of("mean_ablation"), batch_size=BATCH_SIZE).results
@@ -305,7 +305,7 @@ def test_a_fit_trains_its_featurizers_where_the_model_is(monkeypatch, kind, devi
     """das's rotation is made where the model is, on `cuda` whether one device or a device map ("auto") put it
     there: at every optimizer step its parameters, their gradients and the optimizer's state are on the model's
     device, and the trained bundle still comes home on the CPU."""
-    from clab.steps import fit
+    from nnspec.steps import fit
 
     seen: set[str] = set()
 

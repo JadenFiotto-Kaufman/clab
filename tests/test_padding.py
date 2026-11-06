@@ -19,9 +19,9 @@ import pytest
 import torch
 from conftest import BATCH_SIZE, INSIDE, NAMES, THREADS, edited, placed, same
 
-from clab import Plan
-from clab.cli import main
-from clab.format.data import PADDINGS
+from nnspec import Plan
+from nnspec.cli import main
+from nnspec.format.data import PADDINGS
 
 # Measured on the corpus at the pinned 12 threads, against the `dataset` run: the largest move is 6.9e-7, in das's
 # trained basis under `sorted` (its minibatches' gradients sum over their rows in another order, every epoch), and
@@ -246,6 +246,6 @@ def test_padding_is_refused_by_name_unless_it_is_one_of_the_three(engines, capsy
         engines("hooks", plan.model).execute(plan, batch_size=BATCH_SIZE, padding="rows")
     document = os.path.join(os.path.dirname(__file__), "..", "documents", "patching.json")
     assert main(["run", document, "--padding", "rows"]) == 1
-    assert capsys.readouterr().err == "clab: padding 'rows': one of 'dataset', 'batch', 'sorted' (--padding)\n"
+    assert capsys.readouterr().err == "nnspec: padding 'rows': one of 'dataset', 'batch', 'sorted' (--padding)\n"
     assert main(["run", document, "-o", "padding=batch"]) == 1
-    assert capsys.readouterr().err == "clab: -o padding: it is given as --padding\n"
+    assert capsys.readouterr().err == "nnspec: -o padding: it is given as --padding\n"

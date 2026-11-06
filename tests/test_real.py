@@ -4,12 +4,12 @@ document's description states; and behavior and layer_sweep in bfloat16 over pro
 padding, `batch` and `sorted` feeding fewer tokens for numbers within bfloat16's rounding of the `dataset` run's.
 
 The CPU-only suite skips this file: it needs a CUDA device and the checkpoint in the local Hugging Face cache. It
-runs from a venv whose torch matches your CUDA driver, with clab installed `--no-deps` and `PYTHONPATH` at the
+runs from a venv whose torch matches your CUDA driver, with nnspec installed `--no-deps` and `PYTHONPATH` at the
 checkout, from the repo root:
 
-    uv venv --python <a python whose torch runs on your driver> --system-site-packages /tmp/clab-gpu
-    uv pip install --python /tmp/clab-gpu/bin/python --no-deps -e .
-    CUDA_VISIBLE_DEVICES=0 HF_HUB_OFFLINE=1 PYTHONPATH=. /tmp/clab-gpu/bin/python -m pytest tests/test_real.py -q
+    uv venv --python <a python whose torch runs on your driver> --system-site-packages /tmp/nnspec-gpu
+    uv pip install --python /tmp/nnspec-gpu/bin/python --no-deps -e .
+    CUDA_VISIBLE_DEVICES=0 HF_HUB_OFFLINE=1 PYTHONPATH=. /tmp/nnspec-gpu/bin/python -m pytest tests/test_real.py -q
 
 Each snapshot records the GPU and the torch and transformers it was made
 with (`made_with`), which need not be the lock's. The record is provenance, not a value: a re-pin that moves no
@@ -27,8 +27,8 @@ import transformers
 from conftest import REAL, ROOT, close, edited, placed, plain, plan_of, same, snapshot, within
 from huggingface_hub import try_to_load_from_cache
 
-from clab import Plan
-from clab.format.data import PADDINGS
+from nnspec import Plan
+from nnspec.format.data import PADDINGS
 
 KEY, REVISION = "meta-llama/Llama-3.2-1B", "4e20de362430cd3b72f300e6b0f18e50e7166e08"
 CACHED = isinstance(try_to_load_from_cache(KEY, "model.safetensors", revision=REVISION), str)

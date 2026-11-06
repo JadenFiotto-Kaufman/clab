@@ -12,11 +12,11 @@ import pytest
 from conftest import BATCH_SIZE, NAMES, REAL, ROOT, document, edited, placed, plan_of, same, snapshot
 from huggingface_hub import try_to_load_from_cache
 
-from clab import Plan, ops
-from clab.compile import make_dataset_rows, positions
-from clab.format import data, registry, selectors
-from clab.format.sweeps import agreeing_point, lookup, points
-from clab.plan import Data, PlanError
+from nnspec import Plan, ops
+from nnspec.compile import make_dataset_rows, positions
+from nnspec.format import data, registry, selectors
+from nnspec.format.sweeps import agreeing_point, lookup, points
+from nnspec.plan import Data, PlanError
 
 
 def step(plan: Plan, name: str) -> Any:
@@ -356,7 +356,7 @@ def test_an_inline_site_and_a_named_intervention_are_inlined():
 @pytest.mark.parametrize("change, message", [
     (lambda d: d["steps"]["iia"].update(op="matches"), r"steps\.iia: unknown op 'matches'; valid: swap, add"),
     (lambda d: d["sites"]["target"].update(component="block_output"),
-     r"sites\.target: unknown component 'block_output'; the components clab addresses \(`clab describe components` "
+     r"sites\.target: unknown component 'block_output'; the components nnspec addresses \(`nnspec describe components` "
      r"says what each is\): token_embeddings"),
     (lambda d: d["steps"]["patched"].update(field="input"),
      r"steps\.patched: unknown field 'field'; valid: kind, input, interventions"),
@@ -381,8 +381,8 @@ def test_an_inline_site_and_a_named_intervention_are_inlined():
     (lambda d: d["sites"]["target"].update(layers="5:2"), r"sites\.target\.layers: '5:2' picks nothing, however "
      r"many things there are$"),
     (lambda d: d["steps"]["patched"]["interventions"]["logits"].update(site={"component": "nope"}),
-     r"steps\.patched\.interventions\.logits\.site: unknown component 'nope'; the components clab addresses "
-     r"\(`clab describe components` says what each is\): token_embeddings, [a-z_, ]+, logits$"),
+     r"steps\.patched\.interventions\.logits\.site: unknown component 'nope'; the components nnspec addresses "
+     r"\(`nnspec describe components` says what each is\): token_embeddings, [a-z_, ]+, logits$"),
     (lambda d: d["data"]["pairs"].update(path=None, rows=[{"input": "x"}], split="train"),
      r"data\.pairs: 'split' is which split of a file or a hub dataset; inline 'rows' are the rows$"),
     (lambda d: d["sites"]["target"].update(layers={"sweep": [0, 0]}),
@@ -710,7 +710,7 @@ def test_columns_renames_and_keeps_every_other_column():
      r"^data\.pairs\.template: no step reads a chat column of 'pairs', and a template renders a chat \(a column "
      r"of \{'role', 'content'\} messages\) only$"),
     ({"path": "weekdays/data", "template": {"tokenize": True}},
-     r"^data\.pairs: template: a chat renders to text, which clab tokenizes; it takes no 'tokenize'$"),
+     r"^data\.pairs: template: a chat renders to text, which nnspec tokenizes; it takes no 'tokenize'$"),
 ])
 def test_a_dataset_option_that_cannot_apply_is_refused_by_name(d, message):
     with pytest.raises(PlanError, match=message):

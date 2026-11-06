@@ -2,7 +2,7 @@
 # commands docs/developing/testing.md gives, run as on the host that made the snapshots.
 #
 # nnterp 2 is a path dependency: pyproject.toml's [tool.uv.sources] names a local checkout of ndif-team/nnterp.
-# The job checks that repository out beside clab at the commit README.md names and rewrites the runner's copy of
+# The job checks that repository out beside nnspec at the commit README.md names and rewrites the runner's copy of
 # pyproject.toml to point there (the uv source, and pyright's extraPaths): uv reads a path source from
 # pyproject.toml alone, since a uv.toml may not hold `sources` and no environment variable sets one. The
 # committed file keeps the developer's path.
@@ -38,11 +38,11 @@ jobs:
     timeout-minutes: 20
     defaults:
       run:
-        working-directory: clab
+        working-directory: nnspec
     steps:
       - uses: actions/checkout@v7
         with:
-          path: clab
+          path: nnspec
 
       - uses: actions/checkout@v7
         with:

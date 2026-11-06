@@ -7,9 +7,9 @@ import re
 import pytest
 from conftest import BATCH_SIZE, ROOT, document, edited, same
 
-from clab import Plan
-from clab.compile import positions
-from clab.plan import entries
+from nnspec import Plan
+from nnspec.compile import positions
+from nnspec.plan import entries
 
 TINY = {"key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
         "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998", "dtype": "float32"}
@@ -145,13 +145,13 @@ def test_a_shared_token_column_means_one_thing_for_both_or_is_refused(engines):
 
 
 def test_a_join_to_no_row_is_refused_naming_its_cause(engines, tmp_path, capsys):
-    """Two reads of one input at positions no row holds for both (`pos` -1 and 0), saved, join to no row: `clab
+    """Two reads of one input at positions no row holds for both (`pos` -1 and 0), saved, join to no row: `nnspec
     table` refuses them in one line and exits 1, where it printed a blank line and exited 0, and `Plan.table` raises
     the same. Two reads with a layers axis meet on the layers both hold; at layers neither shares, or at a shared
     layer but no shared position, they are refused naming the cause, and so is a value with no rows axis beside a
     read at another layer. A read that reached no row (a scope the generation never says) beside one that did is
     refused saying so; alone, it tables a row per example flagged `alignment_missing`."""
-    from clab.cli import main
+    from nnspec.cli import main
 
     def at(layers, pos: int) -> dict:
         return {"site": {"component": "layer_output", "layers": layers}, "pos": pos, "ops": [{"op": "norm"}]}
@@ -169,7 +169,7 @@ def test_a_join_to_no_row_is_refused_naming_its_cause(engines, tmp_path, capsys)
     refusal = ("'f.a' and 'f.b' share no row and pos together: on no row do they hold the same pos, so they join to "
                "no row; table them one at a time, or read at a pos both hold")
     assert main(["table", str(tmp_path), "f.a", "f.b"]) == 1
-    assert capsys.readouterr() == ("", f"clab: {refusal}\n")
+    assert capsys.readouterr() == ("", f"nnspec: {refusal}\n")
     with pytest.raises(ValueError, match=f"^{re.escape(refusal)}$"):
         Plan.load(str(tmp_path)).table("f.a", "f.b")
     assert [(t["layer"], t["row"]) for t in filled.table("f.c", "f.e")] == [(0, r) for r in range(4)]

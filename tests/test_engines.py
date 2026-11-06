@@ -1,7 +1,7 @@
 """A component means one thing on every engine, which only reaches it. The nnterp engine's `readout` is the model's
 own; the hooks engine's standard form (final norm, head, softcap) agrees with it on every tiny model, Gemma-2's softcap
 included, and on a tiny Cohere, whose model scales its logits after the head, differs, as it may. What an engine
-refuses it refuses layer by layer, from the one source both read (`clab.engines.standard`), so that the engines differ
+refuses it refuses layer by layer, from the one source both read (`nnspec.engines.standard`), so that the engines differ
 only where nnterp reads a value inside a module's forward or among a module's call arguments, which the hooks engine
 refuses at every layer that has the module, and in the components each names as served where it refuses a dense
 MLP's value on a mixture of experts.
@@ -26,10 +26,10 @@ import torch
 from conftest import BATCH_SIZE, GEMMA2, HYBRID, document, plan_of, same
 from huggingface_hub import try_to_load_from_cache
 
-from clab import Plan
-from clab.engines import standard
-from clab.format.address import COMPONENTS
-from clab.plan import Model
+from nnspec import Plan
+from nnspec.engines import standard
+from nnspec.format.address import COMPONENTS
+from nnspec.plan import Model
 
 TINY = {"llama": plan_of("patching").model.model_dump(), "gpt2": plan_of("gpt2_reach").model.model_dump(),
         "qwen3": {"key": "trl-internal-testing/tiny-Qwen3ForCausalLM",
@@ -62,7 +62,7 @@ def test_the_pad_token_id_warning_is_filtered_off_the_logger_that_emits_it_and_n
     drops the one warning a `pad_token_id: -1` config emits, and passes every other message."""
     import logging
 
-    from clab.engines import standard
+    from nnspec.engines import standard
 
     engines("nnterp", plan_of("patching").model)
     logger = logging.getLogger("transformers.configuration_utils")
@@ -192,7 +192,7 @@ def test_a_dense_mlp_value_on_a_mixture_of_experts_is_refused_naming_what_the_bl
     """The hybrid's MLPs are mixtures of experts, which have no single activation: `mlp_activation` at a block is
     refused saying so and naming the MLP's components the engine serves at that block, its routing and experts' on
     nnterp, the routed sum alone on hooks, in place of nnterp's advice to read its own `Moe` component
-    (`standard.ROUTED`, a copy of nnterp's text, which clab replaces with the names of that component's values)."""
+    (`standard.ROUTED`, a copy of nnterp's text, which nnspec replaces with the names of that component's values)."""
     from nnterp.components import moe
 
     assert standard.ROUTED == moe.ROUTED

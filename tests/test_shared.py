@@ -28,11 +28,11 @@ import torch
 from conftest import BATCH_SIZE, INSIDE, NAMES, TRIP, document, plan_of, same, stand_in
 from test_efficiency import at, counting
 
-from clab import Plan
-from clab.compile import schedule
-from clab.format.sweeps import coordinate, coordinate_text, find_sweeps, points, projection
-from clab.plan import Fit, Forward, entries, horizon, record_of, runnable, serving
-from clab.steps import batches, fit
+from nnspec import Plan
+from nnspec.compile import schedule
+from nnspec.format.sweeps import coordinate, coordinate_text, find_sweeps, points, projection
+from nnspec.plan import Fit, Forward, entries, horizon, record_of, runnable, serving
+from nnspec.steps import batches, fit
 
 
 def doc_of(name: str, change: Callable[[dict], None] | None = None) -> dict:
@@ -508,7 +508,7 @@ def test_an_entry_read_only_for_a_write_of_its_own_forward_keeps_none_of_its_bat
     def join(state, name, *args, **kwargs):
         joined.append(name)
         return batches.join_batches(state, name, *args, **kwargs)
-    monkeypatch.setattr("clab.steps.join_batches", join)
+    monkeypatch.setattr("nnspec.steps.join_batches", join)
     freed, kept = gpt2_doc(LIVE), gpt2_doc(LIVE)
     freed["saves"] = ["lens.added"]
     plan, saved = compiled("gpt2_reach", freed), compiled("gpt2_reach", kept)

@@ -17,13 +17,13 @@ import json
 import pytest
 from conftest import BATCH_SIZE, TRIP, same, stand_in
 
-from clab import Plan
-from clab.cli import main
-from clab.compile import dataset_rows
-from clab.compile.preflight import preflight
-from clab.format import data
-from clab.plan import PlanError
-from clab.steps import start_run
+from nnspec import Plan
+from nnspec.cli import main
+from nnspec.compile import dataset_rows
+from nnspec.compile.preflight import preflight
+from nnspec.format import data
+from nnspec.plan import PlanError
+from nnspec.steps import start_run
 
 REV = "bcdcba79d07bc864c1c254ccfcedcce55bcc9a8c"
 GLUE = {"hf": "nyu-mll/glue", "revision": REV, "config": "wnli", "split": "validation"}

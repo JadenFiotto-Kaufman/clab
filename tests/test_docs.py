@@ -10,17 +10,17 @@ Offline, on CPU, no model loaded, in seconds: `uv run pytest tests/test_docs.py 
 * each line of a section's `index.md` (`docs/errors/index.md` aside, whose lines are refusals) that routes to a page
   beside it, `- [text](page.md) — description`, has that page's front-matter `one_liner` as its description, word
   for word: the page's front matter is the one place its line is written;
-* a repo path in backticks exists: one under `clab/`, `tests/`, `documents/`, `data/` or `docs/` with a file
-  extension or a trailing slash, any other `.py` path with a slash (read from the repo root or from `clab/`), and a
+* a repo path in backticks exists: one under `nnspec/`, `tests/`, `documents/`, `data/` or `docs/` with a file
+  extension or a trailing slash, any other `.py` path with a slash (read from the repo root or from `nnspec/`), and a
   root file named in capitals (`FORMAT.md`) or `pyproject.toml`;
-* a symbol cited beside its `.py` file (`clab/compile/positions.py` `lands_at_call`, and the other forms
+* a symbol cited beside its `.py` file (`nnspec/compile/positions.py` `lands_at_call`, and the other forms
   `PATH_THEN_SYMBOL` and `SYMBOL_THEN_PATH` accept) is defined in that file: a def, a class, an assignment or an
   import;
 * nothing is cited by line number (`plan.py:123`, `#L123`): line numbers drift, so code is cited by path and
   symbol;
 * none of `BANNED` appears, case-insensitively: machine and user names, home paths, and planning files that are
   temporary or gone;
-* every refusal in `clab/` has a row in `docs/errors/index.md` that quotes its opening phrase
+* every refusal in `nnspec/` has a row in `docs/errors/index.md` that quotes its opening phrase
   (`test_every_refusal_has_a_row_in_the_errors_index` says how the phrase is read);
 * every fenced ```json block that holds an object with both `model` and `steps` is a complete document, and
   compiles with the document alone: it is written into the suite's copy of the corpus (`corpus` in conftest.py,
@@ -46,7 +46,7 @@ import pytest
 import yaml
 from conftest import ROOT as ROOT_DIR
 
-from clab.plan import Plan
+from nnspec.plan import Plan
 
 ROOT = Path(ROOT_DIR)
 GUIDES = ("CLAUDE.md", "AGENTS.md", "README.md", "FORMAT.md")
@@ -55,17 +55,17 @@ GUIDES = ("CLAUDE.md", "AGENTS.md", "README.md", "FORMAT.md")
 LINE_CITATION_BASELINE = 0
 LINE_CITATION = re.compile(r"\.(?:py|sh|yml|yaml|toml|json|md)(?::\d|#L\d)")
 
-# Terms no page may carry, as case-insensitive patterns. One is written in two parts so that a search of the repo
-# for it finds nothing, this file included.
+# Terms no page may carry, as case-insensitive patterns. Two are written in two parts so that a search of the repo
+# for them finds nothing, this file included.
 BANNED = (
     r"hakone", r"bippu", r"localjadenfk", r"\bndif2\b", r"/disk/",
     r"\b(?:mini|ana)?conda",            # conda, miniconda, anaconda; not "secondary"
     r"~/wd", "causa" "lab", r"\bCHARTER\.md", r"\bROADMAP\.md", r"\bNNTERP\.md", r"\bPLAN\.md", r"\bDESIGN\.md",
-    r"clab-trials",
+    "cl" "ab-trials",
 )
 
 EXTENSIONS = ("py", "json", "md", "toml", "txt", "yml", "yaml", "cfg", "ini", "sh")
-REPO_DIRS = ("clab/", "tests/", "documents/", "data/", "docs/")
+REPO_DIRS = ("nnspec/", "tests/", "documents/", "data/", "docs/")
 # Paths that name files in other packages, not this repo.
 EXTERNAL = ("nnsight/", "nnterp/", "transformers/", "torch/", "src/")
 FILE_TOKEN = re.compile(r"^[\w.\-/]*[\w\-]\.(?:" + "|".join(EXTENSIONS) + r")$")
@@ -270,7 +270,7 @@ def cited_paths(path: Path):
                 yield number, token, ()
             elif (token.endswith(".py") and "/" in token and FILE_TOKEN.match(token)
                   and not token.startswith((*EXTERNAL, ".", "/"))):
-                yield number, token, ("clab",)
+                yield number, token, ("nnspec",)
 
 
 def test_cited_paths_exist():
@@ -309,7 +309,7 @@ def test_cited_symbols_are_defined():
     wrong = []
     for path in doc_files():
         for number, cited, symbol in symbol_citations(path):
-            file = located(cited, "clab", "tests")
+            file = located(cited, "nnspec", "tests")
             if file is None or not file.is_file():
                 wrong.append(f"{rel(path)}:{number} `{cited}` `{symbol}` (no such file)")
                 continue
@@ -327,7 +327,7 @@ def test_no_line_number_citations():
              for _ in LINE_CITATION.finditer(line)]
     assert len(found) <= LINE_CITATION_BASELINE, (
         f"{len(found)} line-number citations, baseline {LINE_CITATION_BASELINE}: cite path + symbol instead "
-        f"(`clab/compile/positions.py` `lands_at_call`). {found[:10]}")
+        f"(`nnspec/compile/positions.py` `lands_at_call`). {found[:10]}")
 
 
 # --------------------------------------------------------------------------- banned terms
@@ -359,7 +359,7 @@ def message_text(node: ast.expr) -> str:
 
 
 def test_every_refusal_has_a_row_in_the_errors_index():
-    """Every refusal in `clab/`, the message of a `fail(path, message)`, `raise ValueError(message)` or `raise
+    """Every refusal in `nnspec/`, the message of a `fail(path, message)`, `raise ValueError(message)` or `raise
     PlanError(message)` (each branch of a conditional one), has a row in docs/errors/index.md. A row's key quotes a
     message's first clause, its text before the first `;`, and may stop at a `:`, a `,` or a parenthesis; so the
     message's opening phrase is that clause's first run of two words or more between placeholders and those marks,
@@ -368,7 +368,7 @@ def test_every_refusal_has_a_row_in_the_errors_index():
     keys = [" ".join(span.split()) for _, line in prose_lines(ROOT / "docs/errors/index.md")
             if line.startswith("| `") for span in code_spans(line.split(" | ")[0])]
     missing = []
-    for file in sorted((ROOT / "clab").rglob("*.py")):
+    for file in sorted((ROOT / "nnspec").rglob("*.py")):
         for node in ast.walk(ast.parse(file.read_text())):
             if isinstance(node, ast.Raise) and isinstance(node.exc, ast.Call) and node.exc.args \
                     and getattr(node.exc.func, "id", None) in ("ValueError", "PlanError"):
