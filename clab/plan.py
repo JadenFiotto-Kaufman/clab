@@ -513,8 +513,9 @@ class Pos(Record):
     is each row's generated inputs through its first `</think>`, and `count` of a read there is the thinking's
     length in tokens (all its inputs on a row that never closes it). The scope is the frame's: an occurrence that
     holds none of the frame's tokens is not one of its own, so over `"2:"` a text said at call 1 is not found and
-    until is the whole frame, as on a row that never says it. An until scope has no width compile can fix, so it
-    pairs with no other forward's value. With `before` its frame is decode calls: over a frame that holds the prompt it would start before
+    until is the whole frame, as on a row that never says it. An until scope has no width compile can fix, and
+    two values of different reads pair only at a fixed width, whether one forward or two made them. With `before`
+    its frame is decode calls: over a frame that holds the prompt it would start before
     the frame's first token (position 0, or at a generation's head the prompt's last, before which its prefill
     computes no head) and name no position on any row, so compile refuses it. A write's positions beyond the
     prefill are decided call by call, as each runs, and until names positions up to an occurrence not yet seen
@@ -541,8 +542,9 @@ class Pos(Record):
     `"-3:"`, `"2:5"`; see `selectors.fixed`), and a scope, if it has one, is one occurrence in the prefill and not
     `until`; compile writes it. Any other record's width is open at compile, and a prefill record's is the number
     every row's positions hold where preflight resolves them and they agree; where rows hold different numbers the
-    value is as wide as the widest row, NaN past a row's own. Only pairing with another forward's value needs the
-    width to be one number: compile refuses the pair wherever the `pos` leaves it open, except for a scope of one
+    value is as wide as the widest row, NaN past a row's own. Only pairing with another read's value needs the
+    width to be one number, since two values of different reads pair only at a fixed width, whether one forward or
+    two made them: compile refuses the pair wherever the `pos` leaves it open, except for a scope of one
     occurrence in the prefill, not `until` (the whole scope, or an index of no static width over it), which its rows
     decide; where they disagree it is refused by name, with each count's rows, in preflight, or at compile for a
     loaded read, which carries its rows' positions. In the prefill (`frame: 0`) an occurrence a row does not have,
@@ -628,7 +630,7 @@ class Labelled(Record):
                                       "positions hold once they are resolved (a prefill read's by preflight, a "
                                       "loaded read's by its run), where they agree. Null where rows hold different "
                                       "numbers of positions, where none are resolved yet, or there is no `pos` "
-                                      "axis. Only pairing with another forward's value needs it to be one number")
+                                      "axis. Only pairing with another read's value needs it to be one number")
     kept: dict[str, selectors.Kept] = derived({}, "the indices a site's `select` keeps on each axis it selects, in "
                                                   "their order (`key`: the keys it picks, or `{\"offset\": [...]}`, "
                                                   "those relative to each query). An op step's are those of the "

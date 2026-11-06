@@ -35,7 +35,7 @@ steps.patched.interventions.patch.ops[0].with: 'counterfactual.v_cf' has no widt
 steps.patched.interventions.patch.ops[0].with: the value 'swap' acts on has no width compile can fix (an open index, an `until` scope, several occurrences), …
 ```
 
-In the first the operand's width is open, in the second the write's. A side whose `pos` leaves its width open pairs with no value of another read, whatever the prompts; [positions.md](../usage/positions.md#static-width-or-ragged) lists which `pos` forms do. One occurrence of a scope in the prefill is the exception, since its rows say its width ([the next section](#-a-scoped-read-pairs-with-another-forwards-value-when-every-rows-scope-holds-the-same-number-of-tokens)). The fixes:
+In the first the operand's width is open, in the second the write's. A side whose `pos` leaves its width open pairs with no value of another read, whatever the prompts; [positions.md](../usage/positions.md#static-width-or-ragged) lists which `pos` forms do. One occurrence of a scope in the prefill is the exception, since its rows say its width ([the next section](#-which-a-scoped-read-has-where-every-rows-scope-holds-the-same-number-of-tokens)). The fixes:
 
 - read both at a static index without a scope (`"index": -1`, `"index": "-3:"`);
 - read at one occurrence of a scope in the prefill;
@@ -45,10 +45,10 @@ In the first the operand's width is open, in the second the write's. A side whos
 
 A read at a decode call holds 0 or 1 positions per row, since a row may stop before that call. So it pairs with nothing: `kl` or `js` with it on either side is refused with the first message. Score a decode read on its own, with `argmax` or a metric against a one-token answer column.
 
-## `… a scoped read pairs with another forward's value when every row's scope holds the same number of tokens`
+## `… which a scoped read has where every row's scope holds the same number of tokens`
 
 ```text
-patched.patch: operand 'counterfactual.v_cf' holds 1 position on rows 0-1, 3 and 3 positions on row 2; a scoped read pairs with another forward's value when every row's scope holds the same number of tokens: pick one with 'index' (-1, or '-2:'), or reduce it
+patched.patch: operand 'counterfactual.v_cf' holds 1 position on rows 0-1, 3 and 3 positions on row 2; two values of different reads pair only at a fixed width, whether one forward or two made them, which a scoped read has where every row's scope holds the same number of tokens: pick one with 'index' (-1, or '-2:'), or reduce it
 patched.patch: operand 'counterfactual.v_cf' meets the value 'swap' acts on, which holds 3 positions on row 0 and 1 position on rows 1-3; …
 steps.patched.interventions.patch.ops[0].with: 'counterfactual' holds 1 position on rows 0-1, 3 and 3 positions on row 2; …
 ```

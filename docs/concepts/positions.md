@@ -53,7 +53,7 @@ A write with a `text` or `column` scope over decode calls is **found online** (`
 
 Positions are decided per row, so the number of positions a `pos` names can differ by row. When the `pos` alone fixes that number, the record has a **static width**: every row holds that many positions and the value is `(rows, width, ...)`. Otherwise compile leaves the width open. In the prefill, preflight, which tokenizes the prompts, then records the number every row's positions hold where they agree. Where they disagree the record is **ragged**: as wide as its widest row, each row's positions first in their order, NaN after them ([values-and-layout.md](values-and-layout.md#missing-entries)).
 
-A static width is a promise the data must keep; a recorded one is what the data says. One occurrence of a scope in the prefill, not `until`, is the one open width allowed to pair with another forward's value (`clab/compile/positions.py` `pending_width`). Only the tokenizer can count it, so preflight confirms it from the rows. Which forms pair is [usage/positions.md](../usage/positions.md#static-width-or-ragged); the refusals are [operand-does-not-fit.md](../errors/operand-does-not-fit.md).
+A static width is a promise the data must keep; a recorded one is what the data says. One occurrence of a scope in the prefill, not `until`, is the one open width allowed to pair with another read's value (`clab/compile/positions.py` `pending_width`): two values of different reads pair only at a fixed width, whether one forward or two made them. Only the tokenizer can count it, so preflight confirms it from the rows. Which forms pair is [usage/positions.md](../usage/positions.md#static-width-or-ragged); the refusals are [operand-does-not-fit.md](../errors/operand-does-not-fit.md).
 
 ## Decided by the data, or a result
 
@@ -62,7 +62,7 @@ What a record names in the prefill depends on the prompt alone, so preflight res
 - a row whose prompt lacks the scope's text, but for an `until` scope, which takes the whole frame there;
 - a row with fewer occurrences than `occurrence` picks, with the same exception;
 - a row too short for a static index;
-- a scope another forward's value pairs with, where its rows hold different numbers of positions, naming each count's rows;
+- a scope another read's value pairs with, where its rows hold different numbers of positions, naming each count's rows;
 - an unscoped position read on one input and written on another, on a row where the two differ in length: a position pairs across prompts of different lengths only where every token between it and the end it is counted from is the same on both, whatever the two tokens it pairs (`clab/compile/interventions.py` `check_window`).
 
 The document cannot be what was meant.

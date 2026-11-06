@@ -409,8 +409,8 @@ def test_a_write_with_a_static_width_refuses_an_operand_whose_rows_disagree(engi
     for pos in ({"index": "-3:"}, {"scope": {"column": "prompts.entity"}, "index": ":"}):
         text, forwards = refused(engines, edited("entity_mean_ablation", lambda d: change(pos, d)).compile())
         assert text == "ablated.ablate: operand 'harvest.acts' holds 3 positions on row 0 and 1 position on rows 1-3; " \
-            "a scoped read pairs with another forward's value when every row's scope holds the same number of " \
-            "tokens: pick one with 'index' (-1, or '-2:'), or reduce it" and forwards == 0, text
+            "two values of different reads pair only at a fixed width, whether one forward or two made them, " \
+            "which a scoped read has where every row's scope holds the same number of tokens: pick one with 'index' (-1, or '-2:'), or reduce it" and forwards == 0, text
 
 
 def test_a_whole_scope_operand_is_refused_by_preflight_naming_the_rows_that_differ(engines):
@@ -426,8 +426,8 @@ def test_a_whole_scope_operand_is_refused_by_preflight_naming_the_rows_that_diff
     for kind in ("nnterp", "hooks"):
         text, forwards = refused(engines, plan, kind)
         assert text == "patched.patch: operand 'counterfactual.v_cf' holds 1 position on rows 0-1, 3 and 3 positions " \
-            "on row 2; a scoped read pairs with another forward's value when every row's scope holds the same " \
-            "number of tokens: pick one with 'index' (-1, or '-2:'), or reduce it" and forwards == 0, text
+            "on row 2; two values of different reads pair only at a fixed width, whether one forward or two made " \
+            "them, which a scoped read has where every row's scope holds the same number of tokens: pick one with 'index' (-1, or '-2:'), or reduce it" and forwards == 0, text
 
 
 def test_a_whole_scope_write_is_named_as_what_its_operand_meets(engines):
@@ -438,8 +438,8 @@ def test_a_whole_scope_write_is_named_as_what_its_operand_meets(engines):
         del d["steps"]["patched"]["interventions"]["patch"]["pos"]["index"]
     text, forwards = refused(engines, edited("entity_patch", whole_write).compile())
     assert text == "patched.patch: operand 'counterfactual.v_cf' meets the value 'swap' acts on, which holds 3 " \
-        "positions on row 0 and 1 position on rows 1-3; a scoped read pairs with another forward's value when every " \
-        "row's scope holds the same number of tokens: pick one with 'index' (-1, or '-2:'), or reduce it" and \
+        "positions on row 0 and 1 position on rows 1-3; two values of different reads pair only at a fixed width, " \
+        "whether one forward or two made them, which a scoped read has where every row's scope holds the same number of tokens: pick one with 'index' (-1, or '-2:'), or reduce it" and \
         forwards == 0, text
 
     def scored(d):

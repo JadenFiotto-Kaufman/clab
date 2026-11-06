@@ -37,7 +37,7 @@ The positions are absolute, counted from each row's BOS. On prompts of different
 
 Row 0's prompt is `<s> ▁If ▁today ▁is ▁Th urs day , ▁tom orrow ▁is`, positions 0 to 10. `documents/chat_turn.json` holds the chat around it, and `documents/forced_answer.json` has rows of its own, so its row names two landings. A row that names a corpus document gives that document's record; the others are the same prompt read at that `pos`.
 
-The last column says whether a read at that `pos` pairs, position by position, with a value of another forward: yes; no; or where rows agree, which means where every row's scope holds as many tokens ([static width or ragged](#static-width-or-ragged)).
+The last column says whether a read at that `pos` pairs, position by position, with a value of another read, of this forward or another: yes; no; or where rows agree, which means where every row's scope holds as many tokens ([static width or ragged](#static-width-or-ragged)).
 
 | you mean | `pos` | lands on row 0 (document) | pairs |
 |---|---|---|---|
@@ -78,7 +78,7 @@ A `scope` names text, and `index` then counts that text's tokens. `{"column": "<
 - **The scope searches its frame only.** Over `"frame": "2:"`, a word fed as an input at call 1 is not found, and the row gets the whole frame.
 - **With `before`, it is the positions that predict those tokens**: in a generation, the calls that chose them.
 - **`until` with `before` takes a frame of decode calls** (`"1:"`). Over a frame that holds the prompt it is refused at compile: `frame ':' holds the prompt, and until with before starts before the frame's first token, …`.
-- **An `until` scope has no static width** and pairs with no other forward's value.
+- **An `until` scope has no static width**, and two values of different reads pair only at a fixed width, whether one forward or two made them.
 - **A write beyond the prefill cannot take an `until` scope**: `a write's positions beyond the prefill are decided call by call, …`. A read can, and so can a write in the prefill.
 - **A `count` over `pos` of an `until` read is a length in tokens.** A thinking trace's length is that recipe ([generation experiments](../patterns/generation-experiments.md#a-reasoning-traces-length-count-of-an-until-read)).
 
@@ -88,7 +88,7 @@ A `scope` names text, and `index` then counts that text's tokens. `{"column": "<
 - **Read the head with `before` to score a word.** Each position is scored against the next token ([ops.md](ops.md#metrics)).
 - **Teacher-force an answer by appending it** (`"input": ["days.input", "days.base_answer"]`) and scoping it with `"occurrence": -1`, so a prompt that also says the word is not picked. `documents/forced_answer.json` does this; its landings are the table's row.
 - **A scope whose first token is position 0 has nothing before it.** In the prefill that is refused; beyond it the row is `alignment_missing`.
-- **One occurrence of a `before` scope in the prefill pairs** with another forward's value where every row holds as many tokens, as the scope without `before` does.
+- **One occurrence of a `before` scope in the prefill pairs** with another read's value where every row holds as many tokens, as the scope without `before` does.
 
 ## Chat turns
 
@@ -105,9 +105,9 @@ In a `generate` step, `frame` picks forward calls; which token each call holds i
 
 ## Static width or ragged
 
-A read pairs, position by position, with a value of another forward only where its width is fixed: by the `pos` at compile, or by the rows of one scope occurrence in preflight. Which `pos` forms fix it:
+Two values of different reads pair, position by position, only at a fixed width, whether one forward or two made them. The width is fixed by the `pos` at compile, or by the rows of one scope occurrence in preflight. A write's operand from its own forward is compared row by row instead. Which `pos` forms fix it:
 
-| `pos` form | its width | pairs with another forward's value |
+| `pos` form | its width | pairs with another read's value |
 |---|---|---|
 | a static index over a frame of a fixed number of calls: an int, picks, or a slice whose two ends count from one side (`-1`, `[-1, 0]`, `"-4:-1"`, `"-3:"`, `{"frame": -1, "index": -1}`, `{"frame": 3, "index": 0}`) | static: the `pos` fixes it, and compile writes it | yes |
 | such an index on one occurrence of a scope in the prefill, not `until` (`{"scope": {"column": "pairs.entity"}, "index": -1}`) | static | yes |

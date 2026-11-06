@@ -230,8 +230,8 @@ def test_a_loaded_whole_scope_whose_rows_disagree_is_refused_at_compile_with_the
         written(root, "patched_from_whole_scope", corpus("entity_patch", change))
     assert str(e.value) == (
         "steps.patched.interventions.patch.ops[0].with: 'counterfactual' holds 1 position on rows 0-1, 3 and 3 "
-        "positions on row 2; a scoped read pairs with another forward's value when every row's scope holds the same "
-        "number of tokens: pick one with 'index' (-1, or '-2:'), or reduce it")
+        "positions on row 2; two values of different reads pair only at a fixed width, whether one forward or two "
+        "made them, which a scoped read has where every row's scope holds the same number of tokens: pick one with 'index' (-1, or '-2:'), or reduce it")
 
 
 def test_a_loaded_chat_read_renders_with_the_runs_template(engines, root, monkeypatch):

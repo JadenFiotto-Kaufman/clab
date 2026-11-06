@@ -1134,6 +1134,20 @@ def test_sk2_two_open_reads_of_one_forward_in_an_op_step_are_refused_as_two_read
     assert points(two({"index": "-3:"}).compile().steps["diff"])[0].width == 3
 
 
+def test_sk2_two_scoped_reads_of_one_forward_whose_rows_disagree_are_refused_as_two_reads(engines):
+    """skills review: an op step over two whole-entity reads of one forward was refused as a scoped read pairing
+    "with another forward's value"; preflight names the rows that differ and the two reads, whichever forward made
+    them."""
+    scope = {"scope": {"column": "d.entity"}}
+    compiled = plan(data={"d": {"path": "weekdays/train"}}, steps={
+        "f": forward({"a": {"site": LAYER0, "pos": scope}, "b": {"site": {**LAYER0, "layers": 1}, "pos": scope}}),
+        "diff": {"kind": "op", "op": "sub", "of": "f.a", "with": "f.b"}}, saves=["diff"]).compile()
+    refused_before_any_forward(engines, compiled, r"^diff: operand 'f\.b' holds 3 positions on row 0 and 1 position "
+                               r"on rows 1-3; two values of different reads pair only at a fixed width, whether one "
+                               r"forward or two made them, which a scoped read has where every row's scope holds the "
+                               r"same number of tokens: ")
+
+
 def test_m5_o2_argmax_ranks_the_axis_over_names_and_one_the_value_lacks_is_refused():
     """trial-04 r01: `argmax` over an encode's features said it ranks a vocabulary only; `over` names the axis it
     ranks, `vocab_size` by default, and one the value lacks is refused by name."""
