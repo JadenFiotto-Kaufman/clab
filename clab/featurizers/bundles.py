@@ -61,8 +61,7 @@ def recorded(layer: str | None) -> list[int | None]:
 
 def selection(header: dict[str, str]) -> dict[str, Any]:
     """The indices a bundle's site kept on each axis it selects, as its header's `select` records them; none, the
-    whole component, where the header has no `select`: one made at a site that selects nothing, or before headers
-    recorded a selection, which is taken to be the whole component."""
+    whole component, where the header has no `select`, as one made at a site that selects nothing has none."""
     return json.loads(header.get("select") or "{}")
 
 

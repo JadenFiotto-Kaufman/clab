@@ -96,7 +96,7 @@ def select_mismatch(name: str, f: Featurizer, read: Intervention) -> str | None:
     """Why the bundle `f` loads may not be used at `read`: its header's `select` is not the indices `read`'s site
     keeps on each axis it selects (`Intervention.kept`), with no `select` the whole component; None where they are
     the same, and for a featurizer with no clab header. An axis a gate's header records as `kept.<axis>` is that
-    record's to check (`check_gate_axes`), here as in a header written before `select` was. A bundle trained at one
+    record's to check (`check_gate_axes`). A bundle trained at one
     head applied at another would run and mean nothing."""
     gated = {key.partition(".")[2] for key in f.header or {} if key.startswith("kept.")}
     used = {a: v for a, v in read.kept.items() if a not in gated}
@@ -104,7 +104,7 @@ def select_mismatch(name: str, f: Featurizer, read: Intervention) -> str | None:
         return None
     site, file = cast(Site, read.site), (f.model_extra or {})["file_path"]
     said = f"header 'select' is {f.header['select']!r}" if "select" in f.header else \
-        "header has no 'select': it was made at the whole component, or before headers recorded a selection"
+        "header has no 'select': it was made at the whole component"
     keeps = f"whose selection keeps {', '.join(f'{a} {v}' for a, v in used.items())}" if used else \
         "which selects nothing"
     return f"{file}: {said}; this document uses {name!r} at {site.component} layer {site.layers!r}, {keeps}"
@@ -312,7 +312,7 @@ def check_input_site(plan: Plan, where: str, at: dict, f: Featurizer, o: Op | Op
     file = (f.model_extra or {})["file_path"]
     if recorded is None and given is not None:
         raise ValueError(f"{where}: {file}'s header records no input site (with.component): it was trained on its "
-                         "own site's value, or before bundles recorded a 'with'; retrain it with this 'with'")
+                         "own site's value; retrain it with this 'with'")
     if recorded is None:
         return
     if given is None:

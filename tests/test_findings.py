@@ -551,8 +551,8 @@ def test_s20_a_cross_site_adapter_records_its_input_site_and_loads_only_reading_
     save_file(tensors, file, metadata={k: v for k, v in header.items() if not k.startswith("with.")})
     refused_before_any_forward(engines, cross_site(root, {"a": adapted("a", "oproj")}, loaded, ["a.logits"]),
                                r"a\.adapt: documents/artifacts/fit\.oproj\.safetensors's header records no input "
-                               r"site \(with\.component\): it was trained on its own site's value, or before bundles "
-                               r"recorded a 'with'; retrain it with this 'with'$")
+                               r"site \(with\.component\): it was trained on its own site's value; retrain it with "
+                               r"this 'with'$")
 
 
 def published_sae(sites: dict | None = None, **stated) -> Plan:

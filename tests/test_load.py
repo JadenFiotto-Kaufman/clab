@@ -379,8 +379,8 @@ def test_a_manifest_from_before_value_axes_is_refused(root, capsys):
         del record["axes"]
     with open(os.path.join(old, "manifest.json"), "w") as f:
         json.dump(held, f)
-    said = ("manifest.json predates the sweep axes a saved value's record holds ('axes'), so it does not say which "
-            "sweeps its values depend on; rerun the document that wrote it")
+    said = ("manifest.json: a saved value's record holds no 'axes', so it does not say which sweeps its values "
+            "depend on; rerun the document that wrote it")
     with pytest.raises(ValueError) as e:
         Plan.load(old)
     assert str(e.value) == f"{old}/{said}"
@@ -397,8 +397,7 @@ def test_a_run_directory_without_its_tokens_is_refused_by_name_where_a_load_stil
     old = os.path.join(root, "out", "notokens")
     shutil.copytree(os.path.join(root, "out", "pca_harvest"), old, dirs_exist_ok=True)
     os.remove(os.path.join(old, "tokens.json"))
-    said = (f"{old}/tokens.json is missing, and the manifest holds no tokens; a run this clab wrote has one beside "
-            "its manifest, so rerun the document that wrote it")
+    said = f"{old}/tokens.json is missing, and the manifest holds no tokens: rerun the document that wrote it"
     with pytest.raises(FileNotFoundError) as e:
         Plan.load(old)
     assert str(e.value) == said
@@ -421,8 +420,8 @@ def test_a_manifest_from_before_a_fits_evals_were_steps_is_refused_naming_the_fi
     del held["steps"]["fit"]["evals"]
     with open(os.path.join(old, "manifest.json"), "w") as f:
         json.dump(held, f)
-    said = ("manifest.json predates a fit's evals as steps ('evals'), so its fit 'fit' does not hold its evals' "
-            "records; rerun the document that wrote it")
+    said = ("manifest.json: fit 'fit' has an 'eval' and no 'evals', so it holds no record of its evals' values; "
+            "rerun the document that wrote it")
     with pytest.raises(ValueError) as e:
         Plan.load(old)
     assert str(e.value) == f"{old}/{said}"
