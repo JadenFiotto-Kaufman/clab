@@ -223,10 +223,11 @@ def top_k(of: Tensor, k: int, dims: list[str], over: str | list[str] = RANKED
     logits (as a step, its value also holds their `tokens`, decoded); over `features`, a featurizer's coordinates
     after an `encode`. Along a ragged axis (a pattern's `key`, a `pos` whose rows hold different numbers of
     positions) the entries that are there are ranked, and a pick past them is id -1, however large `k` is. A `k`
-    below 1 is refused by name at compile. So is one past the entries of a ranked axis whose number compile knows: a
-    `select`'s indices, the layers picked from the first, a static width of `pos`, the dataset's rows (in a fit's
-    body, those its fewest-row run holds), a probe's classes, the coordinates of a featurizer that counts them (a
-    subspace's or a pca's `k`, an sae's `latents`, a loaded bundle's) and an earlier `top_k` step's `k`. Preflight
+    below 1 is refused by name at compile. So is one past the entries of a ranked axis whose number compile knows:
+    a `select`'s indices, the layers picked from the first, a static width of `pos`, the dataset's rows (in a fit's
+    body, those its fewest-row run holds) and a probe's classes. Compile knows too the coordinates of a featurizer
+    that counts them (a subspace's or a pca's `k`, an sae's `latents`, a loaded bundle's) and an earlier `top_k`
+    step's `k`. Preflight
     refuses one past the model's size of the axis (`vocab_size`, `hidden_size`, `num_heads`, ...), the layers a
     slice or a count from the last picks, or a width the rows confirm. Along an axis neither knows the number of (a
     drawn gate's coordinates, a generation's `new`, a fit's `epochs`, a load's `k`), torch's error stops the op at
