@@ -44,7 +44,9 @@ def table(plan: Plan, names: tuple[str, ...], columns: list[str] | None) -> list
     broadcasts over an axis it leaves out (an unswept number sits beside every row, a swept one beside every row at
     each of its points, a history over `epochs` beside every row at each epoch), the first value's columns first
     and the joined `at` both points' coordinates; a shared `pos` or `key` that does not mean one thing for both,
-    counting the positions of different inputs or a plain index beside a token position, is refused by name.
+    counting the positions of different inputs or a plain index beside a token position, is refused by name. So is a
+    join to no row of two values that each have rows, naming why (`unjoined`): reads of one input at positions no
+    row holds for both, at layers neither shares, or a read that reached no row.
     """
     run = run_record(plan)
     by_dataset: dict[str, str] = {}             # the dataset each value has a row per example of, as its record says
@@ -126,7 +128,37 @@ def join(left: list[dict[str, Any]], mine: tuple[list[str], list[str], str | Non
                 merged = {"at": {**a.get("at", {}), **b.get("at", {})},
                           **{k: v for k, v in merged.items() if k != "at"}}
             out.append(merged)
+    if not out and left and right:
+        raise ValueError(unjoined(left, right, axes, x, y))
     return out
+
+
+def unjoined(left: list[dict[str, Any]], right: list[dict[str, Any]], axes: list[str], x: str, y: str) -> str:
+    """Why `left` (the rows of the values `x`) and `right` (those of `y`), each with rows, join to none on the axis
+    columns `axes` they share, as `join`'s refusal says: one side reached no row (each row `alignment_missing`, with
+    no position to meet); a column whose values the two hold none of in common (two reads at different layers);
+    else the columns together (two reads of one input at positions no row holds for both)."""
+    for rows, named in ((left, x), (right, repr(y))):
+        if any(a in ("pos", "key") for a in axes) and all(positions.MISSING in r for r in rows):
+            return (f"{named} reached no row (each is {positions.MISSING}), so it holds no position to meet the "
+                    f"other's and they join to no row; table them one at a time")
+
+    def held(rows: list[dict[str, Any]], column: str) -> list[Any]:
+        return list({json.dumps(r.get(column)): r.get(column) for r in rows}.values())
+    apart = next((c for c in axes if c not in ("row", "pos", "key") and not
+                  {json.dumps(v) for v in held(left, c)} & {json.dumps(v) for v in held(right, c)}), None)
+    if apart is not None:
+        return (f"{x} and {y!r} share no {apart}: {x} holds {apart} {sorted(held(left, apart), key=str)} and {y!r} "
+                f"{apart} {sorted(held(right, apart), key=str)}, so they join to no row; table them one at a time, "
+                f"or read at a {apart} both hold")
+    def listed(columns: list[str]) -> str:
+        return " and ".join([", ".join(columns[:-1]), columns[-1]] if len(columns) > 1 else columns)
+    tokens = next((c for c in axes if c in ("pos", "key")), None)
+    if tokens is None or "row" not in axes:
+        return f"{x} and {y!r} share no {listed(axes)} together, so they join to no row; table them one at a time"
+    return (f"{x} and {y!r} share no {listed(axes)} together: on no row do they hold the same "
+            f"{listed([c for c in axes if c != 'row'])}, so they join to no row; table them one at a time, or read "
+            f"at a {tokens} both hold")
 
 
 def by_point(plan: Plan, name: str) -> list[tuple[dict[str, Any], Any]]:

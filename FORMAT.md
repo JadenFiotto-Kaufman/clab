@@ -1249,7 +1249,9 @@ beside every row of the other that agrees with it on them, an axis one value lac
 broadcasts over an axis it leaves out (an unswept number sits beside every row, a swept one beside every row at
 each of its points, a history over `epochs` beside every row at each epoch), the first value's columns first
 and the joined `at` both points' coordinates; a shared `pos` or `key` that does not mean one thing for both,
-counting the positions of different inputs or a plain index beside a token position, is refused by name.
+counting the positions of different inputs or a plain index beside a token position, is refused by name. So is a
+join to no row of two values that each have rows, naming why (`unjoined`): reads of one input at positions no
+row holds for both, at layers neither shares, or a read that reached no row.
 
 ## A worked document
 

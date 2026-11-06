@@ -436,6 +436,9 @@ Each row quotes a message's first clause without its `<where>:`. `<x>` stands fo
 | `'<a>' has a row per example of '<d>' and '<b>' of '<e>'; a table joins the values of one dataset` | names of different datasets in one table | [output.md](../usage/output.md#clab-table) |
 | `'<a>' has a pos column counting positions of <i>, and '<b>' one counting positions of <j>` | names read on different inputs in one table; table them one at a time | [output.md](../usage/output.md#clab-table) |
 | `'<n>' is a top_k over rows, whose rows are its picks, and a top_k over rows tables alone` | a `top_k` over `rows` beside another name | [output.md](../usage/output.md#clab-table) |
+| `'<a>' and '<b>' share no row and pos together` (or `… layer, row and pos together`) | reads of one input at positions no row holds for both, so the join has no row; table them one at a time, or read at a `pos` both hold | [output.md](../usage/output.md#clab-table) |
+| `'<a>' and '<b>' share no layer` | values at layers neither holds (a `layers` axis, or a value without rows reduced from one) | [output.md](../usage/output.md#clab-table) |
+| `'<n>' reached no row (each is alignment_missing)` | a read that reached no row, beside one that did; alone it tables each row flagged | [alignment-missing.md](alignment-missing.md) |
 | `'<n>' is a trained featurizer's bundle, which has no rows to table` | a bundle in `clab table`; read it from `plan.results` | [output.md](../usage/output.md#clab-table) |
 | `'<n>' has no rows to table: it is …` | a value with no rows axis | [output.md](../usage/output.md#clab-table) |
 | `the plan holds none of its rows` | `preflight` or a step called from Python on a plan whose rows are not loaded; `clab.run` and an engine's `execute` load them first | [compile-and-run.md](../developing/compile-and-run.md#the-run) |

@@ -2,11 +2,13 @@
 axis columns), and what has no rows to table."""
 
 import json
+import re
 
 import pytest
 from conftest import BATCH_SIZE, ROOT, document, edited, same
 
 from clab import Plan
+from clab.compile import positions
 from clab.plan import entries
 
 TINY = {"key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
@@ -120,9 +122,9 @@ def test_a_value_with_fewer_keys_broadcasts_over_the_other_s(engines):
 
 
 def test_a_shared_token_column_means_one_thing_for_both_or_is_refused(engines):
-    """Two reads of one input at different positions share `pos` and join on it, to nothing where they agree
-    nowhere; a value with no rows axis prints `pos` as a plain index, which beside a token position is refused by
-    name."""
+    """Two reads of one input at different positions share `pos` and join on it, and where they agree on no row the
+    join is refused by name (where it printed a blank line); a value with no rows axis prints `pos` as a plain
+    index, which beside a token position is refused by name."""
     layer0 = {"component": "layer_output", "layers": 0}
     filled = run(engines, plan(
         steps={"f": {"kind": "forward", "input": "pairs.input", "interventions": {
@@ -130,13 +132,61 @@ def test_a_shared_token_column_means_one_thing_for_both_or_is_refused(engines):
                "v": {"kind": "op", "op": "mean", "of": "f.h", "over": ["hidden_size"]},
                "r": {"kind": "op", "op": "mean", "of": "f.h", "over": ["rows", "hidden_size"]}},
         saves=["f.a", "f.b", "v", "r"]))
-    assert filled.table("f.a", "f.b") == []
+    with pytest.raises(ValueError, match=r"^'f\.a' and 'f\.b' share no row and pos together: on no row do they hold "
+                                         r"the same pos, so they join to no row; table them one at a time, or read at "
+                                         r"a pos both hold$"):
+        filled.table("f.a", "f.b")
     assert [t["pos"] for t in filled.table("r")] == [0, 1, 2]
     with pytest.raises(ValueError, match=r"^'v' has a pos column counting positions of pairs\.input, and 'r' one "
                                          r"counting a plain index along it \(a value with no rows axis\): the column "
                                          r"does not mean one thing for both, so they do not join; table them one at a "
                                          r"time$"):
         filled.table("v", "r")
+
+
+def test_a_join_to_no_row_is_refused_naming_its_cause(engines, tmp_path, capsys):
+    """Two reads of one input at positions no row holds for both (`pos` -1 and 0), saved, join to no row: `clab
+    table` refuses them in one line and exits 1, where it printed a blank line and exited 0, and `Plan.table` raises
+    the same. Two reads with a layers axis meet on the layers both hold; at layers neither shares, or at a shared
+    layer but no shared position, they are refused naming the cause, and so is a value with no rows axis beside a
+    read at another layer. A read that reached no row (a scope the generation never says) beside one that did is
+    refused saying so; alone, it tables a row per example flagged `alignment_missing`."""
+    from clab.cli import main
+
+    def at(layers, pos: int) -> dict:
+        return {"site": {"component": "layer_output", "layers": layers}, "pos": pos, "ops": [{"op": "norm"}]}
+    filled = run(engines, plan(
+        steps={"f": {"kind": "forward", "input": "pairs.input", "interventions": {
+                   "a": at(0, -1), "b": at(0, 0), "c": at([0, 1], -1), "d": at([1], -1), "e": at([0], -1),
+                   "h": at([0], 0)}},
+               "m": {"kind": "op", "op": "mean", "of": "f.d", "over": ["rows", "pos"]},
+               "g": {"kind": "generate", "input": "pairs.input", "max_new_tokens": 2, "do_sample": False,
+                     "interventions": {"last": at(0, -1), "never": {
+                         "site": {"component": "layer_output", "layers": 0}, "ops": [{"op": "norm"}],
+                         "pos": {"frame": "1:", "scope": {"text": "zzzzqqq"}, "index": -1}}}}},
+        saves=["f.a", "f.b", "f.c", "f.d", "f.e", "f.h", "m", "g.last", "g.never"]))
+    filled.dump(str(tmp_path))
+    refusal = ("'f.a' and 'f.b' share no row and pos together: on no row do they hold the same pos, so they join to "
+               "no row; table them one at a time, or read at a pos both hold")
+    assert main(["table", str(tmp_path), "f.a", "f.b"]) == 1
+    assert capsys.readouterr() == ("", f"clab: {refusal}\n")
+    with pytest.raises(ValueError, match=f"^{re.escape(refusal)}$"):
+        Plan.load(str(tmp_path)).table("f.a", "f.b")
+    assert [(t["layer"], t["row"]) for t in filled.table("f.c", "f.e")] == [(0, r) for r in range(4)]
+    for x, y, layers in (("f.d", "f.e", ([1], [0])), ("m", "f.e", ([1], [0]))):
+        with pytest.raises(ValueError, match=f"^'{re.escape(x)}' and '{re.escape(y)}' share no layer: "
+                                             f"'{re.escape(x)}' holds layer {re.escape(str(layers[0]))} and "
+                                             f"'{re.escape(y)}' layer {re.escape(str(layers[1]))}, so they join to no "
+                                             f"row; table them one at a time, or read at a layer both hold$"):
+            filled.table(x, y)
+    with pytest.raises(ValueError, match=r"^'f\.c' and 'f\.h' share no layer, row and pos together: on no row do "
+                                         r"they hold the same layer and pos, so they join to no row"):
+        filled.table("f.c", "f.h")
+    assert [t[positions.MISSING] for t in filled.table("g.never")] == [True] * 4
+    with pytest.raises(ValueError, match=r"^'g\.never' reached no row \(each is alignment_missing\), so it holds no "
+                                         r"position to meet the other's and they join to no row; table them one at a "
+                                         r"time$"):
+        filled.table("g.last", "g.never")
 
 
 def test_a_value_with_no_rows_axis_and_several_tensors_says_so(engines):
