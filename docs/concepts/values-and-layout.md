@@ -53,7 +53,7 @@ Inside an entry no op sees a `layers` axis, since the entry runs at one layer at
 
 ## `select` keeps the axis
 
-A site's `select` narrows a feature axis and keeps it in the layout, so a site has one layout whatever it selects: `{"num_heads": 2}` gives `num_heads` of size 1, the same value as `[2]`. The kept indices are in the order written, and that order is the axis: with `{"num_heads": [3, 1]}`, index 0 along `num_heads` is head 3. The record's `kept` says which head each index is, and a saved value's nested lists, in `clab table` or the tensor, follow that order. What follows for operands and head sets is [usage/sites.md](../usage/sites.md#select).
+A site's `select` narrows a feature axis and keeps it in the layout, so a site has one layout whatever it selects: `{"num_heads": 2}` gives `num_heads` of size 1, the same value as `[2]`. The kept indices are in the order written, and that order is the axis: with `{"num_heads": [3, 1]}`, index 0 along `num_heads` is head 3. The record's `kept` says which head each index is, and a saved value's nested lists, in `clab table` or the tensor, follow that order; in a column of its own, `clab table` prints the head kept, as it prints the model's layer. What follows for operands and head sets is [usage/sites.md](../usage/sites.md#select).
 
 ## An index counts along the value
 

@@ -1234,7 +1234,8 @@ plain index), the dataset columns the step used
 (`columns=` to choose), and `value` last: the element, or the remaining axes as nested lists. A row a read
 did not reach (a call beyond the prefill it never made, a scope it does not say, an index that picks none of
 its tokens) gives one row, `alignment_missing` true, with no value; a row's positions past its own are left
-out. A value with no rows axis gives a row per element with its axis indices; a `top_k` over `rows` (alone, or
+out. A value with no rows axis gives a row per element with its axis indices, a `layers` axis by the model's
+layer and an axis a `select` keeps by the index kept; a `top_k` over `rows` (alone, or
 among a list of axes) a row per pick, its other axes' indices and `k` first, then the ranked value's row at the
 pick as its own table labels it, its `value` the ranked value there.
 

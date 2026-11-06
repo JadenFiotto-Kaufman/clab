@@ -83,6 +83,21 @@ def test_rowless_values_with_a_layers_axis_join_by_layer_and_a_rowed_one_beside_
     assert all(t["m1"] == filled.results["m1"][t["layer"]].item() for t in joined)
 
 
+def test_a_selected_axis_is_labelled_by_the_index_kept(engines):
+    """A mean over everything but a selected `num_heads` axis is keyed by the head kept, as a `layers` axis is by
+    the model's layer, and a `top_k` over rows of the selected value names the head kept too; the tensors count
+    within the selection."""
+    filled = run(engines, plan(
+        steps={"f": {"kind": "forward", "input": "pairs.input", "interventions": {
+                   "z": {"site": {"component": "attention_premix", "layers": 0, "select": {"num_heads": [3, 2]}},
+                         "pos": -1, "ops": [{"op": "norm", "over": ["head_dim"]}]}}},
+               "m": {"kind": "op", "op": "mean", "of": "f.z", "over": ["rows", "pos"]},
+               "top": {"kind": "op", "op": "top_k", "of": "f.z", "over": "rows", "k": 1}}, saves=["m", "top"]))
+    assert [(t["num_heads"], t["value"]) for t in filled.table("m")] == \
+        [(head, filled.results["m"][i].item()) for i, head in enumerate((3, 2))]
+    assert [t["num_heads"] for t in filled.table("top")] == [3, 2]
+
+
 def test_a_value_with_fewer_keys_broadcasts_over_the_other_s(engines):
     """As an operand broadcasts over an axis it leaves out: a `mean` over everything, unswept, sits beside every
     row; swept over `L` (a readout at `L`, scored), each point's number sits beside every row of an unswept value,

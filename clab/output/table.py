@@ -33,7 +33,8 @@ def table(plan: Plan, names: tuple[str, ...], columns: list[str] | None) -> list
     (`columns=` to choose), and `value` last: the element, or the remaining axes as nested lists. A row a read
     did not reach (a call beyond the prefill it never made, a scope it does not say, an index that picks none of
     its tokens) gives one row, `alignment_missing` true, with no value; a row's positions past its own are left
-    out. A value with no rows axis gives a row per element with its axis indices; a `top_k` over `rows` (alone, or
+    out. A value with no rows axis gives a row per element with its axis indices, a `layers` axis by the model's
+    layer and an axis a `select` keeps by the index kept; a `top_k` over `rows` (alone, or
     among a list of axes) a row per pick, its other axes' indices and `k` first, then the ranked value's row at the
     pick as its own table labels it, its `value` the ranked value there.
 
@@ -182,7 +183,7 @@ def picks(plan: Plan, record: OpStep, value: dict[str, Any], at: dict[str, Any],
     ranked = record_of(plan.steps, record.of, point.at)
     examples = dataset_rows(plan, ranked.dataset) if ranked.dataset else []
     place = read_labels(plan, ranked, point.at) if ranked.read else None
-    layers = place["layers"] if place else None
+    indices = place["indices"] if place else {}
     second = "probs" if "probs" in value else "values"
     shape, dims = list(value[second].shape), record.dims or []
     labelled = [a for a in ranked.dims or [] if a in ("rows", "layers", "pos", "key")]     # its table's row labels
@@ -198,7 +199,8 @@ def picks(plan: Plan, record: OpStep, value: dict[str, Any], at: dict[str, Any],
         own = {a: e // math.prod(shape[j + 1:]) % shape[j] for j, a in enumerate(dims)}
         where = {**own, **{a: picked[a][e] for a in axes}}         # the pick's index on each axis of the ranked value
         row: dict[str, Any] = {"at": at} if at else {}
-        row.update((COLUMNS.get(a, a), i) for a, i in own.items() if a not in labelled)
+        row.update((COLUMNS.get(a, a), indices[a][i] if a in indices else i) for a, i in own.items()
+                   if a not in labelled)
         r = where["rows"]
         example = examples[r] if examples else None
         if example is not None and "example_id" in example:
@@ -212,7 +214,7 @@ def picks(plan: Plan, record: OpStep, value: dict[str, Any], at: dict[str, Any],
                     break                   # past the row's own positions or keys
                 row.update((c, column[ks.index(i)]) for c, column in got.items())
             elif a in labelled or a in axes:
-                row[COLUMNS.get(a, a)] = layers[i] if a == "layers" and layers is not None else i
+                row[COLUMNS.get(a, a)] = indices[a][i] if a in indices else i
         else:
             if example is not None:
                 row.update((c, example[c]) for c in columns)
@@ -291,7 +293,7 @@ def value_rows(value: Tensor | list[Any] | dict[str, Any], dims: list[str], plac
             return [dict(zip(v, each)) for each in zip(*map(cells, v.values()))]
         return [part(v, pick_of(g, shape, outer, inner, strides, within, len(dims))) for g in kept]
     values = cells(value)
-    layers = place["layers"] if place else None             # the model's layer at each index of a layers axis
+    indices = place["indices"] if place else {}      # the model's layer, or the index kept, at each index of an axis
     named = [COLUMNS.get(dims[i], dims[i]) for i in outer]
     out: list[dict[str, Any]] = []
     start = 0                               # where a run's elements begin among those kept
@@ -308,8 +310,8 @@ def value_rows(value: Tensor | list[Any] | dict[str, Any], dims: list[str], plac
         if eid:
             given["example_id"] = spread([e["example_id"] for e in example], counts)
         for c, (j, i) in zip(named, enumerate(outer)):     # an outer index's own, by arithmetic on the shape
-            given[c] = spread([layers[o // strides[j] % shape[i]] if dims[i] == "layers" and layers is not None
-                               else o // strides[j] % shape[i] for o, _ in run], counts)
+            own = [o // strides[j] % shape[i] for o, _ in run]
+            given[c] = spread([indices[dims[i]][k] for k in own] if dims[i] in indices else own, counts)
         if missing:
             given[positions.MISSING] = [True] * len(run)
         else:
@@ -429,8 +431,8 @@ def read_labels(plan: Plan, record: Labelled, at: dict[str, int]) -> dict[str, A
     """For a value's read (`record.read`) at the point agreeing with `at`: the rows' prompt tokens and their
     positions' tokens (the prompt's, then in a generation what each row generated), whether it was read in a
     generation (whose positions are labelled with their call), the positions each row resolved to (the read's
-    record's, under the value's dataset), the keys it selects, and the model layers the value's `layers` axis is
-    labelled with, where it has one."""
+    record's, under the value's dataset), the keys it selects, and what labels an index on each axis that has
+    labels (`indices`): the model's layers on a `layers` axis, the indices kept on an axis a `select` keeps."""
     assert plan.run is not None and record.read is not None
     producer, _ = entry_of(plan.steps, record.read, at)
     read = cast(Intervention, record_of(plan.steps, record.read, at))
@@ -442,4 +444,5 @@ def read_labels(plan: Plan, record: Labelled, at: dict[str, int]) -> dict[str, A
             "beyond": producer.kind == "generate",
             "keys": read.kept.get("key"),
             "positions": read.positions[cast(str, read.dataset)],
-            "layers": record.layers if "layers" in (record.dims or []) else None}
+            "indices": {**{a: v for a, v in record.kept.items() if isinstance(v, list)},
+                        **({"layers": record.layers} if "layers" in (record.dims or []) else {})}}

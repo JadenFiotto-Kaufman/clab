@@ -104,6 +104,7 @@ Saturday    3                          If today is Sunday, tomorrow is     Satur
 | `example_id` | the dataset has that column | the row's `example_id` |
 | `row` | the value has a rows axis | the row's index in the dataset after `split`, `shuffle`, `skip` and `take`, not the file's order; give rows an `example_id` to keep them identifiable ([data.md](data.md#example_id)) |
 | `layer` | the value has a `layers` axis | the model's layer, not the index along the axis |
+| a selected axis (`num_heads`, `features`) | the value has no rows axis, or is a `top_k` over rows | the index the site's `select` kept, not the index along the axis |
 | `pos`, `pos_token` | the value has a positions axis | on a value with rows, the position the read resolved to on that row, as `clab show` prints it (BOS 0, then the prompt, then in a generation the generated tokens), and the token there; on a value without rows, the index along the axis; for a `permute`'s value, whose rows hold other rows' positions, `pos` alone, the plain index, and no columns of the read's input |
 | `call` | the read was in a generation | the forward call that holds the position: 0 the prefill, k decode call k |
 | `key`, `key_token` | an attention pattern | each key position and its token, the row's own keys only |
