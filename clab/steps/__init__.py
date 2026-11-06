@@ -156,12 +156,12 @@ def keyed_by_coordinate(plan: Plan, by_point: dict) -> Any:
 
 def record_results(engine: Engine, plan: Plan, state: ChainMap, costs: dict, findings: Findings) -> None:
     """What `run` records once its steps have run, or stopped: each step's cost, each saved value of a step whose
-    every run finished (`made_by`; a trained featurizer as its bundle's tensors; a swept value keyed by its
-    coordinates on its own axes), how each input tokenized, and the dtypes and devices of the model's parameters."""
+    every run finished (`made_by`; a trained featurizer as its bundle's tensors; a featurizer's tensor once the run
+    made the featurizer; a swept value keyed by its coordinates on its own axes), how each input tokenized, and the dtypes and devices of the model's parameters."""
     assert plan.run is not None
     plan.run.costs = {name: keyed_by_coordinate(plan, by_point) for name, by_point in costs.items()}
     done = {name for name in runnable(plan.steps) if len(costs.get(name, {})) == len(serving(plan, name))}
-    done |= set(plan.featurizers)               # whose tensors the run makes before its first step
+    done |= {f for f in plan.featurizers if f in state}         # made, its named tensors beside it
     for name in (n for n in plan.saves if made_by(plan, n) in done):
         thing, _, member = name.partition(".")
         step = points(plan.steps[thing])[0] if thing in plan.steps else None

@@ -531,6 +531,25 @@ def test_a_later_fits_body_names_an_earlier_fits_tensor_as_a_value_made_before_i
     assert same(values["fit2.history.weights"], values["fit.probe.W"].abs().mean().expand(2))
 
 
+def test_a_run_stopped_before_a_constant_is_drawn_keeps_its_refusal_and_the_steps_before(engines, monkeypatch):
+    """ablation_pair's constant `c` is drawn from `mean`, so a run out of CUDA memory at `mean` stops before `c` and
+    its `vector` exist: the run's refusal stands, the steps before it are recorded, and `c.vector` has no result."""
+    from clab import steps
+
+    op = steps.KINDS["op"]
+
+    def starved(engine, plan, name, step, *rest):
+        if name == "mean":
+            raise torch.OutOfMemoryError("CUDA out of memory. Tried to allocate 1.00 GiB.")
+        return op(engine, plan, name, step, *rest)
+    monkeypatch.setitem(steps.KINDS, "op", starved)
+    plan = edited("ablation_pair", lambda d: d["saves"].append("c.vector")).compile()
+    with pytest.raises(ValueError, match=r"^steps\.mean: out of CUDA memory at batch size 2 "):
+        engines("nnterp", plan.model).execute(plan, batch_size=BATCH_SIZE)
+    assert plan.run is not None and (plan.run.stopped or "").startswith("steps.mean: out of CUDA memory")
+    assert {"clean.ld", "null.ld"} <= set(plan.results) and not {"mean", "c.vector"} & set(plan.results)
+
+
 def test_a_swept_fits_tensor_carries_its_sweep_axis(engines):
     """A fit swept over its learning rate trains a probe per point, and `fit.probe.W` is one tensor per point, keyed
     by the fit's coordinate, each that point's bundle's."""
