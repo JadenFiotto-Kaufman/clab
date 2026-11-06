@@ -279,6 +279,58 @@ def argmax(of: Tensor, dims: list[str], over: str = RANKED) -> Tensor:
     return ids[..., 0].masked_fill(gone[..., 0], -1)
 
 
+# The axes `select` does not narrow, each with what narrows it instead.
+UNSELECTED = {"rows": "a dataset's (take, skip)", "pos": "a read's (pos)", "layers": "a site's (layers)",
+              "key": "a read's (its site's select)"}
+
+
+def narrows(args: dict) -> None:
+    """`select`'s `{<axis>: <selector>}`: one or more axes, each with a selector as a read's `select` takes one, none
+    an example's rows, positions or layers, or a pattern's keys, which the read narrows."""
+    given = args.get("select")
+    if not isinstance(given, dict) or not given:
+        raise ValueError(f"select {given!r}: {{<axis>: <selector>}}, one or more axes of the value, each with "
+                         f"{selectors.FORMS}")
+    for axis, selector in given.items():
+        if axis in UNSELECTED:
+            raise ValueError(f"select {axis!r}: a select step narrows a value's other axes, and its {axis} are "
+                             f"{UNSELECTED[axis]} to narrow")
+        if isinstance(selector, dict) and "sweep" in selector:
+            continue
+        try:
+            selectors.checked(selector)
+        except ValueError as e:
+            raise ValueError(f"select.{axis}: {e}") from None
+
+
+def narrowed(dims: list[str], args: dict, kind: str | None = None) -> list[str]:
+    """keeps the layout, each axis `select` names narrowed to the indices it picks"""
+    for axis in args.get("select") or {}:
+        if axis not in dims:
+            raise ValueError(f"select narrows the value's {axis!r} axis, and the value is laid out {dims}; it names "
+                             "axes the value has")
+    return list(dims)
+
+
+@op("transforms", layout=narrowed, check=narrows, positionwise=True)
+def select(of: Tensor, select: Annotated[dict, "{axis: selector}"], dims: list[str]) -> Tensor:
+    """The value at the indices `select` picks along each axis it names (`{<axis>: <selector>}`, a read's `select`
+    form), in the order picked: an int keeps one, the axis of size 1 as a read's does, so that a reduction over it
+    then drops it; a slice or a list of picks keeps as many as it picks. Its value keeps the indices it picked
+    (`kept`, through a select before it, as a read's keeps the model's), by which Ops' one rule pairs the axis, so a
+    probe's direction `W[:, 1] - W[:, 0]` is two selects of `classes`, each summed over it, then a `sub`. A pick
+    outside the axis is refused: at compile or in preflight where they know its number, else as it runs. It is an
+    op step; inside an entry the site's own `select` narrows the value."""
+    for axis, selector in select.items():
+        d = dims.index(axis)
+        try:
+            selectors.selected("", axis, selector, of.shape[d], f"the {of.shape[d]} along it")
+        except ValueError as e:
+            raise ValueError(str(e).removeprefix(": ")) from None
+        of = of.index_select(d, torch.tensor(selectors.select(selector, of.shape[d]), device=of.device))
+    return of
+
+
 # -- elementwise: each entry on its own, the layout kept -------------------------------------------------------------
 
 

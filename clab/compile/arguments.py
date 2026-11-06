@@ -117,6 +117,9 @@ def layout(path: str, name: str, args: dict, dims: list[str], where: str, kind: 
         out = ops.out_dims(name, dims, {**{k: p.default for k, p in ops.parameters(name).items()}, **args}, kind)
     except ValueError as e:
         fail(path, str(e))
+    if where != "step" and name == "select":
+        fail(path, "inside an entry the value is its site's selection, which the site's own select narrows "
+             "({'component': ..., 'select': {<axis>: <selector>}}); select a value in a step after the forward")
     if where != "step" and name == "top_k" and isinstance(args.get("over"), list):
         fail(path, "a top_k over a list of axes gives an index per axis of each pick, which an entry's batches do "
              "not join; make it a step after the forward")
@@ -125,6 +128,36 @@ def layout(path: str, name: str, args: dict, dims: list[str], where: str, kind: 
             "this entry writes it back, so make it an op step before the forward, over a read of the rows it "
             f"aggregates, and write that in ({{'op': 'swap', 'with': '<that step>'}})" if where == "live" else
             "make it a step after the forward"))
+    return out
+
+
+def select_kept(where: str, of: Labelled, args: dict, sizes: dict[str, int] | None,
+                known: dict[str, tuple[int, str]], compiled: dict[str, selectors.Kept] | None = None
+                ) -> dict[str, selectors.Kept]:
+    """What a `select` step over the value labelled `of` keeps on each axis it narrows: the picks of its selector
+    among the entries along that axis (`along`; `known` and `sizes` as there), each the index the value holds there
+    (one a site's or an earlier select's `kept` names, else the axis's own), so selects compose. At compile (`sizes`
+    None) an axis whose number waits on preflight, or whose kept indices do, is `[]` until preflight resolves it;
+    preflight keeps what compile resolved (`compiled`) where it does not know the number itself. A selector that picks
+    past the entries or none is refused by name (a `ValueError` starting with `where`), and so, in preflight, is one
+    counted from the end of an axis whose number neither stage knows (a generation's `new`, a history's `epochs`),
+    which the run alone holds."""
+    out: dict[str, selectors.Kept] = {}
+    for axis, selector in args["select"].items():
+        held, count = of.kept.get(axis), along(of, axis, sizes, known)
+        if held == [] or count is None and not selectors.keyed(selector) and sizes is None:
+            out[axis] = []
+            continue
+        if count is None and (compiled or {}).get(axis):    # compile's, from what it alone knew (the classes)
+            out[axis] = (compiled or {})[axis]
+            continue
+        if count is None and not selectors.keyed(selector):
+            raise ValueError(f"{where}: select {axis} {selector!r} counts from the end of {axis}, whose number the "
+                             "run alone holds; select along it from the start")
+        if count is not None:
+            selectors.selected(where, axis, selector, count[0], f"the {count[0]} along {axis} ({count[1]})")
+        picks = selectors.select(selector, count[0]) if count is not None else selectors.keys(selector)
+        out[axis] = [held[i] for i in picks] if isinstance(held, list) else picks
     return out
 
 
@@ -219,27 +252,38 @@ def k_past(name: str, args: dict, met: Labelled, sizes: dict[str, int] | None,
     over = args.get("over", ops.transforms.RANKED)
     counts: list[tuple[str, int, str]] = []
     for axis in over if isinstance(over, list) else [over]:
-        kept = met.kept.get(axis)
-        if isinstance(kept, list) and kept:
-            counts.append((axis, len(kept), "those its select keeps"))
-        elif kept is not None:
-            return None                     # left to preflight, or keys relative to each query
-        elif axis == "layers" and met.layers:
-            counts.append((axis, len(met.layers), "the value's"))
-        elif axis == "pos" and met.width is not None:
-            counts.append((axis, met.width, "each row's"))
-        elif axis in known:
-            counts.append((axis, *known[axis]))
-        elif sizes is not None and axis in sizes and axis not in ops.transforms.RAGGED:
-            counts.append((axis, sizes[axis], "the model's"))
-        else:
+        if (count := along(met, axis, sizes, known)) is None:
             return None
+        counts.append((axis, *count))
     n = math.prod(c for _, c, _ in counts)
     if args["k"] <= n:
         return None
     held = " by ".join(f"{c} along {axis} ({why})" for axis, c, why in counts)
     return (f"k {args['k']} is more than the {n} entr{'y' if n == 1 else 'ies'} it ranks, {held}, each of which it "
             f"picks once: k is at most {n}")
+
+
+def along(met: Labelled, axis: str, sizes: dict[str, int] | None, known: dict[str, tuple[int, str]]
+          ) -> tuple[int, str] | None:
+    """How many entries the value labelled `met` holds along `axis`, with what says so, where its number is static and
+    known: from the record, a `select`'s indices, the layers (at compile those written from the first, in preflight
+    every pick), a width of `pos`; from `known`, what the caller knows (`known_counts` at compile); and in preflight
+    the model's sizes (`sizes`, None at compile), along an axis no row holds a number of its own along
+    (`transforms.RAGGED`). None where neither stage knows it, or it waits on preflight (a `select` it resolves)."""
+    kept = met.kept.get(axis)
+    if isinstance(kept, list) and kept:
+        return len(kept), "those its select keeps"
+    if kept is not None:
+        return None                     # left to preflight, or keys relative to each query
+    if axis == "layers" and met.layers:
+        return len(met.layers), "the value's"
+    if axis == "pos" and met.width is not None:
+        return met.width, "each row's"
+    if axis in known:
+        return known[axis]
+    if sizes is not None and axis in sizes and axis not in ops.transforms.RAGGED:
+        return sizes[axis], "the model's"
+    return None
 
 
 def known_counts(cx: Compiling, record: Labelled, ref: str | None = None,

@@ -24,7 +24,7 @@ Find the part of the document you are writing or the stage of the run you are at
 ## Reading and writing
 
 - [interventions](interventions.md) — How do I read or write a value at a site? Entries, edits, the order they run in, operands, gradients, writes across layers, named bundles and the null control.
-- [ops](ops.md) — Which op scores, reduces or transforms a value? Metrics, KL in either direction, reductions (median, count), top_k over rows and positions, permute, arithmetic, and step versus entry.
+- [ops](ops.md) — Which op scores, reduces or transforms a value? Metrics, KL in either direction, reductions (median, count), top_k over rows and positions, permute, select along an axis, arithmetic, and step versus entry.
 
 ## Repeating
 
