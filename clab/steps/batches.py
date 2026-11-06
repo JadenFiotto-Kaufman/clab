@@ -281,16 +281,13 @@ def refuse_unreached(plan: Plan, findings: Findings, bound: dict, ids: list[int]
         read, at, record, source = missing[row]
         pos = positions.parse(record.pos)
         producer = made_by(plan, read)
-        said = lookup(findings.said, producer, at)[source] if producer in findings.said else None
+        # A miss is a generation's read: a prefill's is refused in preflight, and a loaded read's rows are not followed.
+        n = len(lookup(findings.said, producer, at)[source])
         frame, shown = pos["frame"], json.dumps(record.pos if isinstance(record.pos, int) else
                                                 record.pos.model_dump(mode="json", exclude_defaults=True))
-        if said is not None:
-            n = len(said)
-            made = f"{producer!r} made {n} call{'s' * (n != 1)} on row {source} ({'0' if n == 1 else f'0 to {n - 1}'})"
-            why = f"{made}, and {read!r} reads " + (f"call {frame} ({shown})" if isinstance(frame, int) and frame >= n
-                                                    else f"{shown}, which they do not hold")
-        else:
-            why = f"{read!r} reads {shown}, which picks none of row {source}'s tokens"
+        made = f"{producer!r} made {n} call{'s' * (n != 1)} on row {source} ({'0' if n == 1 else f'0 to {n - 1}'})"
+        why = f"{made}, and {read!r} reads " + (f"call {frame} ({shown})" if isinstance(frame, int) and frame >= n
+                                                else f"{shown}, which they do not hold")
         given = f"operand {operand!r}" + (f", which descends from {read!r}," if operand != read else "")
         held = "" if source == row else f", which holds row {source} of {read!r}"
         where = f" at call {call}" if call else ""

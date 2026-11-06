@@ -328,7 +328,8 @@ operand on a row it lands on (a read at `{"frame": 3, "index": 0}` on a row whos
 an op step's value that takes it as any named value: `of`, `with`, a `factor`), which would write NaN there:
 refused by name, at compile where the read's frame is a decode call at or past its generation's
 `max_new_tokens`, which no row makes, and otherwise in the run, naming the row and the call, a forward's write
-before its batch's forward, one at a decode call once the batch's generation says which rows made that call.
+before its batch's forward, one at a decode call once the batch's generation says which rows made that call; a
+generation in a fit's body records no positions, so a write in the body with such an operand writes NaN there.
 
 ## Step kinds
 
