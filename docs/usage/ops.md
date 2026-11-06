@@ -144,7 +144,8 @@ What is left (a confidence interval, a ranking across points, a join across runs
 - `select` narrows a value along an axis a read cannot narrow, with a read's `{<axis>: <selector>}`: a class of a probe's `W`, a latent of an sae's `W_dec`, a head of a gate's `theta`. `{"kind": "op", "op": "select", "of": "fit.probe.W", "select": {"classes": 1}}` keeps the probe's second class's column.
 - An int keeps the axis at size 1, labelled with the index it kept, so Ops' one rule pairs it only with that index. A reduction over the axis drops it, and a `sum` of one entry is that entry exactly. A two-class probe's direction is two selects, each summed over `classes`, then a `sub` ([probing](../patterns/probing.md#use-a-probes-direction)).
 - `select` is an op step. Inside an entry the site's own `select` narrows the value, and `rows`, `pos`, `layers` and `key` are the dataset's and the read's to narrow; each is refused by name.
-- A pick outside the axis is refused where compile or preflight knows the axis's size. A selector counted from the end of an axis only the run knows (a history's `epochs`, a generation's `new`) is refused before any forward.
+- A pick outside the axis is refused at the stage that knows the axis's number. Compile knows what the document fixes: a featurizer's coordinates or `rank`, a probe's classes, a fit's `epochs`, a `top_k`'s `k`, and a generation's `max_new_tokens` as an upper bound of `new`. Preflight knows the model's sizes. The run alone knows a history that `early_stop` ended sooner and a generation whose rows stopped early, and its refusal names the step.
+- `-1` and a slice resolve at whichever stage knows the number, the run at last.
 
 ### Arithmetic
 

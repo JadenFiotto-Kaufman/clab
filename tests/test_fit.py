@@ -631,27 +631,51 @@ def test_an_affines_map_names_one_axis_twice_and_is_refused_where_its_bias_is_a_
         probe(lambda d: affine(d, "W"))
 
 
-def test_a_select_counted_from_the_end_resolves_in_preflight_or_is_refused_where_only_the_run_knows(engines):
-    """`-1` along `hidden_size` waits on the model's size, which preflight knows, and a pick past it is refused there;
-    along a history's `epochs` only the run holds the count, and preflight refuses `-1` by name."""
-    def last(d):
-        d["steps"]["last"] = {"kind": "op", "op": "select", "of": "fit.probe.W", "select": {"hidden_size": -1}}
-        d["saves"] = ["last", "fit.probe.W"]
-    plan = probe(last)
+def selecting(of: str, select: dict, saves: tuple[str, ...] = ()):
+    """A change adding step `last`, a select of `of`, and saving it beside `saves`."""
+    def change(d):
+        d["steps"]["last"] = {"kind": "op", "op": "select", "of": of, "select": select}
+        d["saves"] = ["last", *saves]
+    return change
+
+
+def test_a_select_is_checked_and_resolved_at_the_stage_that_knows_the_axis(engines):
+    """A count the document fixes is compile's: a fit's epochs, an sae's latents, a generation's `max_new_tokens` as an
+    upper bound. The model's sizes are preflight's. Only a history that `early_stop` ends sooner is the run's, refused
+    there naming the step. `-1` and a slice resolve at whichever stage knows the count."""
+    with pytest.raises(PlanError, match=r"^steps\.last: select epochs 30 outside the 30 along epochs \(the fit's "
+                                        r"epochs\)$"):
+        probe(selecting("fit.history.ce", {"epochs": 30}))
+    assert cast(OpStep, probe(selecting("fit.history.ce", {"epochs": "-2:"})).steps["last"]).kept == {"epochs": [28, 29]}
+    decoder = edited("sae_train", selecting("fit.dictionary.W_dec", {"features": -1})).compile()
+    assert cast(OpStep, decoder.steps["last"]).kept == {"features": [31]}
+    with pytest.raises(PlanError, match=r"^steps\.last: select new 6 outside the 6 along new at most \(the "
+                                        r"generation's max_new_tokens"):
+        edited("generated_answer", selecting("answer", {"new": 6})).compile()
+
+    plan = probe(selecting("fit.probe.W", {"hidden_size": -1}, ("fit.probe.W",)))
     assert cast(OpStep, plan.steps["last"]).kept == {"hidden_size": []}
     values = engines("nnterp", plan.model).execute(plan, batch_size=BATCH_SIZE)
     assert cast(OpStep, values.steps["last"]).kept == {"hidden_size": [15]}
     assert same(values.results["last"], values.results["fit.probe.W"][15:])
-    epochs = probe(lambda d: d["steps"].update(last={"kind": "op", "op": "select", "of": "fit.history.ce",
-                                                     "select": {"epochs": -1}}))
-    with pytest.raises(ValueError, match=r"^last: select epochs -1 counts from the end of epochs, whose number the run "
-                                         r"alone holds; select along it from the start$"):
-        engines("nnterp", epochs.model).execute(epochs, batch_size=BATCH_SIZE)
-    past = probe(lambda d: d["steps"].update(last={"kind": "op", "op": "select", "of": "fit.probe.W",
-                                                   "select": {"hidden_size": 16}}))
+    past = probe(selecting("fit.probe.W", {"hidden_size": 16}))
     with pytest.raises(ValueError, match=r"^last: select hidden_size 16 outside the 16 along hidden_size \(the "
                                          r"model's\)$"):
         engines("nnterp", past.model).execute(past, batch_size=BATCH_SIZE)
+
+    def stops(select):          # das stopped early: its history holds 4 of its 10 epochs
+        return edited("das", chain(lambda d: d["steps"]["fit"]["early_stop"].update(mode="min"),
+                                   selecting("fit.history.ce", select, ("fit.history.ce",)))).compile()
+    with pytest.raises(PlanError, match=r"^steps\.last: select epochs 10 outside the 10 along epochs at most"):
+        stops({"epochs": 10})
+    last = stops({"epochs": -1})
+    assert cast(OpStep, last.steps["last"]).kept == {"epochs": []}
+    ran = engines("nnterp", last.model).execute(last, batch_size=BATCH_SIZE)
+    assert cast(OpStep, ran.steps["last"]).kept == {"epochs": [3]}
+    assert same(ran.results["last"], ran.results["fit.history.ce"][3:])
+    late = stops({"epochs": 9})
+    with pytest.raises(ValueError, match=r"^last: select epochs 9 outside the 4 along epochs \(the value's\)$"):
+        engines("nnterp", late.model).execute(late, batch_size=BATCH_SIZE)
 
 
 def test_a_load_of_a_featurizers_tensor_is_refused_naming_the_bundle_to_load(engines, tmp_path):

@@ -14,9 +14,9 @@ from clab.compile.answers import check_column_ref, check_text_ref, is_literal
 from clab.compile.state import Compiling
 from clab.compile.uses import tensor_refusal
 from clab.format import address, data, registry, selectors
-from clab.format.sweeps import points
-from clab.plan import (Featurizer, Intervention, Labelled, Load, Op, OpStep, Plan, arguments, fail, kind_of, member_of,
-                       produced, record_of, tensor_of, top_k_members, top_k_of, trained_featurizers)
+from clab.format.sweeps import agreeing_point, points
+from clab.plan import (Featurizer, Intervention, Labelled, Load, Op, OpStep, Plan, arguments, fail, horizon, kind_of,
+                       member_of, produced, record_of, tensor_of, top_k_members, top_k_of, trained_featurizers)
 
 
 def narrowed_readout_refusal(what: str) -> str:
@@ -133,33 +133,73 @@ def layout(path: str, name: str, args: dict, dims: list[str], where: str, kind: 
 
 
 def select_kept(where: str, of: Labelled, args: dict, sizes: dict[str, int] | None,
-                known: dict[str, tuple[int, str]], compiled: dict[str, selectors.Kept] | None = None
-                ) -> dict[str, selectors.Kept]:
+                known: dict[str, tuple[int, str]], bounds: dict[str, tuple[int, str]] | None = None,
+                compiled: dict[str, selectors.Kept] | None = None) -> dict[str, selectors.Kept]:
     """What a `select` step over the value labelled `of` keeps on each axis it narrows: the picks of its selector
-    among the entries along that axis (`along`; `known` and `sizes` as there), each the index the value holds there
-    (one a site's or an earlier select's `kept` names, else the axis's own), so selects compose. At compile (`sizes`
-    None) an axis whose number waits on preflight, or whose kept indices do, is `[]` until preflight resolves it;
-    preflight keeps what compile resolved (`compiled`) where it does not know the number itself. A selector that picks
-    past the entries or none is refused by name (a `ValueError` starting with `where`), and so, in preflight, is one
-    counted from the end of an axis whose number neither stage knows (a generation's `new`, a history's `epochs`),
-    which the run alone holds."""
+    among the entries along that axis, each the index the value holds there (one a site's or an earlier select's
+    `kept` names, else the axis's own), so selects compose. Their number is the record's or what the stage knows
+    (`along`: at compile the counts the document fixes, `select_counts`; in preflight the model's sizes; in the run
+    the value's own shape). Where none knows it, a selector counted from the start (`selectors.keyed`) picks the same
+    indices whatever the number, held to the upper bound the document fixes (`bounds`: a generation's
+    `max_new_tokens`, a fit's `epochs` under `early_stop`), and any other is `[]` until a stage that knows the number,
+    the run at last. Where this stage knows no more than an earlier one that resolved the axis (`compiled`), its picks
+    stand. A pick past the entries, or a selector that keeps none, is refused by name, a `ValueError` starting with
+    `where`."""
     out: dict[str, selectors.Kept] = {}
     for axis, selector in args["select"].items():
         held, count = of.kept.get(axis), along(of, axis, sizes, known)
-        if held == [] or count is None and not selectors.keyed(selector) and sizes is None:
-            out[axis] = []
+        if held == [] or count is None and (compiled or {}).get(axis):     # waits on preflight, or compile's stands
+            out[axis] = (compiled or {}).get(axis, [])
             continue
-        if count is None and (compiled or {}).get(axis):    # compile's, from what it alone knew (the classes)
-            out[axis] = (compiled or {})[axis]
-            continue
-        if count is None and not selectors.keyed(selector):
-            raise ValueError(f"{where}: select {axis} {selector!r} counts from the end of {axis}, whose number the "
-                             "run alone holds; select along it from the start")
         if count is not None:
             selectors.selected(where, axis, selector, count[0], f"the {count[0]} along {axis} ({count[1]})")
-        picks = selectors.select(selector, count[0]) if count is not None else selectors.keys(selector)
+            picks = selectors.select(selector, count[0])
+        elif selectors.keyed(selector):
+            if axis in (bounds or {}):
+                n, why = (bounds or {})[axis]
+                selectors.selected(where, axis, selector, n, f"the {n} along {axis} at most ({why})")
+            picks = selectors.keys(selector)
+        else:
+            out[axis] = []
+            continue
         out[axis] = [held[i] for i in picks] if isinstance(held, list) else picks
     return out
+
+
+def select_counts(cx: Compiling, record: Labelled, ref: str, at: dict[str, int]
+                  ) -> tuple[dict[str, tuple[int, str]], dict[str, tuple[int, str]]]:
+    """What compile knows of the numbers of entries along the axes of value `ref` (labelled `record`) a `select`
+    narrows, each with what says so: those `known_counts` knows, and those the document fixes on the value the axis
+    comes from, through the op steps that keep it: a featurizer's tensor's own axes (a probe's `classes`, an sae's
+    latents, a subspace's or a pca's `k`, a lora's `rank`: `coordinates_of`) and a fit's history's `epochs`; and,
+    apart, the upper bounds it fixes where the run may hold fewer, a generation's `max_new_tokens` along `new` and
+    the epochs of a fit that `early_stop` may end sooner."""
+    exact, bounds = known_counts(cx, record, ref, at), {}
+    name, here = ref, at
+    while True:
+        thing, _, member = name.partition(".")
+        if (tensor := tensor_of(cx.steps, cx.featurizers, name)) is not None:
+            f = points(cx.featurizers[thing if thing in cx.featurizers else tensor[0].partition(".")[2]])[0]
+            n = coordinates_of(f)
+            for axis in featurizers.KINDS[f.kind].laid.get(tensor[1], ()):
+                if axis == "classes":
+                    exact[axis] = (len(featurizers.labels(cx.rows, (f.model_extra or {})["classes"])), "the probe's")
+                elif axis != "width" and n is not None:
+                    exact[axis] = (n, f"the {f.kind}'s")
+            break
+        step = agreeing_point(cx.steps[thing], here) if thing in cx.steps else None
+        if step is not None and step.kind == "fit" and member.partition(".")[0] == "history":
+            stops = step.early_stop is not None
+            (bounds if stops else exact)["epochs"] = (cast(int, step.epochs), "the fit's epochs" + (
+                ", which early_stop may end sooner" if stops else ""))
+        elif step is not None and step.kind == "generate" and not member and (most := horizon(step)) is not None:
+            bounds["new"] = (most, "the generation's max_new_tokens, which a row that stops sooner leaves shorter")
+        elif step is not None and step.kind == "op" and not member:
+            name, here = step.of, step.at
+            continue
+        break
+    dims = record.dims or []
+    return {a: c for a, c in exact.items() if a in dims}, {a: c for a, c in bounds.items() if a in dims}
 
 
 def kept_labels(of: Labelled, dims: list[str]) -> tuple[list[int] | None, dict[str, selectors.Kept], int | None]:

@@ -158,7 +158,7 @@ def rows_of(plan: Plan, name: str, columns: list[str] | None) -> list[dict[str, 
             continue
         examples = dataset_rows(plan, record.dataset) if record.dataset else []
         place = read_labels(plan, record, p.at) if record.read else None if "rows" in dims else {"indices": {
-            **{a: v for a, v in record.kept.items() if isinstance(v, list)},       # a select's, as a read's are
+            **{a: v for a, v in record.kept.items() if isinstance(v, list) and v},       # a select's, as a read's
             **({"layers": record.layers} if "layers" in dims else {})}}
         out += value_rows(value, dims, place, at, examples, columns if columns is not None else used)
     return out

@@ -318,8 +318,11 @@ def select(of: Tensor, select: Annotated[dict, "{axis: selector}"], dims: list[s
     then drops it; a slice or a list of picks keeps as many as it picks. Its value keeps the indices it picked
     (`kept`, through a select before it, as a read's keeps the model's), by which Ops' one rule pairs the axis, so a
     probe's direction `W[:, 1] - W[:, 0]` is two selects of `classes`, each summed over it, then a `sub`. A pick
-    outside the axis is refused: at compile or in preflight where they know its number, else as it runs. It is an
-    op step; inside an entry the site's own `select` narrows the value."""
+    outside the axis is refused at the stage that knows its number: compile where the document fixes it (a
+    featurizer's coordinates or rank, a probe's classes, a fit's epochs, and `max_new_tokens` as a bound of `new`),
+    preflight for the model's sizes, and the run, naming the step, along a history `early_stop` ended sooner or a
+    generation whose rows stopped early; `-1` and a slice resolve at the stage that knows the number. It is an op
+    step; inside an entry the site's own `select` narrows the value."""
     for axis, selector in select.items():
         d = dims.index(axis)
         try:
