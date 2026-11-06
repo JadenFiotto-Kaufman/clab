@@ -784,7 +784,7 @@ def resampled(change=None) -> Plan:
 
 def drawn(plan: Plan, name: str) -> list[int]:
     """The permutation op step `name` drew, as its record holds it."""
-    record = record_of(plan.steps, name, {})
+    record = record_of(plan.steps, name, {}, plan.featurizers)
     assert isinstance(record, OpStep) and record.permutation is not None
     return record.permutation
 
@@ -858,7 +858,8 @@ def test_a_ragged_permuted_value_is_refused_as_another_forwards_operand_and_may_
             d["steps"].pop(name)
         d["steps"]["per_row"] = {"kind": "op", "op": "mean", "of": "donor", "over": ["pos"]}
         d["saves"] = ["per_row"]
-    assert record_of(resampled(reduced).steps, "per_row", {}).dims == ["rows", "hidden_size"]
+    plan = resampled(reduced)
+    assert record_of(plan.steps, "per_row", {}, plan.featurizers).dims == ["rows", "hidden_size"]
 
 
 @pytest.mark.parametrize("kind", ["nnterp", "hooks"])
@@ -875,10 +876,11 @@ def test_a_permuted_read_at_an_open_index_pairs_at_the_width_its_rows_confirm(en
             entry["pos"] = {"index": ":"}
         d["steps"]["fit"]["steps"]["abl"]["interventions"]["abl"]["pos"] = {"index": ":"}
     plan, written = edited("ablation_pair", opened).compile(), plan_of("ablation_pair")
-    assert record_of(plan.steps, "donor", {}).width is None and record_of(written.steps, "donor", {}).width == 12
+    assert record_of(plan.steps, "donor", {}, plan.featurizers).width is None
+    assert record_of(written.steps, "donor", {}, written.featurizers).width == 12
     engine = engines(kind, plan.model)
     ours, theirs = (engine.execute(p, batch_size=BATCH_SIZE) for p in (plan, written))
-    assert record_of(ours.steps, "donor", {}).width == 12
+    assert record_of(ours.steps, "donor", {}, ours.featurizers).width == 12
     assert set(ours.results) == set(theirs.results) and all(same(ours.results[k], theirs.results[k])
                                                              for k in theirs.results)
 
@@ -935,7 +937,8 @@ def test_two_permuted_values_pair_positions_by_width_and_a_ragged_one_with_none(
     (both at the entity scope, whose rows decide its width) in preflight, naming the read it permutes."""
     with pytest.raises(PlanError, match=r"^steps\.diff\.with: " + message):
         permuted_pair(width)
-    assert record_of(permuted_pair({"index": "-3:"}).steps, "diff", {}).width == 3
+    spanned = permuted_pair({"index": "-3:"})
+    assert record_of(spanned.steps, "diff", {}, spanned.featurizers).width == 3
     plan = permuted_pair(None, ragged=True)
     with pytest.raises(ValueError, match=r"^diff: operand 'donor_other' reorders the rows of 'harvest\.other', which "
                                          r"holds 3 positions on row 0 and 1 position on rows 1-3; two values of "

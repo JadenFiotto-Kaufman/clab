@@ -301,8 +301,8 @@ def point_header(plan: Plan, name: str, step: Step) -> dict[str, str] | None:
     member = name.partition(".")[2]
     if step.kind == "op" and ops.DECLARED[step.op]["bundle"]:
         kind, fields = ops.DECLARED[step.op]["bundle"], arguments(step)
-        value = record_of(plan.steps, name, step.at)
-        read = record_of(plan.steps, value.read or "", step.at)
+        value = record_of(plan.steps, name, step.at, plan.featurizers)
+        read = entry_of(plan.steps, value.read or "", step.at)[1]
         site = site_as_recorded(read)
         width = len(value.kept["hidden_size"]) if "hidden_size" in value.kept else plan.run.sizes["hidden_size"]
         reads, kept = None, None

@@ -192,7 +192,7 @@ def value_record(cx: Compiling, ref: str, path: str, at: dict[str, int],
     if ref not in known:
         fail(path, f"{ref!r} names no value produced before this step; known: {', '.join(sorted(known)) or 'none'}")
     cx.used.add(ref)
-    return record_of(cx.steps, ref, at)
+    return record_of(cx.steps, ref, at, cx.featurizers)
 
 
 def several(top: Op | OpStep) -> str:
@@ -227,7 +227,8 @@ def whole_top_k(cx: Compiling, ref: str, record: Labelled, at: dict[str, int], t
                     + fix.format(f"their ids ({named.removesuffix('.tokens') + '.ids'!r})"))
         return None
     top = top_k_of(record if not isinstance(record, Load) else
-                   record_of(cx.sources[record.from_]["plan"].steps, record.value, record.at))
+                   record_of(cx.sources[record.from_]["plan"].steps, record.value, record.at,
+                             cx.sources[record.from_]["plan"].featurizers))
     if top is None:
         return None
     if isinstance(top, OpStep):
@@ -340,7 +341,7 @@ def picks_of(cx: Compiling, ref: str, at: dict[str, int]) -> int | None:
     value (a load's `k` axis, whose top_k ran in another run)."""
     if (found := member_of(cx.steps, ref, at)) is not None:
         return arguments(found[0])["k"]
-    record = record_of(cx.steps, ref, at)
+    record = record_of(cx.steps, ref, at, cx.featurizers)
     return picks_of(cx, record.of, record.at) if isinstance(record, OpStep) and "k" in (record.dims or []) else None
 
 

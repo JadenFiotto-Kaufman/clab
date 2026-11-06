@@ -203,7 +203,7 @@ def resolve_operands(plan: Plan, record: Intervention, layer: int | None, names:
             if key not in params or params[key].annotation not in (ops.Value, ops.Featurizer) or not isinstance(value, str):
                 continue
             if value in names:
-                stacked = "layers" in (record_of(plan.steps, value, at).dims or [])
+                stacked = "layers" in (record_of(plan.steps, value, at, plan.featurizers).dims or [])
                 listed[key] = {"name": value, "live": names[value][layer] if stacked else next(iter(names[value].values()))}
             elif value in plan.featurizers:
                 listed[key] = {"name": value, "at": agreeing_point(plan.featurizers[value], at).at}

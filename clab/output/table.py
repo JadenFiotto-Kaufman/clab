@@ -471,7 +471,7 @@ def read_labels(plan: Plan, record: Labelled, at: dict[str, int]) -> dict[str, A
     labels (`indices`): the model's layers on a `layers` axis, the indices kept on an axis a `select` keeps."""
     assert plan.run is not None and record.read is not None
     producer, _ = entry_of(plan.steps, record.read, at)
-    read = cast(Intervention, record_of(plan.steps, record.read, at))
+    read = entry_of(plan.steps, record.read, at)[1]
     prompt = plan.run.tokens[data.input_name(producer.input)]
     said = plan.run.tokens.get(record.read.rpartition(".")[0]) if producer.kind == "generate" else None
     if said is not None and projection(producer.at, cast(Labelled, producer).axes):

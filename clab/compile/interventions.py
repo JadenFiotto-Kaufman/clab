@@ -257,7 +257,8 @@ def compile_entry(cx: Compiling, path: str, spec: Intervention, plan: Plan, step
                      "an entry per call, with an operand of one position: a prefill read, or one read at that call "
                      "under a min_new_tokens that reaches it on every row")
             why = mismatch(ours, theirs, o.op, key, written, repr(step.input), i <= last, written in live,
-                           adapts(plan, o), lambda ref: spec if ref == where else record_of(cx.steps, ref, at))
+                           adapts(plan, o), lambda ref: spec if ref == where else record_of(cx.steps, ref, at,
+                                                                                             cx.featurizers))
             if why:
                 fail(f"{here}.{key}", why)
         if i in closes:
@@ -327,8 +328,7 @@ def kept_of(select: dict[str, Selector] | None) -> dict[str, selectors.Kept]:
 def read_positions(steps: dict, read: str, at: dict[str, int]) -> list | None:
     """The positions per row the read `read` holds at `at`, under its dataset, where they are known: the
     prefill's before any forward, a generation's decode calls' once it ran; else None."""
-    record = record_of(steps, read, at)
-    assert isinstance(record, Intervention), f"{read} is no read"
+    record = entry_of(steps, read, at)[1]
     return record.positions.get(cast(str, record.dataset))
 
 

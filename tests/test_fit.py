@@ -513,6 +513,24 @@ def test_the_probes_direction_runs_the_same_on_every_engine(engines, monkeypatch
     assert trip == TRIP and same(served.results, got[0])
 
 
+def test_a_later_fits_body_names_an_earlier_fits_tensor_as_a_value_made_before_it(engines):
+    """An earlier fit's trained tensor is made before a later fit, whose body names it as it names any value made
+    before the fit: here a constant trained at layer 1 beside an op over `fit.probe.W`, whose history is that op's
+    mean at every epoch."""
+    def later(d):
+        d["featurizers"]["c"] = {"kind": "constant", "init": 0.0}
+        d["steps"]["fit2"] = {
+            "kind": "fit", "train": ["c"], "objective": {"n": 1.0}, "epochs": 2, "batch_size": 4, "seed": 0,
+            "optimizer": {"name": "adam", "lr": 0.1},
+            "steps": {"w": logits_after({"op": "apply", "featurizer": "fit2.c"}),
+                      "weights": {"kind": "op", "op": "abs", "of": "fit.probe.W"},
+                      "n": {"kind": "op", "op": "norm", "of": "w.out"}}}
+        d["saves"] = ["fit.probe.W", "fit2.history.weights"]
+    plan = probe(later)
+    values = engines("nnterp", plan.model).execute(plan, batch_size=BATCH_SIZE).results
+    assert same(values["fit2.history.weights"], values["fit.probe.W"].abs().mean().expand(2))
+
+
 def test_a_swept_fits_tensor_carries_its_sweep_axis(engines):
     """A fit swept over its learning rate trains a probe per point, and `fit.probe.W` is one tensor per point, keyed
     by the fit's coordinate, each that point's bundle's."""
@@ -2226,7 +2244,7 @@ def test_the_ablation_pairs_nulls_hold_to_the_bit_and_its_fit_lowers_the_objecti
     plan = ran["ablation_pair", kind]
     got = plan.results
     assert same(got["null.ld"], got["clean.ld"])
-    donor = record_of(plan.steps, "donor", {})
+    donor = record_of(plan.steps, "donor", {}, plan.featurizers)
     assert isinstance(donor, OpStep) and donor.permutation == [2, 3, 0, 1]
     untrained = ((got["mean_ablated.ld"] - got["clean.ld"]) ** 2).mean()
     history = got["fit.history.sq"]

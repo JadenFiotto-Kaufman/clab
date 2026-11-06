@@ -119,7 +119,8 @@ def prepare(engine: Engine, plan: Plan, steps: dict, classes: dict[str, list], f
                         raise ValueError(f"{at_point(plan, name, step.at)}: {why}")
                     for key, (written, theirs) in references(step.op, args, preflight_resolver(plan, step.at)).items():
                         why = mismatch(of, theirs, step.op, key, written, repr(step.of), False, False,
-                                       adapts(plan, step), lambda ref: record_of(plan.steps, ref, step.at))
+                                       adapts(plan, step),
+                                       lambda ref: record_of(plan.steps, ref, step.at, plan.featurizers))
                         if why:
                             raise ValueError(f"{name}: operand {why}")
                     if "classes" in of.dims:
@@ -207,7 +208,8 @@ def prepare(engine: Engine, plan: Plan, steps: dict, classes: dict[str, list], f
                                                                preflight_resolver(plan, step.at)).items():
                             forward = written.rpartition(".")[0] == name
                             why = mismatch(ours, theirs, o.op, k, written, repr(step.input), i < edits, forward,
-                                           adapts(plan, o), lambda ref: record_of(plan.steps, ref, step.at))
+                                           adapts(plan, o),
+                                           lambda ref: record_of(plan.steps, ref, step.at, plan.featurizers))
                             if why:
                                 raise ValueError(f"{where}: operand {why}")
                         write = (cast(Site, record.site).component, repr(record.pos), repr(record.kept), o.op,
