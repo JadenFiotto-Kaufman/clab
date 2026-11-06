@@ -27,7 +27,7 @@ names for a quantization: `nf4` and `fp4` hold the weights in bitsandbytes' 4 bi
 transformers' block-wise 8-bit floats, on a GPU of compute capability 8.9 or later. A quantized model computes in
 `bfloat16` (`int8` in `float16`), which is the dtype its values have. A key that respells one of the three
 (`torch_dtype`, `quantization_config`, `_commit_hash`, ...) or names a run option (`device`, `device_map`:
-`--device`; `tp_plan`, ...: `-o tp=N`) is refused by name as the document is read (`plan.OWNED`). Every other
+`--device`; `tp_plan`, ...: `-o tp=N`) is refused by name at compile (`plan.OWNED`). Every other
 key goes to the engine's loader untouched (`attn_implementation`, ...), which refuses what it cannot honor as
 the engine loads, as the load refuses a checkpoint or revision the offline cache lacks. The attention interior
 needs `attn_implementation: "eager"`.

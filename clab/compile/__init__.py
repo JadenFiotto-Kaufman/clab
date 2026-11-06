@@ -47,6 +47,7 @@ from clab.plan import (
     Intervention,
     Labelled,
     Load,
+    OWNED,
     OpStep,
     Plan,
     PlanError,
@@ -73,9 +74,14 @@ from clab.plan import (
 
 
 def compile(plan: Plan) -> Plan:
-    """The plan compiled: a new `Plan`, `compiled=True`."""
+    """The plan compiled: a new `Plan`, `compiled=True`. First of all, a model block key no engine takes (`OWNED`:
+    another spelling of `key`, `revision` or `dtype`, or a run option) is refused by name with the key or option to
+    write."""
     if plan.compiled:
         return plan
+    for key in plan.model.model_extra or {}:
+        if key in OWNED:
+            fail("model", f"{key!r}: {OWNED[key]}")
     root = corpus_root(plan)
     doc = plan.model_dump(exclude_defaults=True, exclude={"run", "document"})
     rows = {name: make_dataset_rows(root, name, d) for name, d in plan.data.items()}

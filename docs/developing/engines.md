@@ -39,7 +39,7 @@ The constructor, in order, with what `clab/engines/standard.py` shares:
 
 1. Take the loader's dtype arguments from `loading`. It turns `dtype` into torch's dtype or a quantization's `quantization_config`, so every engine holds the same weights. It refuses a `device` no engine can place a model on.
 2. Take the placement from `placing`.
-3. Build the model with `build`. It passes the model block's other keys to the loader as they are. It reports a checkpoint the loader cannot get as `model.key`, and a key the loader rejects as that key. A key no engine takes never reaches it: `clab/plan.py` `Model` refuses each in `OWNED` as the document is read.
+3. Build the model with `build`. It passes the model block's other keys to the loader as they are, and refuses the keys in `clab/plan.py` `OWNED` by name (`model.device_map: the hooks engine cannot honor it: ...`), which compile refuses in a document before any engine. It reports a checkpoint the loader cannot get as `model.key`, and a key the loader rejects as that key.
 4. Freeze the model's parameters (`requires_grad_(False)`). That moves no value and keeps no graph for a weight's gradient, a fit's or a `grad` entry's.
 
 A shell that loads its weights later loads them through `build` too, so a key the loader rejects is refused by name there. It freezes them once loaded. The nnterp engine does this in `clab/engines/nnterp.py` `NnterpEngine.ready`. That engine, and ndif's under `remote="local"`, run `ready` before the session, ahead of the first step of a run that calls the model (`clab/plan.py` `calls_model`). Under `remote=True`, `ready` runs on the server, which holds its own weights. `ready` also does once what the model would otherwise do at its first trace, so that no step's cost holds it:
@@ -150,7 +150,7 @@ A write's op argument `{"live": "<read name>"}` names a read the same forward ca
 |---|---|
 | an option it does not declare, or of another type; torchrun around an engine without `tp` | `load` |
 | an option value it cannot honor | its constructor, a `ValueError` naming it (`device: the ndif engine cannot honor 'cuda:0': the server places the model`) |
-| a model block key that respells `key`, `revision` or `dtype`, or names a run option | no engine: `clab/plan.py` `Model`, as the document is read (`OWNED`) |
+| a model block key that respells `key`, `revision` or `dtype`, or names a run option (`OWNED`) | compile, in a document; `build`, in a block given the engine directly |
 | any other model block key | the loader, through `build` |
 | a checkpoint the loader cannot get | `build`, as `model.key` |
 | a `device` or a `dtype` it cannot place or hold | `loading` (`fp8` without a GPU of compute capability 8.9 or later; a bitsandbytes format without bitsandbytes) |

@@ -76,7 +76,7 @@ The nnterp engine (at `tp` 1) loads as a meta shell: the module tree, the config
   clab: device: the ndif engine cannot honor 'cuda:0': the server places the model
   ```
 
-The model block cannot place the model. `device`, `device_map` and `dispatch` there are refused as the document is read, so `clab compile` refuses them. So are another spelling of `key`, `revision` or `dtype` (`torch_dtype`, `quantization_config`, `load_in_8bit`, `_commit_hash`, `pretrained_model_name_or_path`) and the sharding keys `-o tp` stands for (`tp_plan`, `tp_size`). `clab/plan.py` `OWNED` lists them all. Every other key goes to the loader as written, and the loader refuses what it cannot honor as the engine loads ([FORMAT.md](../../FORMAT.md#model)):
+The model block cannot place the model. `device`, `device_map` and `dispatch` there are refused at compile, so `clab compile` refuses them. So are another spelling of `key`, `revision` or `dtype` (`torch_dtype`, `quantization_config`, `load_in_8bit`, `_commit_hash`, `pretrained_model_name_or_path`) and the sharding keys `-o tp` stands for (`tp_plan`, `tp_size`). `clab/plan.py` `OWNED` lists them all. A run's plan read back is not judged, so `clab show` and `clab table` read a run that holds one. Every other key goes to the loader as written, and the loader refuses what it cannot honor as the engine loads ([FORMAT.md](../../FORMAT.md#model)):
 
 ```text
 clab: model: 'device': where the model runs is a run option: --device
