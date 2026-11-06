@@ -118,7 +118,7 @@ The run records both choices (`run.padding`, `run.readout`), and `clab show` pri
 
 - **Batch size and padding.** A batch of another size or width is a matmul of another shape, which sums in another order. With N rows, every batch size of N or more is one batch.
 - **Regrouped rows.** Under `batch` and `sorted` a row's width is its batch's, so a reordered or reshuffled dataset can move a row's numbers. Under the default it is the step's longest row whatever batch the row lands in, though at some thread counts the batch's other rows can still move its last bits.
-- **Readout.** `--readout at-reads` computes the head in another shape ([above](#the-head-at-the-positions-read)).
+- **Readout.** `--readout at-reads` computes the head in another shape ([above](#the-head-at-the-positions-read)). So does a `readout` op inside an entry, one batch at one layer, against a `readout` step over the whole saved read ([logit lens](../patterns/logit-lens.md#the-document)).
 - **Threads and machine.** A CPU's BLAS splits a matmul's reduction by thread, so another thread count can move the last bits, and its kernels differ by CPU. Compare runs made on one machine.
 
 The run records each setting: `run.batch_size`, `run.padding`, `run.readout`, `run.devices` and `run.threads`, torch's intra-op thread count (`torch.get_num_threads()`). `clab show` prints all of them but `run.threads`; read that one from the manifest's `run`. Set the thread count with `OMP_NUM_THREADS` for `clab run`, or `torch.set_num_threads` before `clab.run`, and check `run.threads` to see what the run used. The suite pins its own (`tests/conftest.py` `THREADS`). Compare runs only where every setting agrees.
