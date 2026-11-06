@@ -3,7 +3,7 @@ title: Expert ablation
 one_liner: "What does one expert of a mixture do? Knock it out, force a route, every expert in one document, routing usage and entropy."
 tags: [patterns, ablation, mixture-of-experts, routing, experts]
 related: [docs/usage/sites.md, docs/patterns/ablation.md, docs/usage/interventions.md, docs/usage/ops.md, docs/usage/sweeps.md, docs/usage/engines.md]
-sources: [documents/expert_knockout.json, clab/format/address.py, clab/engines/standard.py, clab/ops/reductions.py, clab/ops/transforms.py, tests/test_moe.py]
+sources: [documents/expert_knockout.json, nnspec/format/address.py, nnspec/engines/standard.py, nnspec/ops/reductions.py, nnspec/ops/transforms.py, tests/test_moe.py]
 ---
 
 # Expert ablation

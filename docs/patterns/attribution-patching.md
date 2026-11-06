@@ -3,12 +3,12 @@ title: Attribution Patching
 one_liner: "How do I rank every component with one backward? grad times the counterfactual's difference, the gradient check, and where it misleads."
 tags: [patterns, attribution, gradient, grad, patching, heads]
 related: [docs/patterns/activation-patching.md, docs/patterns/head-and-neuron-patching.md, docs/usage/interventions.md, docs/usage/ops.md, docs/usage/sweeps.md]
-sources: [clab/ops/transforms.py, clab/steps/batches.py, clab/compile/schedule.py, clab/engines/nnterp.py, clab/engines/hooks.py, documents/attribution_patching.json, documents/real/attribution_patching.json]
+sources: [nnspec/ops/transforms.py, nnspec/steps/batches.py, nnspec/compile/schedule.py, nnspec/engines/nnterp.py, nnspec/engines/hooks.py, documents/attribution_patching.json, documents/real/attribution_patching.json]
 ---
 
 # Attribution Patching
 
-Attribution patching estimates what [activation patching](activation-patching.md) would measure, to first order: the metric's gradient at a site on the base run, times the counterfactual's value there less the base's, summed over the site's features. One backward gives the gradient at every site of a forward, so a whole layer-by-head map costs two or three forwards where patching costs a forward per component. In clab the gradient is a read: an entry whose first op is `grad` ([interventions.md](../usage/interventions.md#a-gradient-at-a-site); the op is in [FORMAT.md#transforms](../../FORMAT.md#transforms)).
+Attribution patching estimates what [activation patching](activation-patching.md) would measure, to first order: the metric's gradient at a site on the base run, times the counterfactual's value there less the base's, summed over the site's features. One backward gives the gradient at every site of a forward, so a whole layer-by-head map costs two or three forwards where patching costs a forward per component. In nnspec the gradient is a read: an entry whose first op is `grad` ([interventions.md](../usage/interventions.md#a-gradient-at-a-site); the op is in [FORMAT.md#transforms](../../FORMAT.md#transforms)).
 
 ## The document
 

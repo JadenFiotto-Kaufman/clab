@@ -3,7 +3,7 @@ title: Generation Experiments
 one_liner: "Did the model say the answer, and how sure was it? contains or a whole-word scope, the text after a marker, a reasoning trace's length, teacher forcing, and chat turns."
 tags: [patterns, generation, scoring, teacher-forcing, chat]
 related: [docs/usage/generate.md, docs/usage/positions.md, docs/usage/ops.md, docs/usage/data.md, docs/errors/alignment-missing.md, docs/patterns/activation-patching.md]
-sources: [clab/steps/generate.py, clab/compile/positions.py, clab/ops/metrics.py, clab/ops/transforms.py]
+sources: [nnspec/steps/generate.py, nnspec/compile/positions.py, nnspec/ops/metrics.py, nnspec/ops/transforms.py]
 ---
 
 # Generation Experiments
@@ -123,10 +123,10 @@ A list `input` joins the columns per row ([data.md](../usage/data.md#list-inputs
 | `exact`, `min` of `match` over `pos` | one | 1 where every token was the top prediction |
 | `per_tok`, `mean` of `match` over `pos` | one | the fraction of tokens that were |
 
-**Keep `occurrence: -1`.** The default, `occurrence: 0`, picks the first occurrence. That is in the prompt whenever the prompt says the answer too, and the run gives no warning ([positions.md](../usage/positions.md#words-and-occurrences)). clab does check that the scored column is what the input says at the read's positions. A row where it is not is refused before any forward:
+**Keep `occurrence: -1`.** The default, `occurrence: 0`, picks the first occurrence. That is in the prompt whenever the prompt says the answer too, and the run gives no warning ([positions.md](../usage/positions.md#words-and-occurrences)). nnspec does check that the scored column is what the input says at the read's positions. A row where it is not is refused before any forward:
 
 ```text
-clab: nll: days.other row 0: position 13 predicts ' Monday' in the input, which is not token 0 of ' Friday' as it tokenizes alone ([' Friday']); …
+nnspec: nll: days.other row 0: position 13 predicts ' Monday' in the input, which is not token 0 of ' Friday' as it tokenizes alone ([' Friday']); …
 ```
 
 ### Scoring the model's own text
@@ -134,7 +134,7 @@ clab: nll: days.other row 0: position 13 predicts ' Monday' in the input, which 
 A list `input` takes dataset columns and texts only, so a `detokenize` step's text cannot be appended in the same document:
 
 ```text
-clab: steps.forced.input: 'text' is not <dataset>.<column> or <dataset>.<column>[i]
+nnspec: steps.forced.input: 'text' is not <dataset>.<column> or <dataset>.<column>[i]
 ```
 
 Score it in two documents:

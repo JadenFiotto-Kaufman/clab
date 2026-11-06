@@ -3,7 +3,7 @@ title: Head and Neuron Patching
 one_liner: "Which heads or neurons carry it? Patch one head or a few neurons at a time, head sets, and path patching."
 tags: [patterns, heads]
 related: [docs/patterns/activation-patching.md, docs/usage/sites.md, docs/usage/sweeps.md, docs/usage/interventions.md, docs/patterns/attention.md, docs/usage/engines.md, docs/concepts/values-and-layout.md]
-sources: [clab/compile/interventions.py, clab/steps/batches.py, clab/format/address.py]
+sources: [nnspec/compile/interventions.py, nnspec/steps/batches.py, nnspec/format/address.py]
 ---
 
 # Head and Neuron Patching
@@ -61,7 +61,7 @@ The counterfactual reads `every_layer` and the patch writes `target`. The two `n
 
 The corpus Llama has 2 layers (`plan.run.sizes["num_layers"]`) of 4 heads, each `head_dim` 4. A sweep lists its values, so every head of a layer is `[0, 1, 2, 3]` here, and on another model as many as its config's `num_attention_heads` (preflight refuses a head past them).
 
-- **Eight points**, keyed `layers=0,num_heads=0` to `layers=1,num_heads=3`. A `mean` step over `logit_diff` gives one number per point, which `clab table` lists with its `at`.
+- **Eight points**, keyed `layers=0,num_heads=0` to `layers=1,num_heads=3`. A `mean` step over `logit_diff` gives one number per point, which `nnspec table` lists with its `at`.
 - **Rank the heads in Python.** No op compares across points ([ops](../usage/ops.md#what-is-not-an-op)), so sort `Plan.load(out).results["<mean step>"]`, a dict keyed `(layer, head)` ([sweeps](../usage/sweeps.md#reading-swept-results)).
 - **`layers` on the patch is a sweep, not a selector** ([interventions](../usage/interventions.md#writes-across-layers)).
 - **`documents/real/head_patching.json`** is the same grid on Llama-3.2-1B, three layers by 32 heads, 96 points. It reads its counterfactual at `every_layer`, one forward for its 32 points, and runs one patched forward per point. It scores the head inside the entry (`match` and `logit_diff` in the head's `ops`; [ops](../usage/ops.md#a-step-or-an-entry)) and averages each point in a step. It needs a GPU and a gated checkpoint.
@@ -159,7 +159,7 @@ A narrowed axis keeps its indices in the order the list writes them, so `{"num_h
 The write's record gives the token it landed on, its `positions` ([positions](../usage/positions.md#check-where-it-landed)). The layer and head it hit are the compiled entry's `site` at each point, in the manifest:
 
 ```python
-from clab import Plan
+from nnspec import Plan
 
 plan = Plan.load("out/head_patching")
 for point in plan.steps["patched"]:

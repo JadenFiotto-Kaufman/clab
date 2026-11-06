@@ -3,7 +3,7 @@ title: Errors Index
 one_liner: Refusals keyed by their message, each with its cause and the page that fixes it; and the route to the symptom index when nothing was refused.
 tags: [errors, refusals, index]
 related: [docs/errors/symptom-index.md, docs/errors/operand-does-not-fit.md, docs/errors/position-not-in-row.md, docs/errors/answer-does-not-line-up.md, docs/errors/alignment-missing.md, docs/concepts/plan-lifecycle.md]
-sources: [clab/plan.py, clab/compile/__init__.py, clab/compile/answers.py, clab/compile/interventions.py, clab/compile/preflight.py, clab/cli.py, clab/engines/__init__.py]
+sources: [nnspec/plan.py, nnspec/compile/__init__.py, nnspec/compile/answers.py, nnspec/compile/interventions.py, nnspec/compile/preflight.py, nnspec/cli.py, nnspec/engines/__init__.py]
 ---
 
 # Errors Index
@@ -12,7 +12,7 @@ Up: [docs/index.md](../index.md) — all sections.
 
 Find the message you saw. If the run finished, nothing was refused and the numbers look wrong, use [symptom-index.md](symptom-index.md) instead.
 
-A refusal prints as `clab: <where>: <what>`; find `<what>`'s first clause below, and see [plan-lifecycle.md](../concepts/plan-lifecycle.md#which-stage-refused) for which stage each `<where>` comes from.
+A refusal prints as `nnspec: <where>: <what>`; find `<what>`'s first clause below, and see [plan-lifecycle.md](../concepts/plan-lifecycle.md#which-stage-refused) for which stage each `<where>` comes from.
 
 Each row quotes a message's first clause without its `<where>:`. `<x>` stands for a name or value from your document, and `…` for the rest of the message.
 
@@ -35,7 +35,7 @@ Each row quotes a message's first clause without its `<where>:`. `<x>` stands fo
 | `'<op>' needs '<arg>'` | a required argument left out | [FORMAT.md](../../FORMAT.md#ops) |
 | `<arg>: <v> is not <type>` | an argument of another type (`p: 'inf' is not float`) | [FORMAT.md](../../FORMAT.md#ops) |
 | `<arg>: <v> is not a named value or a number` | a value argument of another form | [FORMAT.md](../../FORMAT.md#ops) |
-| `'<arg>' is no argument a document gives: the run supplies it` | an op argument under a name the run supplies the op (`dims`, `layers`, `rows`, `positions`, `eos`, `engine`, `original`: `clab/ops/__init__.py` `SUPPLIED`), on an op step or an entry's op | [FORMAT.md](../../FORMAT.md#ops) |
+| `'<arg>' is no argument a document gives: the run supplies it` | an op argument under a name the run supplies the op (`dims`, `layers`, `rows`, `positions`, `eos`, `engine`, `original`: `nnspec/ops/__init__.py` `SUPPLIED`), on an op step or an entry's op | [FORMAT.md](../../FORMAT.md#ops) |
 | `'clamp' needs 'min' or 'max', or both`; `'clamp' min <a> is greater than its max <b>` | `clamp`'s bounds | [FORMAT.md](../../FORMAT.md#edits) |
 | `against <v> is not a name` | `kl`'s or `js`'s `against` is not a named value | [ops.md](../usage/ops.md#metrics) |
 | `'norm' p <p> is not finite` | an infinite `p`; the largest absolute value is a `max` of `abs` | [ops.md](../usage/ops.md#reductions-and-over) |
@@ -50,13 +50,13 @@ Each row quotes a message's first clause without its `<where>:`. `<x>` stands fo
 | `epochs <n>: a fit runs 0 or more epochs` | negative `epochs` | [fit.md](../usage/fit.md) |
 | `batch_size <n>: a minibatch holds at least one row` | a fit's `batch_size` below 1 | [fit.md](../usage/fit.md) |
 | `a sweep cannot stand on a name, and the optimizer's name is one` | a swept optimizer `name`; write one fit per optimizer | [fit.md](../usage/fit.md) |
-| `<option> <v>; it stays <w>` | a generate option clab holds at one value (`num_beams 2; it stays 1`); the message names the option and says why | [generate.md](../usage/generate.md#options) |
+| `<option> <v>; it stays <w>` | a generate option nnspec holds at one value (`num_beams 2; it stays 1`); the message names the option and says why | [generate.md](../usage/generate.md#options) |
 
 ## Sites, selectors, positions and sweeps as written
 
 | Message | Cause | Page |
 |---|---|---|
-| `unknown component '<c>'` | `component` names nothing clab addresses; `clab describe components` lists them | [sites.md](../usage/sites.md#choosing-a-component) |
+| `unknown component '<c>'` | `component` names nothing nnspec addresses; `nnspec describe components` lists them | [sites.md](../usage/sites.md#choosing-a-component) |
 | `<c> is a block's value and needs 'layers'` | a block's component without `layers` | [sites.md](../usage/sites.md#layers) |
 | `<c> is the model's own value and takes no layers` | `layers` on the model's own value (`logits`, `lm_head_output`) | [sites.md](../usage/sites.md#layers) |
 | `<c> has no axis '<a>' to select` | `select` names an axis the component's value lacks | [sites.md](../usage/sites.md#select) |
@@ -90,14 +90,14 @@ Each row quotes a message's first clause without its `<where>:`. `<x>` stands fo
 
 | Message | Cause | Page |
 |---|---|---|
-| ``'<key>': the dtype is spelled `dtype` ``, `'<key>': where the model runs is a run option: --device`, `'<key>': tensor parallelism is a run option: -o tp=N`, … | a model-block key that respells `key`, `revision` or `dtype`, or names a run option (`clab/plan.py` `OWNED` lists each with its fix), refused at compile | [engines.md](../usage/engines.md#where-the-model-goes---device) |
+| ``'<key>': the dtype is spelled `dtype` ``, `'<key>': where the model runs is a run option: --device`, `'<key>': tensor parallelism is a run option: -o tp=N`, … | a model-block key that respells `key`, `revision` or `dtype`, or names a run option (`nnspec/plan.py` `OWNED` lists each with its fix), refused at compile | [engines.md](../usage/engines.md#where-the-model-goes---device) |
 | `a dataset's rows come from one of 'path', inline 'rows' and a hub dataset 'hf'` | a dataset with none of the three, or several | [data.md](../usage/data.md#where-rows-come-from) |
 | `hf '<x>': a hub dataset is named '<owner>/<name>'` | an `hf` that is not `<owner>/<name>` | [data.md](../usage/data.md#where-rows-come-from) |
 | `'hf' needs 'revision'` | a hub dataset without the commit to load | [data.md](../usage/data.md#where-rows-come-from) |
 | `'revision' pins a hub dataset ('hf')`; `'config' is the subset of a hub dataset ('hf')` | `revision` or `config` on a file or inline rows | [data.md](../usage/data.md#where-rows-come-from) |
 | `'split' is which split of a file or a hub dataset` | `split` on inline rows | [data.md](../usage/data.md#where-rows-come-from) |
 | `take <n>: a dataset keeps at least one row`; `skip <n>: a dataset drops 0 rows or more from the start` | `take` below 1, or a negative `skip` | [data.md](../usage/data.md#narrowing-and-renaming-rows) |
-| `template: a chat renders to text, which clab tokenizes; it takes no 'tokenize'` | `tokenize` in a `template` | [data.md](../usage/data.md#chat-inputs) |
+| `template: a chat renders to text, which nnspec tokenizes; it takes no 'tokenize'` | `tokenize` in a `template` | [data.md](../usage/data.md#chat-inputs) |
 | `no file data/<path>.json under the corpus root` | data paths resolve under the nearest directory holding `data/`, from the document's own directory up | [running.md](../usage/running.md#the-corpus-root) |
 | `the dataset has no rows` | an empty file, or an empty `split` of it | [data.md](../usage/data.md) |
 | `skip <n>, and the dataset has <m> rows` | a `skip` that leaves no row | [data.md](../usage/data.md#narrowing-and-renaming-rows) |
@@ -148,7 +148,7 @@ Each row quotes a message's first clause without its `<where>:`. `<x>` stands fo
 | `<out> ran another model than this document's` | the run's `model` block differs from this document's, a loader key included | [cached-harvest.md](../patterns/cached-harvest.md#what-the-load-checks) |
 | `<out> saved no '<n>'` | a `value` the run did not save | [cached-harvest.md](../patterns/cached-harvest.md#what-the-load-checks) |
 | `<out>/<file> is missing, which its manifest says holds '<n>'` | a saved file gone from the run directory | [cached-harvest.md](../patterns/cached-harvest.md#what-the-load-checks) |
-| `<out>/manifest.json is not a run this clab reads` | a manifest that does not parse as a run | [cached-harvest.md](../patterns/cached-harvest.md#what-the-load-checks) |
+| `<out>/manifest.json is not a run this nnspec reads` | a manifest that does not parse as a run | [cached-harvest.md](../patterns/cached-harvest.md#what-the-load-checks) |
 | `<out>/manifest.json: a saved value's record holds no 'axes'`; `<out>/manifest.json: fit '<f>' has an 'eval' and no 'evals'` | the manifest's records lack a field a load reads; rerun the document that wrote it | [cached-harvest.md](../patterns/cached-harvest.md#what-the-load-checks) |
 | `'<n>' was made over the rows of dataset '<d>', which this document does not declare` | the loading document gives the dataset another name, or none; declare it under the run's name | [cached-harvest.md](../patterns/cached-harvest.md#what-the-load-checks) |
 | `'<n>' was made over the rows of dataset '<d>', and this document's '<d>' is not the rows <out> read, in their order` | other rows: it ends `<m> rows where it read <n>` after another `take` or `skip`, or `as many rows, whose digest differs` | [cached-harvest.md](../patterns/cached-harvest.md#what-the-load-checks) |
@@ -326,26 +326,26 @@ Each row quotes a message's first clause without its `<where>:`. `<x>` stands fo
 | `'<x>' names no value a step makes` | an `init` no step makes | [ablation.md](../patterns/ablation.md#the-optimal-constant) |
 | `featurizer '<f>' is drawn from '<x>' (init), which keeps …` | before any forward: `init`'s selection against the use's | [ablation.md](../patterns/ablation.md#the-optimal-constant) |
 | `<file> is a published sae, which says neither how it encodes nor where it was trained` | a published SAE without its stated fields | [featurizers.md](../usage/featurizers.md#loading-a-published-sparse-autoencoder) |
-| `<file> has no clab header and holds …; a published sae holds …` | a file without an SAE's tensors | [featurizers.md](../usage/featurizers.md#loading-a-published-sparse-autoencoder) |
+| `<file> has no nnspec header and holds …; a published sae holds …` | a file without an SAE's tensors | [featurizers.md](../usage/featurizers.md#loading-a-published-sparse-autoencoder) |
 | `<file>: W_enc is […]; it is [width, latents]`; `<file>: W_dec is […]; with W_enc […] it is […]` | a published SAE's tensor shapes | [featurizers.md](../usage/featurizers.md#loading-a-published-sparse-autoencoder) |
 | `<file> has <n> latents; this document says <m>`; `<file> has <n> latents; 'topk' keeps k = <k> of them` | `latents` or `k` against the file | [featurizers.md](../usage/featurizers.md#loading-a-published-sparse-autoencoder) |
 | `<file> holds no threshold; a 'jumprelu' sae needs one`; `<file> holds a JumpReLU threshold; its activation is 'jumprelu', not '<a>'` | `activation` against the file's threshold | [featurizers.md](../usage/featurizers.md#loading-a-published-sparse-autoencoder) |
-| `<file> does not exist under the corpus root` | a `file_path` with no file; a bundle beside a document with no `data/` above it, whose root is the directory above; from `clab show` or `clab table`, a relative path read from outside the run's corpus root | [bundles.md](../usage/bundles.md#reading-back-a-run-that-loads-a-bundle) |
+| `<file> does not exist under the corpus root` | a `file_path` with no file; a bundle beside a document with no `data/` above it, whose root is the directory above; from `nnspec show` or `nnspec table`, a relative path read from outside the run's corpus root | [bundles.md](../usage/bundles.md#reading-back-a-run-that-loads-a-bundle) |
 | `<file> is not a safetensors file` | a `file_path` in another format; convert it first | [bundles.md](../usage/bundles.md#file_path) |
 | `<file> holds one bundle per point of a sweep (…)` | a swept training run's file | [bundles.md](../usage/bundles.md#swept-training-runs) |
-| `<file> carries clab header keys (…) but its format is …` | a file with some of clab's header keys and another format | [bundles.md](../usage/bundles.md#what-is-checked-and-when) |
+| `<file> carries nnspec header keys (…) but its format is …` | a file with some of nnspec's header keys and another format | [bundles.md](../usage/bundles.md#what-is-checked-and-when) |
 | `<file> holds …; a <kind> bundle holds …` | a bundle of another kind's tensors | [bundles.md](../usage/bundles.md#what-is-checked-and-when) |
-| `<file> has no clab header; a <kind> bundle is one clab wrote` | a kind that loads only clab's bundles, given another file | [bundles.md](../usage/bundles.md#what-is-checked-and-when) |
+| `<file> has no nnspec header; a <kind> bundle is one nnspec wrote` | a kind that loads only nnspec's bundles, given another file | [bundles.md](../usage/bundles.md#what-is-checked-and-when) |
 | `<file>: header '<key>' is '<v>'; this document expects '<w>'` | the bundle's header against the document | [bundles.md](../usage/bundles.md#what-is-checked-and-when) |
 | `<file>: header 'layer' is '<l>'; this document uses '<f>' at <c> layer <m>` | a bundle used at another layer | [bundles.md](../usage/bundles.md#what-is-checked-and-when) |
 | `<file>: header 'select' is '{…}'; this document uses '<f>' at <c> layer <m>, whose selection keeps …` | a bundle used at another selection | [bundles.md](../usage/bundles.md#what-is-checked-and-when) |
 | `<file>: header has no 'select'` | a bundle made at the whole component, used at a selection | [bundles.md](../usage/bundles.md#what-is-checked-and-when) |
 | `<file>: header 'width' is '<w>'; this document uses '<f>' at <c>, whose width is <v>` | a bundle used at another width | [bundles.md](../usage/bundles.md#what-is-checked-and-when) |
-| `<file>: header records no '<field>', which a <kind> bundle records` | a hand-made clab header without its `width` or a field its kind's draw needs (a subspace's or a pca's `k`, an sae's `latents`, a lora's `rank` and `alpha`, a probe's `classes`) | [bundles.md](../usage/bundles.md#what-is-checked-and-when) |
+| `<file>: header records no '<field>', which a <kind> bundle records` | a hand-made nnspec header without its `width` or a field its kind's draw needs (a subspace's or a pca's `k`, an sae's `latents`, a lora's `rank` and `alpha`, a probe's `classes`) | [bundles.md](../usage/bundles.md#what-is-checked-and-when) |
 | `<file>: '<t>' is […], and its header lays a <kind> out at width <w>` | a bundle tensor whose shape is not a draw's from its header (a subspace's `basis` `[width, k]`, a lora's `B` `[rank, width]`, a gate's `theta` `[width]`) | [bundles.md](../usage/bundles.md#what-is-checked-and-when) |
 | `featurizer '<f>' is used at width <a> here and <b> elsewhere` | one featurizer used at two widths; at a point of a sweep over featurizers, that point's featurizer, which the path names | [featurizers.md](../usage/featurizers.md#a-sweep-over-featurizers) |
 | `featurizer '<f>' has <field> <n>, and it is used at width <w>` | a rank or `k` larger than the width allows | [featurizers.md](../usage/featurizers.md) |
-| `<file> has no clab header and is <w> wide` | a headerless file of another width | [featurizers.md](../usage/featurizers.md) |
+| `<file> has no nnspec header and is <w> wide` | a headerless file of another width | [featurizers.md](../usage/featurizers.md) |
 | `featurizer '<f>' was trained at <c> layer <l> (its site); this use is …` | a featurizer used at another site than its `site` | [featurizers.md](../usage/featurizers.md#drawn-trained-or-loaded) |
 | `select features '<s>' keeps none of the <n> features of '<f>'` | a `features` selector past the featurizer's coordinates | [featurizers.md](../usage/featurizers.md#selecting-features) |
 | `over: […] names no axis` | a gate's `over` that is empty or repeats an axis | [featurizers.md](../usage/featurizers.md#a-gate-over-named-axes) |
@@ -393,10 +393,10 @@ Each row quotes a message's first clause without its `<where>:`. `<x>` stands fo
 
 | Message | Cause | Page |
 |---|---|---|
-| `no document at '<path>'` | the document path given to `clab run` does not exist | [cli.md](../reference/cli.md) |
+| `no document at '<path>'` | the document path given to `nnspec run` does not exist | [cli.md](../reference/cli.md) |
 | `batch_size <n>: a batch holds one row or more` | a `--batch-size` below 1 | [running.md](../usage/running.md#batch-size-and-padding) |
-| `padding '<p>': one of 'dataset', 'batch', 'sorted'` | a `--padding` clab does not have | [running.md](../usage/running.md#batch-size-and-padding) |
-| `readout '<r>': one of 'full', 'at-reads'` | a `--readout` clab does not have | [running.md](../usage/running.md#batch-size-and-padding) |
+| `padding '<p>': one of 'dataset', 'batch', 'sorted'` | a `--padding` nnspec does not have | [running.md](../usage/running.md#batch-size-and-padding) |
+| `readout '<r>': one of 'full', 'at-reads'` | a `--readout` nnspec does not have | [running.md](../usage/running.md#batch-size-and-padding) |
 | `-o '<x>': an option is KEY=VALUE` | an `-o` without `=` | [cli.md](../reference/cli.md) |
 | `-o <key>: it is given as --<flag>` | `device`, `batch_size`, `padding` or `readout` given with `-o` | [cli.md](../reference/cli.md) |
 | `device '<d>': not a torch device ('cpu', 'cuda:0') or a device map transformers computes` | a `--device` torch does not know | [engines.md](../usage/engines.md#where-the-model-goes---device) |
@@ -438,32 +438,32 @@ Each row quotes a message's first clause without its `<where>:`. `<x>` stands fo
 | `<input>'s longest row has <n> tokens …, past the <m> the vllm engine serves` | rows past the engine's `max_len` | [engines.md](../usage/engines.md#running-on-vllm) |
 | `plan is not compiled; call plan.compile()` | `execute` on a plan not compiled | [python-api.md](../reference/python-api.md) |
 | `the plan's model is not the one this engine loaded` | a loaded engine reused with another model block; the message names each field that differs | [python-api.md](../reference/python-api.md) |
-| `the loaded <e> engine runs on <d> with {…}; device and options are given when an engine loads` | `clab.run` with a loaded engine and another device or options | [python-api.md](../reference/python-api.md) |
+| `the loaded <e> engine runs on <d> with {…}; device and options are given when an engine loads` | `nnspec.run` with a loaded engine and another device or options | [python-api.md](../reference/python-api.md) |
 | `the plan has not run, so it has no results; execute it first` | the run record asked for before the run | [python-api.md](../reference/python-api.md) |
-| `describe '<what>': nothing is described under that name` | `clab.describe` given a name that is none of its tables; the message lists them. On the command line argparse refuses it (`invalid choice`) | [python-api.md](../reference/python-api.md#clabdescribe) |
+| `describe '<what>': nothing is described under that name` | `nnspec.describe` given a name that is none of its tables; the message lists them. On the command line argparse refuses it (`invalid choice`) | [python-api.md](../reference/python-api.md#nnspecdescribe) |
 | `out of CUDA memory at batch size <n>` | a step ran out of CUDA memory; the run stops there and saves the steps that finished | [running.md](../usage/running.md#when-a-step-runs-out-of-memory) |
-| `row <r> of dataset '<d>' is not among the <n> rows this value holds` | in the run: a value made over some of its dataset's rows (a fit body's minibatch) read at a row it does not hold; no document reaches it, so reaching it is a defect in clab | [fit.md](../usage/fit.md#the-body) |
+| `row <r> of dataset '<d>' is not among the <n> rows this value holds` | in the run: a value made over some of its dataset's rows (a fit body's minibatch) read at a row it does not hold; no document reaches it, so reaching it is a defect in nnspec | [fit.md](../usage/fit.md#the-body) |
 | `the values this document loads hold <n> MiB of tensors (…), and a request carries at most 512 MiB inside its plan` | `load`s too large to send in a request, to an NDIF server or under `-o remote=local` | [cached-harvest.md](../patterns/cached-harvest.md#under-ndif) |
-| `'<n>' was not saved; add it to saves` | `clab table` or `clab show` of an unsaved name, or of a run whose `--out` a later run reused, replacing its manifest | [output.md](../usage/output.md), [bundles.md](../usage/bundles.md#the-two-document-workflow) |
+| `'<n>' was not saved; add it to saves` | `nnspec table` or `nnspec show` of an unsaved name, or of a run whose `--out` a later run reused, replacing its manifest | [output.md](../usage/output.md), [bundles.md](../usage/bundles.md#the-two-document-workflow) |
 | `'<n>' has no result: the run stopped before its step` | a name whose step a stopped run never reached | [output.md](../usage/output.md) |
-| `no run at '<out>' (no manifest.json)` | `clab show` or `clab table` of a directory without a run | [output.md](../usage/output.md) |
+| `no run at '<out>' (no manifest.json)` | `nnspec show` or `nnspec table` of a directory without a run | [output.md](../usage/output.md) |
 | `<out>/tokens.json is missing, and the manifest holds no tokens` | a run directory without its `tokens.json` | [output.md](../usage/output.md) |
-| `'<a>' has a row per example of '<d>' and '<b>' of '<e>'; a table joins the values of one dataset` | names of different datasets in one table | [output.md](../usage/output.md#clab-table) |
-| `'<a>' has a pos column counting positions of <i>, and '<b>' one counting positions of <j>` | names read on different inputs in one table; table them one at a time | [output.md](../usage/output.md#clab-table) |
-| `'<n>' is a top_k over rows, whose rows are its picks, and a top_k over rows tables alone` | a `top_k` over `rows` beside another name | [output.md](../usage/output.md#clab-table) |
-| `'<a>' and '<b>' share no row and pos together` (or `… layer, row and pos together`) | reads of one input at positions no row holds for both, so the join has no row; table them one at a time, or read at a `pos` both hold | [output.md](../usage/output.md#clab-table) |
-| `'<a>' and '<b>' share no layer` | values at layers neither holds (a `layers` axis, or a value without rows reduced from one) | [output.md](../usage/output.md#clab-table) |
+| `'<a>' has a row per example of '<d>' and '<b>' of '<e>'; a table joins the values of one dataset` | names of different datasets in one table | [output.md](../usage/output.md#nnspec-table) |
+| `'<a>' has a pos column counting positions of <i>, and '<b>' one counting positions of <j>` | names read on different inputs in one table; table them one at a time | [output.md](../usage/output.md#nnspec-table) |
+| `'<n>' is a top_k over rows, whose rows are its picks, and a top_k over rows tables alone` | a `top_k` over `rows` beside another name | [output.md](../usage/output.md#nnspec-table) |
+| `'<a>' and '<b>' share no row and pos together` (or `… layer, row and pos together`) | reads of one input at positions no row holds for both, so the join has no row; table them one at a time, or read at a `pos` both hold | [output.md](../usage/output.md#nnspec-table) |
+| `'<a>' and '<b>' share no layer` | values at layers neither holds (a `layers` axis, or a value without rows reduced from one) | [output.md](../usage/output.md#nnspec-table) |
 | `'<n>' reached no row (each is alignment_missing)` | a read that reached no row, beside one that did; alone it tables each row flagged | [alignment-missing.md](alignment-missing.md) |
-| `'<n>' is a trained featurizer's bundle, which has no rows to table` | a bundle in `clab table`; read it from `plan.results` | [output.md](../usage/output.md#clab-table) |
-| `'<n>' has no rows to table: it is …` | a value with no rows axis | [output.md](../usage/output.md#clab-table) |
-| `the plan holds none of its rows` | `preflight` or a step called from Python on a plan whose rows are not loaded; `clab.run` and an engine's `execute` load them first | [compile-and-run.md](../developing/compile-and-run.md#the-run) |
+| `'<n>' is a trained featurizer's bundle, which has no rows to table` | a bundle in `nnspec table`; read it from `plan.results` | [output.md](../usage/output.md#nnspec-table) |
+| `'<n>' has no rows to table: it is …` | a value with no rows axis | [output.md](../usage/output.md#nnspec-table) |
+| `the plan holds none of its rows` | `preflight` or a step called from Python on a plan whose rows are not loaded; `nnspec.run` and an engine's `execute` load them first | [compile-and-run.md](../developing/compile-and-run.md#the-run) |
 
 
-## Errors that are not clab's
+## Errors that are not nnspec's
 
-A malformed command line (an unknown flag, a missing argument, a value outside a flag's choices) gets argparse's usage message and exit status 2, not a `clab:` line: `clab describe: error: argument what: invalid choice: 'bogus' (choose from …)`. An engine no one registered is a `clab:` line, `clab: unknown engine 'bogus'; valid: nnterp, hooks, ndif, vllm` ([cli.md](../reference/cli.md)).
+A malformed command line (an unknown flag, a missing argument, a value outside a flag's choices) gets argparse's usage message and exit status 2, not an `nnspec:` line: `nnspec describe: error: argument what: invalid choice: 'bogus' (choose from …)`. An engine no one registered is an `nnspec:` line, `nnspec: unknown engine 'bogus'; valid: nnterp, hooks, ndif, vllm` ([cli.md](../reference/cli.md)).
 
-Under `--engine ndif`, preflight and the run happen on the server. With `-o remote=local`, nnsight's local simulation of that trip, `clab run` prints the same `clab:` line as under nnterp; [engines.md](../usage/engines.md) covers a real server.
+Under `--engine ndif`, preflight and the run happen on the server. With `-o remote=local`, nnsight's local simulation of that trip, `nnspec run` prints the same `nnspec:` line as under nnterp; [engines.md](../usage/engines.md) covers a real server.
 
 ## Pages in this section
 

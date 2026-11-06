@@ -3,7 +3,7 @@ title: LoRA
 one_liner: "How do I train and apply a low-rank adapter? Through the frozen model, on in chosen steps, across sites."
 tags: [patterns, lora, adapter, fine-tuning, with]
 related: [docs/usage/fit.md, docs/usage/featurizers.md, docs/usage/bundles.md, docs/usage/interventions.md, docs/usage/generate.md, docs/usage/positions.md]
-sources: [clab/featurizers/lora.py, clab/compile/uses.py, clab/steps/fit.py]
+sources: [nnspec/featurizers/lora.py, nnspec/compile/uses.py, nnspec/steps/fit.py]
 ---
 
 # LoRA
@@ -112,9 +112,9 @@ An adapter on a projection reads the projection's input and adds to its output. 
 A forward step that names it gives the fit's `fit.held_out.ce`. Leaving `with` out, reading `x` at `layer_input` instead, and reading it at layer 1 are each refused before any forward:
 
 ```text
-clab: adapted.adapt: documents/artifacts/fit.lora.safetensors was trained reading its input at attention_premix layer 0 (with), and this use gives no 'with'; give 'with' an entry at attention_premix layer 0
-clab: adapted.adapt: documents/artifacts/fit.lora.safetensors was trained reading its input at attention_premix layer 0 (with), and this use's with 'adapted.x' is layer_input layer 0
-clab: adapted.adapt: operand 'adapted.x' is read at attention_premix layer 1, which the nnterp engine's forward reaches no earlier than this write's attention_output layer 0; an operand from the write's own forward is an earlier entry at this site, or at a site the forward reaches first
+nnspec: adapted.adapt: documents/artifacts/fit.lora.safetensors was trained reading its input at attention_premix layer 0 (with), and this use gives no 'with'; give 'with' an entry at attention_premix layer 0
+nnspec: adapted.adapt: documents/artifacts/fit.lora.safetensors was trained reading its input at attention_premix layer 0 (with), and this use's with 'adapted.x' is layer_input layer 0
+nnspec: adapted.adapt: operand 'adapted.x' is read at attention_premix layer 1, which the nnterp engine's forward reaches no earlier than this write's attention_output layer 0; an operand from the write's own forward is an earlier entry at this site, or at a site the forward reaches first
 ```
 
 An adapter trained on its own site's value is refused a `with` too (`... header records no input site (with.component): it was trained on its own site's value`). A `generate` step does not serve an operand from its own entries, so a cross-site adapter runs in `forward` steps only; compile refuses it in a generate.

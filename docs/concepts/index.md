@@ -1,6 +1,6 @@
 ---
 title: Concepts Index
-one_liner: "Why clab behaves as it does: the plan's lifecycle, one session per run, the position model, values and layout, names and sweeps."
+one_liner: "Why nnspec behaves as it does: the plan's lifecycle, one session per run, the position model, values and layout, names and sweeps."
 tags: [concepts, index]
 related: [docs/index.md, docs/usage/index.md]
 ---
@@ -18,6 +18,6 @@ Read one of these when a usage page's rule surprises you; each explains a mechan
 
 ## Positions, values and names
 
-- [positions](positions.md) — How does clab count positions: prompt tokens, generation calls, where a write lands, static and ragged widths?
+- [positions](positions.md) — How does nnspec count positions: prompt tokens, generation calls, where a write lands, static and ragged widths?
 - [values-and-layout](values-and-layout.md) — How is a value laid out and aligned: its axes, the layers axis, select, missing entries, dtypes, and batch shape?
 - [names-and-sweeps](names-and-sweeps.md) — How do names resolve, and how do sweeps multiply into points?

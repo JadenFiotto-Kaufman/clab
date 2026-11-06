@@ -3,12 +3,12 @@ title: Ablation
 one_liner: "What does a component contribute? Zero, mean, resample (permute) and optimal-constant ablation, a direction at every layer, and the hydra effect."
 tags: [patterns, ablation]
 related: [docs/usage/interventions.md, docs/usage/ops.md, docs/usage/featurizers.md, docs/usage/fit.md, docs/patterns/activation-patching.md, docs/patterns/head-and-neuron-patching.md, docs/patterns/attention.md, docs/usage/positions.md]
-sources: [clab/ops/edits.py, clab/ops/reductions.py, clab/ops/transforms.py, clab/featurizers/constant.py, clab/compile/arguments.py]
+sources: [nnspec/ops/edits.py, nnspec/ops/reductions.py, nnspec/ops/transforms.py, nnspec/featurizers/constant.py, nnspec/compile/arguments.py]
 ---
 
 # Ablation
 
-Ablation removes what a component contributes and measures what the model loses: a test of necessity, with no counterfactual prompt. In clab it is a write in one forward, scored against a clean forward over the same rows. The kinds differ only in what the write puts in the component's place, and that choice decides what the result means.
+Ablation removes what a component contributes and measures what the model loses: a test of necessity, with no counterfactual prompt. In nnspec it is a write in one forward, scored against a clean forward over the same rows. The kinds differ only in what the write puts in the component's place, and that choice decides what the result means.
 
 ## The shape of an ablation document
 
@@ -23,7 +23,7 @@ Ablation removes what a component contributes and measures what the model loses:
 "zeroed_ld": {"kind": "op", "op": "logit_diff", "of": "zeroed.logits", "a": "prompts.cf_answer", "b": "prompts.base_answer"}
 ```
 
-The clean forward is the baseline and runs on the same rows at the same batch size, so `clean_ld` and `zeroed_ld` differ by the ablation alone; `clab table <out> clean_ld zeroed_ld` puts them side by side. `swap` with a number writes it into every element of the selection, here the whole residual stream at the last token.
+The clean forward is the baseline and runs on the same rows at the same batch size, so `clean_ld` and `zeroed_ld` differ by the ablation alone; `nnspec table <out> clean_ld zeroed_ld` puts them side by side. `swap` with a number writes it into every element of the selection, here the whole residual stream at the last token.
 
 ## What to put in its place
 

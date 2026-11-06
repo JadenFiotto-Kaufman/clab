@@ -3,7 +3,7 @@ title: Ops
 one_liner: "Which op scores, reduces or transforms a value? Metrics, KL in either direction, reductions (median, count), top_k over rows and positions, permute, select along an axis, arithmetic, and step versus entry."
 tags: [usage, ops]
 related: [docs/usage/interventions.md, docs/usage/data.md, docs/usage/output.md, docs/concepts/values-and-layout.md, docs/errors/alignment-missing.md, docs/patterns/logit-lens.md, docs/patterns/probing.md, docs/patterns/steering.md]
-sources: [clab/ops/__init__.py, clab/ops/metrics.py, clab/ops/reductions.py, clab/ops/transforms.py, clab/ops/edits.py, clab/compile/arguments.py, clab/steps/__init__.py, clab/steps/batches.py]
+sources: [nnspec/ops/__init__.py, nnspec/ops/metrics.py, nnspec/ops/reductions.py, nnspec/ops/transforms.py, nnspec/ops/edits.py, nnspec/compile/arguments.py, nnspec/steps/__init__.py, nnspec/steps/batches.py]
 ---
 
 # Ops
@@ -32,8 +32,8 @@ Inside an entry, the ops after its last edit run on its value as each batch come
 
 Scoring inside the entry keeps memory flat, since a row's logits never outlive its batch. An op step holds more:
 
-- A value a step binds stays on the model's device until the run ends, when the saved ones move to the CPU (`clab/steps/__init__.py` `detached_cpu_clone`).
-- A read's batches are joined on that device, briefly twice the value's size (`clab/steps/batches.py` `join_batches`).
+- A value a step binds stays on the model's device until the run ends, when the saved ones move to the CPU (`nnspec/steps/__init__.py` `detached_cpu_clone`).
+- A read's batches are joined on that device, briefly twice the value's size (`nnspec/steps/batches.py` `join_batches`).
 - An op step computes over the whole value at once. Over two saved `[rows, pos, vocab_size]` reads, `kl` builds several float32 temporaries of `rows × pos × vocab_size × 4` bytes each.
 - A run that does not fit stops at that step, naming it and every value the run holds, with the steps before it saved ([running](running.md#when-a-step-runs-out-of-memory)).
 
@@ -122,7 +122,7 @@ What is left (a confidence interval, a ranking across points, a join across runs
 - `readout` takes `token_embeddings`, `layer_input`, `attention_output`, `layer_mid`, `mlp_output` and `layer_output`. It refuses any other component by name, and a site that selects part of `hidden_size`.
 - `argmax` and `top_k` rank along `over`, by default `vocab_size`; on probe scores, attention keys or features give `over`. `argmax` gives the top id; `top_k` gives the `k` best `ids` with their `probs`, a float32 softmax.
 - Over another axis (`key` on an attention pattern, `features` after an `encode`), `top_k` gives `values` instead of `probs`.
-- As a step over logits, `top_k` also holds the decoded `tokens`; `clab table --csv` prints them whole.
+- As a step over logits, `top_k` also holds the decoded `tokens`; `nnspec table --csv` prints them whole.
 - Each id is spelled as the tokenizer's piece, as `pos_token` spells it, a SentencePiece word-start `▁` kept: the corpus Llama's 17972 is `▁Fed`.
 - A later step names a `top_k` step's members as it names a fit's: `top3.ids`, `top3.probs` (or `top3.values`) and `top3.tokens`. Each is laid out as `top3` is, and is saved and tabled under its own name. Added to `documents/readout.json` beside an `argmax` step `best`, `{"kind": "op", "op": "eq", "of": "top3.ids", "with": "best"}` is 1 at each row's first pick.
 - The value itself is several tensors, which no op takes. An op over it, an operand naming it and an op after a `top_k` in its entry are refused at compile, naming the members to use (`'top3' is a top_k's value, several tensors`). `top3.tokens` is text, which no op takes either (`'top3.tokens' is a top_k's tokens`). Its ids are `top3.ids`.
@@ -134,7 +134,7 @@ What is left (a confidence interval, a ranking across points, a join across runs
 - A `k` below 1 is refused at compile (`k 0: a top_k picks at least one entry`). A `k` past the entries it ranks is refused where compile or preflight knows their number (`k 5 is more than the 3 entries it ranks`); [FORMAT.md#transforms](../../FORMAT.md#transforms) lists which stage knows which.
 - Along a ragged axis (a pattern's `key`, a `pos` whose rows hold different numbers of positions) a pick past a row's own is -1, however large `k` is.
 - Along an axis neither stage knows the size of (a drawn gate's coordinates, a generation's `new`, a fit's `epochs`, a load's `k`), a `k` past it stops the op at the run with torch's error.
-- `clab table` of a `top_k` over `rows` prints a row per pick, with the picked row's columns and the picked position's token ([output](output.md#clab-table)).
+- `nnspec table` of a `top_k` over `rows` prints a row per pick, with the picked row's columns and the picked position's token ([output](output.md#nnspec-table)).
 - A list of axes is refused inside an entry, since an entry's batches do not join an index per axis; one axis named alone is not.
 - `detokenize` turns a `generate` step's ids into text, stopped before each row's first EOS ([generate](generate.md)).
 - `detokenize` with `after` (a column or a literal) keeps each row's text after the first occurrence of it, and the whole text where it does not occur.
@@ -195,7 +195,7 @@ Metrics, every reduction but `pca` and the elementwise arithmetic (`abs` to `pow
 | `pca`'s `basis` and `mean`, a bundle | float32 |
 | `argmax`, `top_k`'s `ids` | int64 |
 
-`clab show` prints the dtype the model was served in (`served: bfloat16 on cpu`); [values and layout](../concepts/values-and-layout.md) explains the mechanism. What it means for a bfloat16 model's numbers:
+`nnspec show` prints the dtype the model was served in (`served: bfloat16 on cpu`); [values and layout](../concepts/values-and-layout.md) explains the mechanism. What it means for a bfloat16 model's numbers:
 
 - An op adds no rounding of its own. A probability or a cosine near 1 keeps float32's resolution.
 - A mean of bfloat16 reads is the float32 mean of them; the bfloat16 mean would be that mean rounded once more.

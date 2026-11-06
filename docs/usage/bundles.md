@@ -3,7 +3,7 @@ title: Bundles
 one_liner: "How do I save a trained featurizer and load it in another document? The files, file_path, the header checks and the two-document workflow."
 tags: [usage, bundles, featurizers, safetensors, file_path]
 related: [docs/usage/featurizers.md, docs/usage/fit.md, docs/usage/output.md, docs/usage/running.md, docs/patterns/trained-subspaces.md, docs/patterns/sae.md, docs/patterns/lora.md, docs/patterns/probing.md]
-sources: [clab/featurizers/bundles.py, clab/featurizers/__init__.py, clab/compile/uses.py, clab/compile/__init__.py, clab/compile/preflight.py, clab/plan.py]
+sources: [nnspec/featurizers/bundles.py, nnspec/featurizers/__init__.py, nnspec/compile/uses.py, nnspec/compile/__init__.py, nnspec/compile/preflight.py, nnspec/plan.py]
 ---
 
 # Bundles
@@ -21,14 +21,14 @@ The training document saves the trained featurizer as a member of its fit. `docu
 Run it with `--out` inside the corpus, so the bundle lands under the corpus root. One file per save, named after it, so `fit.rot` becomes `fit.rot.safetensors`:
 
 ```text
-clab run documents/das.json --out documents/artifacts
+nnspec run documents/das.json --out documents/artifacts
 das on nnterp (batch size 8, device cpu, tp 1) -> documents/artifacts
   held_iia.safetensors       held_iia       [2,1]
   fit.train.iia.safetensors  fit.train.iia  [2,1]
   fit.train.ce.safetensors   fit.train.ce   [2,1]
   fit.rot.safetensors        fit            {"basis":[16,8]}
   documents/artifacts/manifest.json
-clab run documents/das_apply.json
+nnspec run documents/das_apply.json
 ```
 
 The loading document declares the featurizer with `file_path` and uses it by its declared name, since nothing trains it there. `documents/das_apply.json`:
@@ -41,7 +41,7 @@ The loading document declares the featurizer with `file_path` and uses it by its
 
 `--out` writes the training run's whole output directory there, `manifest.json` included. A second training run into the same directory replaces the manifest but leaves the other bundles:
 
-- **The first run can no longer be read back.** After `documents/pca_harvest.json` runs into `das.json`'s `--out`, `clab table <out> held_iia` is refused with `'held_iia' was not saved; add it to saves`, though `held_iia.safetensors` is still there.
+- **The first run can no longer be read back.** After `documents/pca_harvest.json` runs into `das.json`'s `--out`, `nnspec table <out> held_iia` is refused with `'held_iia' was not saved; add it to saves`, though `held_iia.safetensors` is still there.
 - **Give each training run its own `--out`.** Copy each bundle file to where the loading document's `file_path` points, or run each training document into its own directory once and point `file_path` there.
 
 ## `file_path`
@@ -61,7 +61,7 @@ with safe_open("documents/artifacts/fit.rot.safetensors", "pt") as f:
 ```
 
 ```text
-{'component': 'layer_output', 'document': 'das', 'format': 'clab/1', 'k': '8', 'kind': 'subspace', 'layer': '0', 'model.dtype': 'float32', 'model.key': 'hf-internal-testing/tiny-random-LlamaForCausalLM', 'model.revision': '9fb191250dd56d0ba7ec9785a025ed29c03d5998', 'parametrization': 'cayley', 'width': '16'}
+{'component': 'layer_output', 'document': 'das', 'format': 'nnspec/1', 'k': '8', 'kind': 'subspace', 'layer': '0', 'model.dtype': 'float32', 'model.key': 'hf-internal-testing/tiny-random-LlamaForCausalLM', 'model.revision': '9fb191250dd56d0ba7ec9785a025ed29c03d5998', 'parametrization': 'cayley', 'width': '16'}
 ```
 
 ## What is checked, and when
@@ -87,7 +87,7 @@ Compile reads the bundle into the plan and checks it with the document alone. Wh
 | an affine over layers: a map per layer `layer` names, at the header's `width` | compile | `'W' is [3, 32, 32], and its header lays an affine over ['layers'] out on layer [0, 1, 2, 3], width 32: …` |
 | a cross-site adapter's `with` site | preflight | [lora.md](../patterns/lora.md#across-sites-with) |
 
-An index the header records matches however the document spells it: an adapter trained at `{"num_heads": [1]}` loads at `1`, `-3` and `"1:2"` on a 4-head layer. A file with no clab header is a published one, and only an `sae` reads it ([featurizers.md](featurizers.md#loading-a-published-sparse-autoencoder)); any other kind refuses it (`has no clab header; a subspace bundle is one clab wrote`).
+An index the header records matches however the document spells it: an adapter trained at `{"num_heads": [1]}` loads at `1`, `-3` and `"1:2"` on a 4-head layer. A file with no nnspec header is a published one, and only an `sae` reads it ([featurizers.md](featurizers.md#loading-a-published-sparse-autoencoder)); any other kind refuses it (`has no nnspec header; a subspace bundle is one nnspec wrote`).
 
 ## `pca` bundles
 
@@ -101,11 +101,11 @@ The `pca` op's value is a bundle: the top-`k` directions (`basis`, `[width, k]`)
 
 ## A hand-made `linear` bundle
 
-A probe trained outside clab loads as a `linear` bundle only with clab's header: a file without one is refused (`... has no clab header; a linear bundle is one clab wrote`). The file holds `W`, `[width, classes]`, and `b`, `[classes]`, and the probe's scores are `h @ W + b`. Each class is at its index in the class list: the distinct values of the document's `classes` column, sorted. Every header value is a string:
+A probe trained outside nnspec loads as a `linear` bundle only with nnspec's header: a file without one is refused (`... has no nnspec header; a linear bundle is one nnspec wrote`). The file holds `W`, `[width, classes]`, and `b`, `[classes]`, and the probe's scores are `h @ W + b`. Each class is at its index in the class list: the distinct values of the document's `classes` column, sorted. Every header value is a string:
 
 ```python
 save_file({"W": W, "b": b}, "documents/artifacts/probe.safetensors", metadata={
-    "format": "clab/1", "kind": "linear", "classes": json.dumps(["weekday", "weekend"]),
+    "format": "nnspec/1", "kind": "linear", "classes": json.dumps(["weekday", "weekend"]),
     "model.key": key, "model.revision": revision, "model.dtype": "float32",
     "component": "layer_output", "layer": "1", "width": "16", "document": "hand_made"})
 ```
@@ -119,7 +119,7 @@ save_file({"W": W, "b": b}, "documents/artifacts/probe.safetensors", metadata={
 A fit or `pca` step under a sweep writes one file holding a bundle per point, each key prefixed by its coordinate (`mask.mask=0.01/theta`). A featurizer loads one bundle, so loading that file is refused:
 
 ```text
-clab: featurizers.rot.file_path: documents/artifacts/fit.mask.safetensors holds one bundle per point of a sweep (mask.mask=0.0001, mask.mask=0.002, mask.mask=0.01, mask.mask=0.05); a featurizer loads one bundle, so run the document that writes it unswept
+nnspec: featurizers.rot.file_path: documents/artifacts/fit.mask.safetensors holds one bundle per point of a sweep (mask.mask=0.0001, mask.mask=0.002, mask.mask=0.01, mask.mask=0.05); a featurizer loads one bundle, so run the document that writes it unswept
 ```
 
 Run the training document again with the sweep replaced by the value you want to keep.
@@ -130,10 +130,10 @@ A fit's evals run in batches of the fit's `batch_size`, and the apply document i
 
 ## Reading back a run that loads a bundle
 
-`clab show`, `clab table` and `Plan.load` rebuild the plan from the run's manifest, which names the bundle by its `file_path`, and read it again from the working directory. Run them from the corpus root, with the bundle still there. From anywhere else they stop with the compile refusal (in Python, a `PlanError`):
+`nnspec show`, `nnspec table` and `Plan.load` rebuild the plan from the run's manifest, which names the bundle by its `file_path`, and read it again from the working directory. Run them from the corpus root, with the bundle still there. From anywhere else they stop with the compile refusal (in Python, a `PlanError`):
 
 ```text
-clab: documents/artifacts/fit.rot.safetensors does not exist under the corpus root; run the document that writes it first
+nnspec: documents/artifacts/fit.rot.safetensors does not exist under the corpus root; run the document that writes it first
 ```
 
 A `file_path` written as an absolute path is read from any directory.

@@ -3,14 +3,14 @@ title: Values and Layout
 one_liner: "How is a value laid out and aligned: its axes, the layers axis, select, missing entries, dtypes, and batch shape?"
 tags: [concepts, layout, layers, select, dtype, nan]
 related: [docs/usage/sites.md, docs/concepts/positions.md, docs/usage/ops.md, docs/errors/alignment-missing.md, docs/usage/running.md, docs/patterns/logit-lens.md]
-sources: [clab/format/address.py, clab/format/selectors.py, clab/steps/batches.py, clab/ops/transforms.py, clab/plan.py]
+sources: [nnspec/format/address.py, nnspec/format/selectors.py, nnspec/steps/batches.py, nnspec/ops/transforms.py, nnspec/plan.py]
 ---
 
 # Values and Layout
 
 ## The idea
 
-Every value a document names has a layout: a list of axis names, recorded as `dims` on its record in the manifest and printed by `clab show`. Beside `dims` the record carries the labels that say what each axis holds:
+Every value a document names has a layout: a list of axis names, recorded as `dims` on its record in the manifest and printed by `nnspec show`. Beside `dims` the record carries the labels that say what each axis holds:
 
 - `dataset`: whose rows;
 - `layers`: the model's layers;
@@ -19,7 +19,7 @@ Every value a document names has a layout: a list of axis names, recorded as `di
 - `kept`: the indices a `select` keeps;
 - `space`: the featurizer coordinates it is in.
 
-Each read and write also carries its resolved `positions` ([FORMAT.md#derived-fields](../../FORMAT.md#derived-fields)). An op checks its operands against those names and labels before any forward, acts along them, and says what layout it returns ([FORMAT.md#ops](../../FORMAT.md#ops)). So the layout is how clab knows which numbers to compare with which, and reading it is how you know what a saved tensor's indices mean. A saved result carries the same layout and labels in the manifest's `results`.
+Each read and write also carries its resolved `positions` ([FORMAT.md#derived-fields](../../FORMAT.md#derived-fields)). An op checks its operands against those names and labels before any forward, acts along them, and says what layout it returns ([FORMAT.md#ops](../../FORMAT.md#ops)). So the layout is how nnspec knows which numbers to compare with which, and reading it is how you know what a saved tensor's indices mean. A saved result carries the same layout and labels in the manifest's `results`.
 
 A value's record also says which sweep axes it depends on (`axes`): its own entry's sweeps, those of what its ops name, and, for an entry of a forward, the forward's, which are its writes'. A value is made once per distinct point on those axes, and a saved one is keyed by them ([names-and-sweeps.md](names-and-sweeps.md)).
 
@@ -39,7 +39,7 @@ Ops then reshape it: a metric removes the vocabulary axis (`rows, pos`), `readou
 
 ## The layers axis
 
-A site's `layers` written as an int gives that layer's value with no layers axis. A slice or a list gives one value with a `layers` axis first, labelled with the model's layers it picked, in the order picked: `"layers": [1, 0]` is index 0 for layer 1. `clab table` prints the model's layer in its `layer` column, not the index.
+A site's `layers` written as an int gives that layer's value with no layers axis. A slice or a list gives one value with a `layers` axis first, labelled with the model's layers it picked, in the order picked: `"layers": [1, 0]` is index 0 for layer 1. `nnspec table` prints the model's layer in its `layer` column, not the index.
 
 Ops act per layer and align by label, not by index:
 
@@ -53,7 +53,7 @@ Inside an entry no op sees a `layers` axis, since the entry runs at one layer at
 
 ## `select` keeps the axis
 
-A site's `select` narrows a feature axis and keeps it in the layout, so a site has one layout whatever it selects: `{"num_heads": 2}` gives `num_heads` of size 1, the same value as `[2]`. The kept indices are in the order written, and that order is the axis: with `{"num_heads": [3, 1]}`, index 0 along `num_heads` is head 3. The record's `kept` says which head each index is, and a saved value's nested lists, in `clab table` or the tensor, follow that order; in a column of its own, `clab table` prints the head kept, as it prints the model's layer. What follows for operands and head sets is [usage/sites.md](../usage/sites.md#select).
+A site's `select` narrows a feature axis and keeps it in the layout, so a site has one layout whatever it selects: `{"num_heads": 2}` gives `num_heads` of size 1, the same value as `[2]`. The kept indices are in the order written, and that order is the axis: with `{"num_heads": [3, 1]}`, index 0 along `num_heads` is head 3. The record's `kept` says which head each index is, and a saved value's nested lists, in `nnspec table` or the tensor, follow that order; in a column of its own, `nnspec table` prints the head kept, as it prints the model's layer. What follows for operands and head sets is [usage/sites.md](../usage/sites.md#select).
 
 ## An index counts along the value
 

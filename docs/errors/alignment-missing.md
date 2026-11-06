@@ -3,7 +3,7 @@ title: Alignment Missing
 one_liner: "Why a row is alignment_missing or a value is NaN, how missingness propagates through ops and tables, how to count it, and how to move the question into the prefill, where a miss is refused."
 tags: [errors, alignment, alignment_missing, nan, generation]
 related: [docs/concepts/positions.md, docs/usage/positions.md, docs/usage/generate.md, docs/concepts/values-and-layout.md, docs/usage/output.md, docs/usage/ops.md]
-sources: [clab/compile/positions.py, clab/steps/generate.py, clab/output/table.py, clab/ops/transforms.py]
+sources: [nnspec/compile/positions.py, nnspec/steps/generate.py, nnspec/output/table.py, nnspec/ops/transforms.py]
 ---
 
 # Alignment Missing
@@ -17,7 +17,7 @@ A row is `alignment_missing` when a read or write names a position the row does 
 
 ## Symptom
 
-`clab table` gives the row one line with `alignment_missing` true and no value, as in `documents/generated_answer.json`, where two of four rows never say their word:
+`nnspec table` gives the row one line with `alignment_missing` true and no value, as in `documents/generated_answer.json`, where two of four rows never say their word:
 
 ```text
 example_id  row  pos  pos_token  call  input                              cf_answer  value                   alignment_missing
@@ -27,7 +27,7 @@ Friday      2                          If today is Saturday, tomorrow is   Frida
 Saturday    3                          If today is Sunday, tomorrow is     Saturday                          true
 ```
 
-The entry's record holds `"alignment_missing"` in place of those rows' position lists (`plan.steps["answer"].interventions["at_said"].positions`, which `clab show` prints as `[12], [12], —, —`), and the saved tensor is NaN on them.
+The entry's record holds `"alignment_missing"` in place of those rows' position lists (`plan.steps["answer"].interventions["at_said"].positions`, which `nnspec show` prints as `[12], [12], —, —`), and the saved tensor is NaN on them.
 
 ## Causes
 
@@ -61,8 +61,8 @@ A frame and index of static widths that can never meet are refused at compile, b
 - **Compile refuses it where no row makes the call**, a decode call at or past the generation's `max_new_tokens`: `'g.v' is read at decode call 3, and 'g' makes calls 0 to 2 (max_new_tokens 3)`.
 - **In a fit's body a generation records no positions**, so a write there with such an operand still writes NaN. The fit's evals, which run as root steps, refuse it.
 - **Reductions skip holes**, an id's -1 as a NaN. A `mean` over rows averages the rows that were reached: a `mean` of `documents/generated_answer.json`'s `p_answer` is the mean of the 2 rows of 4 that said their word. An accuracy computed this way is the accuracy on the rows that got there, with nothing in the number to say so.
-- **A `sum` or `min` over `pos` of a row with no value is NaN, and its `count` 0 in the saved tensor.** So `count` over `rows` of a scored read is the number of rows it scored. `clab table` still prints that row of the `count` flagged `alignment_missing` with no value, as it prints the row in every value made from the read.
-- **Tables** give a missing row one line with `alignment_missing` true and no value, whatever the tensor holds there: a `count` of the read is 0 in its file and has no value in the table. When several names are tabled together, the row carries the flag. A read that no row reached tables to one flagged line per row too, and `clab show` prints its positions as `— on all 4 rows`. Its saved shape is `[4,0,32000]`, in the prefill as in a generation. Positions past a row's own on a ragged read are a different hole: they are left out of the table, with no flag.
+- **A `sum` or `min` over `pos` of a row with no value is NaN, and its `count` 0 in the saved tensor.** So `count` over `rows` of a scored read is the number of rows it scored. `nnspec table` still prints that row of the `count` flagged `alignment_missing` with no value, as it prints the row in every value made from the read.
+- **Tables** give a missing row one line with `alignment_missing` true and no value, whatever the tensor holds there: a `count` of the read is 0 in its file and has no value in the table. When several names are tabled together, the row carries the flag. A read that no row reached tables to one flagged line per row too, and `nnspec show` prints its positions as `— on all 4 rows`. Its saved shape is `[4,0,32000]`, in the prefill as in a generation. Positions past a row's own on a ragged read are a different hole: they are left out of the table, with no flag.
 
 What a hole is, and where the others come from (keys and ragged positions), is [values-and-layout.md](../concepts/values-and-layout.md#missing-entries).
 
@@ -71,7 +71,7 @@ What a hole is, and where the others come from (keys and ragged positions), is [
 **Count** the missing rows of every scored read before reading an average:
 
 ```python
-from clab import Plan
+from nnspec import Plan
 
 plan = Plan.load("out/generated_answer")
 rows = plan.steps["answer"].interventions["at_said"].positions["prompts"]    # per row, under the step's dataset

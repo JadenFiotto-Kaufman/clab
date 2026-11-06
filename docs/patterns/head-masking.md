@@ -3,7 +3,7 @@ title: Head Masking
 one_liner: "Which heads does a behavior need? A learned gate per head of every layer, its nulls, the L1 weight, and the heads kept."
 tags: [patterns, heads, gate, dbm, desiderata-based-masking, circuits]
 related: [docs/usage/featurizers.md, docs/usage/fit.md, docs/patterns/trained-subspaces.md, docs/patterns/head-and-neuron-patching.md, docs/usage/bundles.md, docs/usage/output.md]
-sources: [clab/featurizers/gate.py, clab/compile/uses.py, clab/ops/edits.py, clab/steps/fit.py, documents/head_gates.json]
+sources: [nnspec/featurizers/gate.py, nnspec/compile/uses.py, nnspec/ops/edits.py, nnspec/steps/fit.py, documents/head_gates.json]
 ---
 
 # Head Masking
@@ -61,7 +61,7 @@ At layer L the write takes row L of the mask and the slice of `corrupt.z` labell
 The fit's scoring passes and its `train` eval use the hard mask, θ > 0, so each weight's `fit.train.ld` is the metric of the heads it kept. `fit.heads` holds each point's `theta`, laid out `[layers, num_heads]` as the site selects them:
 
 ```python
-from clab import Plan
+from nnspec import Plan
 
 plan = Plan.load("out/head_gates")
 for weight, gate in plan.results["fit.heads"].items():

@@ -3,14 +3,14 @@ title: Engines
 one_liner: "Which engine runs it? nnterp, hooks, ndif and vllm: what each serves, devices, options, quantized and sharded models."
 tags: [usage, engines, ndif, vllm, device, remote]
 related: [docs/usage/running.md, docs/concepts/one-session.md, docs/concepts/plan-lifecycle.md, docs/usage/sites.md, docs/usage/output.md, docs/developing/engines.md, docs/reference/cli.md]
-sources: [clab/engines/__init__.py, clab/engines/nnterp.py, clab/engines/hooks.py, clab/engines/ndif.py, clab/engines/vllm.py, clab/engines/standard.py, clab/cli.py, clab/compile/interventions.py, clab/compile/preflight.py, clab/steps/__init__.py]
+sources: [nnspec/engines/__init__.py, nnspec/engines/nnterp.py, nnspec/engines/hooks.py, nnspec/engines/ndif.py, nnspec/engines/vllm.py, nnspec/engines/standard.py, nnspec/cli.py, nnspec/compile/interventions.py, nnspec/compile/preflight.py, nnspec/steps/__init__.py]
 ---
 
 # Engines
 
 ## What this is for
 
-An engine loads the document's checkpoint and runs the compiled plan on it. Choose it with `--engine` on the command line or `engine=` in `clab.run`. The engine changes where the model runs and what it can reach, never what the document means. On CPU in float32, `documents/patching.json` saves equal values on nnterp, on hooks and on ndif under `remote=local` ([running.md](running.md#when-two-runs-give-the-same-numbers)). On vllm it gives vLLM's kernels' numbers, which agree with those to vLLM's rounding ([below](#running-on-vllm)). Each engine's flags are in [FORMAT.md](../../FORMAT.md#engines-and-run-options); writing a new engine is [developing/engines.md](../developing/engines.md).
+An engine loads the document's checkpoint and runs the compiled plan on it. Choose it with `--engine` on the command line or `engine=` in `nnspec.run`. The engine changes where the model runs and what it can reach, never what the document means. On CPU in float32, `documents/patching.json` saves equal values on nnterp, on hooks and on ndif under `remote=local` ([running.md](running.md#when-two-runs-give-the-same-numbers)). On vllm it gives vLLM's kernels' numbers, which agree with those to vLLM's rounding ([below](#running-on-vllm)). Each engine's flags are in [FORMAT.md](../../FORMAT.md#engines-and-run-options); writing a new engine is [developing/engines.md](../developing/engines.md).
 
 | engine | runs the model | serves | use it for |
 |---|---|---|---|
@@ -20,18 +20,18 @@ An engine loads the document's checkpoint and runs the compiled plan on it. Choo
 | `vllm` | here, in vLLM's worker, as nnterp's standardized model over nnsight's vLLM engine: one request per row, no padding | what nnterp serves on vLLM: the stream, the sublayers, the attention interior (its pattern read-only), the head at the last position; no gradient | cross-checking nnterp against vLLM's kernels, or a run on the stack you serve from |
 
 ```text
-clab run documents/patching.json                                   # nnterp, on cpu
-clab run documents/patching.json --engine hooks
-clab run documents/patching.json --engine ndif -o remote=local     # the server trip, simulated here
-clab run documents/patching.json --engine ndif                     # the NDIF server nnsight is configured for
-clab run documents/patching.json --engine vllm                     # vLLM's worker, on the GPUs the process sees
+nnspec run documents/patching.json                                   # nnterp, on cpu
+nnspec run documents/patching.json --engine hooks
+nnspec run documents/patching.json --engine ndif -o remote=local     # the server trip, simulated here
+nnspec run documents/patching.json --engine ndif                     # the NDIF server nnsight is configured for
+nnspec run documents/patching.json --engine vllm                     # vLLM's worker, on the GPUs the process sees
 ```
 
 ## Cross-checking with hooks
 
 The hooks engine reaches the model another way: `register_forward_hook` and `register_forward_pre_hook` on the native modules nnterp names for each component, with no nnsight at run time. When the two engines agree, the result does not depend on how the model was reached.
 
-- **Only `readout` differs.** Positions, edits and ops are clab's own on both engines. `readout` is each engine's own: on nnterp the model's `project_on_vocab`; on hooks the final norm, the head, then the text config's `final_logit_softcapping` as `cap * tanh(logits / cap)`. The two agree on the corpus and on the suite's softcapped tiny Gemma-2. They differ on a family that does more after the head, as the suite's tiny Cohere does by scaling its logits.
+- **Only `readout` differs.** Positions, edits and ops are nnspec's own on both engines. `readout` is each engine's own: on nnterp the model's `project_on_vocab`; on hooks the final norm, the head, then the text config's `final_logit_softcapping` as `cap * tanh(logits / cap)`. The two agree on the corpus and on the suite's softcapped tiny Gemma-2. They differ on a family that does more after the head, as the suite's tiny Cohere does by scaling its logits.
 - **Where they agree.** `documents/patching.json`, `attention_premix` in `documents/head_patching.json` and the generation in `documents/generated_answer.json` give equal values on both, NaN rows in the same places (`tests/test_documents.py` and `tests/test_generate.py`, `test_the_engines_agree_to_the_bit`).
 - **Compare their value files** to check that two runs gave the same numbers. The `cmp` recipe in [running.md](running.md#comparing-two-runs) compares nnterp with hooks and with ndif under `-o remote=local` in one loop.
 - **Compare under one attention implementation.** Switching a model between `sdpa` and `eager` moves the last bits of everything downstream.
@@ -41,8 +41,8 @@ The hooks engine reaches the model another way: `register_forward_hook` and `reg
 Hooks cannot reach a value read *inside* a module's forward: on a Llama, the attention interior (`attention_queries`, `attention_keys`, `attention_values`, `attention_scores`, `attention_probabilities`, `attention_head_outputs`). Which components are interior depends on the model family. Preflight refuses one after the model has loaded and before any forward, saying where nnterp reads the value:
 
 ```text
-$ clab run documents/attention_query.json --engine hooks
-clab: counterfactual.v_cf: the hooks engine does not serve attention_queries: nnterp reads it inside a module's forward (source.attention_interface_1.inputs), not at a module boundary
+$ nnspec run documents/attention_query.json --engine hooks
+nnspec: counterfactual.v_cf: the hooks engine does not serve attention_queries: nnterp reads it inside a module's forward (source.attention_interface_1.inputs), not at a module boundary
 ```
 
 - **Module boundaries are served.** `attention_premix`, a dense MLP's `mlp_activation` and the residual-stream components are module boundaries, and hooks serves them.
@@ -73,36 +73,36 @@ The nnterp engine (at `tp` 1) loads as a meta shell: the module tree, the config
 - **ndif** with `remote=local` takes one torch device; a device map is refused by name. With `remote=true` the server places the model, and any `--device` other than the default `cpu` is refused:
 
   ```text
-  clab: device: the ndif engine cannot honor 'cuda:0': the server places the model
+  nnspec: device: the ndif engine cannot honor 'cuda:0': the server places the model
   ```
 
-The model block cannot place the model. `device`, `device_map` and `dispatch` there are refused at compile, so `clab compile` refuses them. So are another spelling of `key`, `revision` or `dtype` (`torch_dtype`, `quantization_config`, `load_in_8bit`, `_commit_hash`, `pretrained_model_name_or_path`) and the sharding keys `-o tp` stands for (`tp_plan`, `tp_size`). So are vLLM's engine arguments that the vllm engine's options or `dtype` set (`tensor_parallel_size`, `gpu_memory_utilization`, `max_model_len`, `quantization`). `clab/plan.py` `OWNED` lists them all. A run's plan read back is not judged, so `clab show` and `clab table` read a run that holds one. Every other key goes to the loader as written, and the loader refuses what it cannot honor as the engine loads ([FORMAT.md](../../FORMAT.md#model)):
+The model block cannot place the model. `device`, `device_map` and `dispatch` there are refused at compile, so `nnspec compile` refuses them. So are another spelling of `key`, `revision` or `dtype` (`torch_dtype`, `quantization_config`, `load_in_8bit`, `_commit_hash`, `pretrained_model_name_or_path`) and the sharding keys `-o tp` stands for (`tp_plan`, `tp_size`). So are vLLM's engine arguments that the vllm engine's options or `dtype` set (`tensor_parallel_size`, `gpu_memory_utilization`, `max_model_len`, `quantization`). `nnspec/plan.py` `OWNED` lists them all. A run's plan read back is not judged, so `nnspec show` and `nnspec table` read a run that holds one. Every other key goes to the loader as written, and the loader refuses what it cannot honor as the engine loads ([FORMAT.md](../../FORMAT.md#model)):
 
 ```text
-clab: model: 'device': where the model runs is a run option: --device
-clab: model: 'torch_dtype': the dtype is spelled `dtype`
-clab: model: 'tp_size': tensor parallelism is a run option: -o tp=N
+nnspec: model: 'device': where the model runs is a run option: --device
+nnspec: model: 'torch_dtype': the dtype is spelled `dtype`
+nnspec: model: 'tp_size': tensor parallelism is a run option: -o tp=N
 ```
 
 A device that cannot be is refused before the model loads: an unknown device type (`device 'gpu': not a torch device ...`), or `cuda:0` where no GPU is visible (`device 'cuda:0': no CUDA device is visible ...`). So is a checkpoint whose `revision` is not in the local cache when the hub is offline (`HF_HUB_OFFLINE=1`): `model.key '<key>' at revision '<revision>': the nnterp engine cannot load it: HF_HUB_OFFLINE is set ...` ([running.md](running.md#check-before-you-run)).
 
-The run record keeps both sides. `device` is the value you asked for, and `devices` lists where the parameters actually were. `clab show` prints them as `device auto` and `served: float32 on cpu`. Under `--device auto` on a machine without a GPU, everything lands on `cpu`.
+The run record keeps both sides. `device` is the value you asked for, and `devices` lists where the parameters actually were. `nnspec show` prints them as `device auto` and `served: float32 on cpu`. Under `--device auto` on a machine without a GPU, everything lands on `cpu`.
 
 ## Engine options: `-o key=value`
 
-Options other than `--device`, `--batch-size`, `--padding` and `--readout` are the engine's own keyword parameters. `clab describe engines` lists each engine's, as [FORMAT.md](../../FORMAT.md#engines-and-run-options) does. Each value is read as JSON, or as text when it is not JSON: `-o remote=true` is the boolean, and `-o remote=local` is the string.
+Options other than `--device`, `--batch-size`, `--padding` and `--readout` are the engine's own keyword parameters. `nnspec describe engines` lists each engine's, as [FORMAT.md](../../FORMAT.md#engines-and-run-options) does. Each value is read as JSON, or as text when it is not JSON: `-o remote=true` is the boolean, and `-o remote=local` is the string.
 
 Options are checked before the model loads, and a bad one is refused by name:
 
 ```text
-clab: the nnterp engine takes no 'remote'; its options: tp (where the model runs is `device`, given as --device)
-clab: the hooks engine takes no 'tp'; its options: none (where the model runs is `device`, given as --device)
-clab: remote: 'yes' is not one of True, 'local'
-clab: -o device: it is given as --device
-clab: -o 'remote': an option is KEY=VALUE
+nnspec: the nnterp engine takes no 'remote'; its options: tp (where the model runs is `device`, given as --device)
+nnspec: the hooks engine takes no 'tp'; its options: none (where the model runs is `device`, given as --device)
+nnspec: remote: 'yes' is not one of True, 'local'
+nnspec: -o device: it is given as --device
+nnspec: -o 'remote': an option is KEY=VALUE
 ```
 
-In Python the options are keywords: `clab.run(path, engine="ndif", remote="local")`. An engine you already loaded keeps the device and options it loaded with, and `clab.run` refuses new ones ([running.md](running.md)). `plan.run.options` records every option after its defaults, and `clab show` prints them (`remote "local"`).
+In Python the options are keywords: `nnspec.run(path, engine="ndif", remote="local")`. An engine you already loaded keeps the device and options it loaded with, and `nnspec.run` refuses new ones ([running.md](running.md)). `plan.run.options` records every option after its defaults, and `nnspec show` prints them (`remote "local"`).
 
 ## Quantized and sharded models
 
@@ -114,8 +114,8 @@ A `model.dtype` may name a quantization instead of a float dtype ([FORMAT.md](..
 A quantized model computes in `bfloat16` (`int8` in `float16`), and its values have that dtype. nnterp and hooks load it with the one quantization config; on `documents/patching.json` under `nf4` their value files are equal. `served:` lists the packed weights' dtype beside the compute one (`bfloat16, uint8 on cpu` under `nf4`, `float16, int8 on cpu` under `int8`). Under `-o remote=local` a quantized `dtype` runs as on nnterp. Refused by name:
 
 ```text
-clab: model.dtype 'fp8' needs a GPU of compute capability 8.9 or later; the nnterp engine's device is 'cpu', and no GPU is visible
-clab: model.dtype 'nf4': the ndif engine cannot honor it: the server decides how a model's weights are held
+nnspec: model.dtype 'fp8' needs a GPU of compute capability 8.9 or later; the nnterp engine's device is 'cpu', and no GPU is visible
+nnspec: model.dtype 'nf4': the ndif engine cannot honor it: the server decides how a model's weights are held
 ```
 
 `-o tp=N` shards the model over N ranks by transformers' tensor parallelism, on the nnterp engine, under `torchrun --nproc-per-node=N` ([running.md](running.md#sharding-a-model--o-tp) has the command).
@@ -131,8 +131,8 @@ clab: model.dtype 'nf4': the ndif engine cannot honor it: the server decides how
 `--engine ndif` builds nnterp's model without its weights: a meta shell holding the module tree, the config and the tokenizer, so nothing else downloads. It then sends the whole run as one request, holding the engine, the compiled plan and the batch size. The server runs preflight and every step, and the results and the run record come back together. The client writes the output directory as usual. The server's address and API key are nnsight's settings (`NDIF_HOST`, `NDIF_API_KEY`, or `nnsight.CONFIG`). Why a document runs the same there is [one-session.md](../concepts/one-session.md).
 
 - **A forward ends at its stop site on the server too.** The ndif engine runs the nnterp engine's forward under either `remote`, so a read at an early layer costs only the layers up to it (`tests/test_efficiency.py` `test_the_stand_in_server_stops_where_the_client_would`).
-- **Preflight and step refusals arrive after the queue.** They come back as nnsight's `RemoteError`, and `clab run` prints only its last line. Compile, load and `execute`'s own checks refuse on the client, before anything is sent ([plan-lifecycle.md](../concepts/plan-lifecycle.md#which-stage-refused)).
-- **The server places the model.** After a true remote run, `plan.run.device` is None and `clab show` prints `device placed by the server`.
+- **Preflight and step refusals arrive after the queue.** They come back as nnsight's `RemoteError`, and `nnspec run` prints only its last line. Compile, load and `execute`'s own checks refuse on the client, before anything is sent ([plan-lifecycle.md](../concepts/plan-lifecycle.md#which-stage-refused)).
+- **The server places the model.** After a true remote run, `plan.run.device` is None and `nnspec show` prints `device placed by the server`.
 
 ### `remote=local`
 
@@ -140,9 +140,9 @@ clab: model.dtype 'nf4': the ndif engine cannot honor it: the server decides how
 
 ### What the server must have
 
-- **clab at your version**, installed with its dependencies (nnterp among them). The request names clab's code by reference, and the server imports its own ([one-session.md](../concepts/one-session.md#nothing-of-clab-ships-by-value-it-resolves-by-import-on-the-server)). A true remote run records the server's versions, not yours: compare the `versions:` line of `clab show` with your install.
-- **`datasets`, when the document reads a hub dataset.** A hub dataset's rows are not in the request. Compile reads them on the client and records their digest. The server reads them again at the document's `revision` and refuses rows whose digest differs. File datasets, loaded bundles and a `load` step's value travel inside the plan, so the server reads no file of yours. A request carries at most 512 MiB of loaded values (`clab/steps/__init__.py` `LOADED`). A document that loads more is refused before anything is sent, under `-o remote=local` too: `<step>: the values this document loads hold <n> MiB of tensors ...` ([cached-harvest.md](../patterns/cached-harvest.md#under-ndif)).
-- **The checkpoint deployed at the document's `key` and `revision`.** The server runs the dtype of its own deployment, and holds and shards the weights as its deployment does, so a quantized `dtype` and `tp` are refused for it. Nothing compares the deployment's float dtype with the document's `dtype`: check the `served:` line of `clab show` (`plan.run.dtype`). A bfloat16 model's numbers differ from float32's ([ops.md](ops.md#the-float32-rule)). Preflight checks the components, sizes and tokenizer of the model the server holds.
+- **nnspec at your version**, installed with its dependencies (nnterp among them). The request names nnspec's code by reference, and the server imports its own ([one-session.md](../concepts/one-session.md#nothing-of-nnspec-ships-by-value-it-resolves-by-import-on-the-server)). A true remote run records the server's versions, not yours: compare the `versions:` line of `nnspec show` with your install.
+- **`datasets`, when the document reads a hub dataset.** A hub dataset's rows are not in the request. Compile reads them on the client and records their digest. The server reads them again at the document's `revision` and refuses rows whose digest differs. File datasets, loaded bundles and a `load` step's value travel inside the plan, so the server reads no file of yours. A request carries at most 512 MiB of loaded values (`nnspec/steps/__init__.py` `LOADED`). A document that loads more is refused before anything is sent, under `-o remote=local` too: `<step>: the values this document loads hold <n> MiB of tensors ...` ([cached-harvest.md](../patterns/cached-harvest.md#under-ndif)).
+- **The checkpoint deployed at the document's `key` and `revision`.** The server runs the dtype of its own deployment, and holds and shards the weights as its deployment does, so a quantized `dtype` and `tp` are refused for it. Nothing compares the deployment's float dtype with the document's `dtype`: check the `served:` line of `nnspec show` (`plan.run.dtype`). A bfloat16 model's numbers differ from float32's ([ops.md](ops.md#the-float32-rule)). Preflight checks the components, sizes and tokenizer of the model the server holds.
 
 ## Running on vLLM
 
@@ -151,13 +151,13 @@ clab: model.dtype 'nf4': the ndif engine cannot honor it: the server decides how
 - **Where it runs.** vLLM's worker holds the model on the GPUs the process sees (`CUDA_VISIBLE_DEVICES` names them), `-o tp=N` of them. `--device` is `cuda:0`, the first of them, where the run keeps its values; any other device is refused by name. It needs vLLM installed beside nnsight, at the version nnsight instruments (nnsight's vLLM guide names it; the run record's `versions` names the one that ran).
 - **One request per row.** Every row of a batch is one request carrying its own token ids, so no padding reaches the model. `--batch-size` is how many rows one trace sends at once.
 - **A run repeats its numbers.** Under the default `invariant`, a row's numbers depend on neither its batch companions nor `--padding`, and a null write is exact (`tests/test_vllm.py` `test_a_null_write_is_exact_and_a_run_repeats_to_the_bit_at_any_batch_size`).
-- **Compare vllm with vllm.** vLLM computes the model with its own kernels. clab on vllm equals plain nnsight on nnterp's vLLM model, as `tests/test_vllm.py` `test_reads_and_writes_are_plain_nnsights_on_vllm_to_the_bit` checks, and nnterp or hooks only to vLLM's rounding. Compare vllm with nnterp on outcomes.
+- **Compare vllm with vllm.** vLLM computes the model with its own kernels. nnspec on vllm equals plain nnsight on nnterp's vLLM model, as `tests/test_vllm.py` `test_reads_and_writes_are_plain_nnsights_on_vllm_to_the_bit` checks, and nnterp or hooks only to vLLM's rounding. Compare vllm with nnterp on outcomes.
 - **A Python script needs a guard.** Put the call under `if __name__ == "__main__":`, since vLLM starts its worker by spawning a process that imports the script.
 
 ```text
-clab run documents/steer_renormalize.json --engine vllm --batch-size 64
-clab run documents/steer_renormalize.json --engine vllm -o tp=2 -o memory=0.8 -o max_len=4096
-clab run documents/steer_renormalize.json --engine vllm -o invariant=false     # vLLM's fastest kernels: bits that move between runs
+nnspec run documents/steer_renormalize.json --engine vllm --batch-size 64
+nnspec run documents/steer_renormalize.json --engine vllm -o tp=2 -o memory=0.8 -o max_len=4096
+nnspec run documents/steer_renormalize.json --engine vllm -o invariant=false     # vLLM's fastest kernels: bits that move between runs
 ```
 
 | option | default | what it is |
@@ -181,7 +181,7 @@ Three things vLLM does not give, each refused by name before any forward:
 
 A quantized `dtype` is refused by name when the engine loads (`model.dtype 'nf4': the vllm engine cannot honor it: ...`). Preflight refuses by name a gated MLP's `mlp_activation` (nnterp's reason: vLLM fuses it) and a mixture's routing values (`vLLM runs the mixture of experts inside its fused MoE kernel, which serves no routing value; ...`).
 
-A generate step's options map onto vLLM's sampling (`clab/engines/vllm.py` `sampling`). What the step leaves out is taken from the generation config, as transformers takes it:
+A generate step's options map onto vLLM's sampling (`nnspec/engines/vllm.py` `sampling`). What the step leaves out is taken from the generation config, as transformers takes it:
 
 | option | on vllm |
 |---|---|
@@ -196,4 +196,4 @@ A generate step's options map onto vLLM's sampling (`clab/engines/vllm.py` `samp
 - **A row stops on the other engines' set.** vLLM's own EOS is told to stand down, so a row stops on the step's `eos_token_id`, else the config's EOS ids, and on nothing else.
 - **A row's new ids are what vLLM sampled**, its EOS included, padded past it to the batch's longest row, as transformers pads. A read at a decode call a row never made is missing there, as on the other engines.
 
-The worker's memory is vLLM's own, so a step's `cost.memory` is null. `cost.tokens` counts the batch's padding, which the model never saw; `real` is what it fed. The run record's `devices` and `dtype` are the worker's, and `clab show` prints `served: float32 on cuda:0`. `plan.run.options` records `tp`, `memory`, `max_len` and `invariant`.
+The worker's memory is vLLM's own, so a step's `cost.memory` is null. `cost.tokens` counts the batch's padding, which the model never saw; `real` is what it fed. The run record's `devices` and `dtype` are the worker's, and `nnspec show` prints `served: float32 on cuda:0`. `plan.run.options` records `tp`, `memory`, `max_len` and `invariant`.

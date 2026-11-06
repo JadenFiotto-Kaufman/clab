@@ -3,7 +3,7 @@ title: Generation
 one_liner: "How do I generate, and read or write as it generates? Options, frames (0, 1:, :, -1) for the prefill and decode calls, a read at every call, writes through every generated token, and rows that stop early."
 tags: [usage, generation, decoding, eos]
 related: [docs/concepts/positions.md, docs/usage/positions.md, docs/usage/ops.md, docs/errors/alignment-missing.md, docs/patterns/generation-experiments.md, docs/patterns/steering.md, docs/usage/sweeps.md]
-sources: [clab/steps/generate.py, clab/steps/batches.py, clab/plan.py, clab/compile/positions.py]
+sources: [nnspec/steps/generate.py, nnspec/steps/batches.py, nnspec/plan.py, nnspec/compile/positions.py]
 ---
 
 # Generation
@@ -41,10 +41,10 @@ Every key other than `kind`, `input` and `interventions` goes to the engine's `g
 The step refuses `num_return_sequences`, `num_beams`, `return_dict_in_generate`, `use_cache` and `prefill_chunk_size` before the model loads, since each would change the rows, the value or the calls. Compile also refuses a parameter of `generate` itself (`generation_config`, `logits_processor`), which takes what a document cannot write. It refuses a value of a type transformers' `GenerationConfig` refuses (`"max_new_tokens": "6"`). The engine accepts or rejects any other option, and one it rejects fails when the step runs, naming the step. There is no `seed` option:
 
 ```text
-clab: steps.answer: num_beams 2; it stays 1: beams change the rows each forward call sees, …
-clab: steps.answer.generation_config: 'generation_config' is a parameter of generate itself, …
-clab: steps.answer.max_new_tokens: '6' is not a value generate takes: …
-clab: answer: generate rejected 'seed': The following `model_kwargs` are not used by the model: ['seed'] …
+nnspec: steps.answer: num_beams 2; it stays 1: beams change the rows each forward call sees, …
+nnspec: steps.answer.generation_config: 'generation_config' is a parameter of generate itself, …
+nnspec: steps.answer.max_new_tokens: '6' is not a value generate takes: …
+nnspec: answer: generate rejected 'seed': The following `model_kwargs` are not used by the model: ['seed'] …
 ```
 
 Like a forward, a generation gives the same numbers only at a fixed batch size ([running.md](running.md#when-two-runs-give-the-same-numbers)). Options can be swept; `max_new_tokens` crossed with `min_new_tokens` is the trap in [usage/sweeps.md](sweeps.md#labels-zip-or-cross).
@@ -61,7 +61,7 @@ Row 0 of `documents/generate_probe.json` has an 11-token prompt at positions 0 t
 | `{"frame": ":"}` | the prefill and every decode call | at the head, one distribution per generated token (their `argmax` is the generated ids, EOS included); on a residual site, every prompt token followed by each generated input |
 | `{"frame": -1}` | the row's last call | the call that chose the row's last token, whether that was EOS or token `max_new_tokens`−1; on a row whose first token was EOS that is the prefill, every prompt token on a residual site, so write `{"frame": -1, "index": -1}` for one position |
 
-In the prefill, the head is computed only at the last position. So `{"frame": 0, "index": -2}` at the head is refused, while the same `pos` on a residual site reads the second-to-last prompt token. A row's last generated token is never an input to any call. In a generation, `clab table` adds a `call` column beside `pos` and `pos_token`.
+In the prefill, the head is computed only at the last position. So `{"frame": 0, "index": -2}` at the head is refused, while the same `pos` on a residual site reads the second-to-last prompt token. A row's last generated token is never an input to any call. In a generation, `nnspec table` adds a `call` column beside `pos` and `pos_token`.
 
 ### A read at every call
 
@@ -118,23 +118,23 @@ A write lands as its call runs.
 }
 ```
 
-Each entry's record holds where it landed (`positions`, by dataset). `damped.prompt` is `[[10], [8], [8], [8]]` and `damped.decode` is `[[11, 12, 13, 14, 15], [9, ...], ...]`: every generated input except the last token, which is never fed. `clab show` prints both, one line per entry.
+Each entry's record holds where it landed (`positions`, by dataset). `damped.prompt` is `[[10], [8], [8], [8]]` and `damped.decode` is `[[11, 12, 13, 14, 15], [9, ...], ...]`: every generated input except the last token, which is never fed. `nnspec show` prints both, one line per entry.
 
 To write at every position, the whole prompt included, use `{"frame": ":"}`. A root bundle written at `{"frame": ":"}` covers every call of whichever step pulls it in: every token of a forward, and every prompt token and generated input of a generation.
 
 Because a write lands as its call runs, everything it selects must be known by then. It cannot count back from a row's last call. Its index must name the same calls on a row that stops early as on one that runs on. For the prompt's last token and every decode call, write the two entries above:
 
 ```text
-clab: steps.damped.interventions.zero.pos: frame -1 with index ':' names calls that depend on how far each row gets; …
-clab: steps.damped.interventions.zero.pos: frame ':' with index -1 counts back from the row's last position, known only when the row stops, …
-clab: steps.damped.interventions.zero.pos: frame '2:' with index ':' names calls up to the row's last; …
+nnspec: steps.damped.interventions.zero.pos: frame -1 with index ':' names calls that depend on how far each row gets; …
+nnspec: steps.damped.interventions.zero.pos: frame ':' with index -1 counts back from the row's last position, known only when the row stops, …
+nnspec: steps.damped.interventions.zero.pos: frame '2:' with index ':' names calls up to the row's last; …
 ```
 
 The last of these needs `max_new_tokens` on the step, which bounds the calls. Steering with a harvested direction through a generation is in [patterns/steering.md](../patterns/steering.md).
 
 ## Writes at generated text, found online
 
-A write with a `column` or `text` scope over the decode calls is resolved while the row generates. At each call, clab decodes what the row has generated so far.
+A write with a `column` or `text` scope over the decode calls is resolved while the row generates. At each call, nnspec decodes what the row has generated so far.
 
 - The write lands at the call fed the last token of the occurrence, so the text changes from the next token on.
 - A row that never says the text is `alignment_missing` in the write's `positions`, and it generates as if unwritten.
@@ -148,9 +148,9 @@ A variation of `documents/generated_answer.json` zeroes layer 0 where each row s
 It lands at `[[12], [12], 'alignment_missing', 'alignment_missing']`: row 0 at the call fed `▁substr`, and rows 2 and 3 never say their word. Such a write takes index `-1`, counts `occurrence` from the first, and takes no `before`. Each of these is refused by name:
 
 ```text
-clab: steps.answer.interventions.zero.pos.index: index 0: a scoped write lands at the call fed its text's last token, …
-clab: steps.answer.interventions.zero.pos.scope.occurrence: occurrence -1 counts from the last occurrence, which is known only when the row ends; …
-clab: steps.answer.interventions.zero.pos.scope.before: a write beyond the prefill lands as its call runs, before the token it would predict is chosen; …
+nnspec: steps.answer.interventions.zero.pos.index: index 0: a scoped write lands at the call fed its text's last token, …
+nnspec: steps.answer.interventions.zero.pos.scope.occurrence: occurrence -1 counts from the last occurrence, which is known only when the row ends; …
+nnspec: steps.answer.interventions.zero.pos.scope.before: a write beyond the prefill lands as its call runs, before the token it would predict is chosen; …
 ```
 
 A read is resolved after the row has finished generating, so these limits do not apply to reads. A read over generated text can take `before`, any index and any occurrence; the recipes are in [usage/positions.md](positions.md).

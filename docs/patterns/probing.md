@@ -3,7 +3,7 @@ title: Probing
 one_liner: "Is a variable linearly decodable, and at which layer? A linear probe per layer, its untrained floor, many probes in one fit."
 tags: [patterns, probing, linear-probe, classes, decodability]
 related: [docs/usage/fit.md, docs/usage/featurizers.md, docs/usage/ops.md, docs/usage/sweeps.md, docs/usage/positions.md, docs/usage/bundles.md, docs/patterns/trained-subspaces.md]
-sources: [clab/featurizers/linear.py, clab/featurizers/__init__.py, clab/steps/fit.py, clab/ops/transforms.py, documents/probe_direction.json]
+sources: [nnspec/featurizers/linear.py, nnspec/featurizers/__init__.py, nnspec/steps/fit.py, nnspec/ops/transforms.py, documents/probe_direction.json]
 ---
 
 # Probing
@@ -53,8 +53,8 @@ No corpus document trains a probe; this one is complete. It reads which day a qu
 ```
 
 ```text
-clab run documents/probe.json --out out/probe
-clab table out/probe fit.held_out.acc
+nnspec run documents/probe.json --out out/probe
+nnspec table out/probe fit.held_out.acc
 at            value
 {"layers":0}  0.7368420958518982
 {"layers":1}  0.7894737124443054
@@ -75,13 +75,13 @@ What each part does:
 Classes compare exactly, with no `strip` or `lower`: a column holding `yes` and `Yes` makes two classes. Two refusals guard the class list. Every value of the `classes` column is one type (all strings, all ints, all floats or all booleans):
 
 ```text
-clab: featurizers.probe.classes: classes column 'train.entity' holds str (row 0 is 'a'), int (row 1 is 1); a probe's classes are one type, all strings, all ints, all floats or all booleans: write them in one
+nnspec: featurizers.probe.classes: classes column 'train.entity' holds str (row 0 is 'a'), int (row 1 is 1); a probe's classes are one type, all strings, all ints, all floats or all booleans: write them in one
 ```
 
 And a row scored against a value that is not a class is refused before any forward. Here a probe trained on the Thursday and Friday rows alone meets the test split:
 
 ```text
-clab: fit.held_out.ce at layers=0: target is 'entity' of 'test', whose row 0 is 'Monday', not one of the classes of probe 'probe': ['Friday', 'Thursday']
+nnspec: fit.held_out.ce at layers=0: target is 'entity' of 'test', whose row 0 is 'Monday', not one of the classes of probe 'probe': ['Friday', 'Thursday']
 ```
 
 ## The floor
@@ -156,7 +156,7 @@ Each probe's history, held-out scores and saved tensors equal those of the same 
 `fit.probe` saved is a bundle ([bundles.md](../usage/bundles.md)). The loading document declares `{"kind": "linear", "classes": "<dataset>.<column>", "file_path": ...}`, and its column's class list must be the header's. A probe trained on this document's layer 1 alone, loaded with `classes` from a dataset that holds only two of the days:
 
 ```text
-clab: featurizers.probe.file_path: documents/artifacts/fit.probe.safetensors: header 'classes' is '["Friday", "Monday", "Saturday", "Sunday", "Thursday", "Tuesday", "Wednesday"]'; this document expects '["Friday", "Thursday"]'
+nnspec: featurizers.probe.file_path: documents/artifacts/fit.probe.safetensors: header 'classes' is '["Friday", "Monday", "Saturday", "Sunday", "Thursday", "Tuesday", "Wednesday"]'; this document expects '["Friday", "Thursday"]'
 ```
 
 Saved from the swept document, the file holds one probe per layer, which no featurizer loads; fit the layer you want unswept first.
@@ -187,6 +187,6 @@ A probe over more than two classes has a span of directions, not one. Take the c
 
 ## Pitfalls
 
-- **A word of several tokens.** `"index": -1` of the scope is the word's last token, and a last token several classes share cannot separate them: on this tokenizer Tuesday, Wednesday and Thursday all end in `day`. At the word's first token (`"index": 0`) the same probe reaches 1.0 on both layers. Choose the position for the question, and check `pos_token` in `clab table`.
+- **A word of several tokens.** `"index": -1` of the scope is the word's last token, and a last token several classes share cannot separate them: on this tokenizer Tuesday, Wednesday and Thursday all end in `day`. At the word's first token (`"index": 0`) the same probe reaches 1.0 on both layers. Choose the position for the question, and check `pos_token` in `nnspec table`.
 - **Decodable is not used.** A probe that reads a variable says the information is there, not that the model uses it there. A `linear` featurizer only encodes, but its span, an orthonormal basis of `W`'s columns written as a `subspace` bundle with that kind's header, loads as a `subspace` and can be intervened along ([bundles.md](../usage/bundles.md#file_path)). Test use with an interchange through a trained subspace ([trained-subspaces.md](trained-subspaces.md)).
 - **The fixture model is random.** The accuracies above show the mechanics on the tiny Llama; they say nothing about where a trained model keeps the day.

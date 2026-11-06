@@ -62,7 +62,7 @@ The suite runs every document at `tests/conftest.py` `BATCH_SIZE` (2) and `THREA
 
 ## Snapshot pins
 
-`tests/conftest.py` `snapshot(name, value, holds)` returns the checked-in JSON under `tests/snapshots/`; with `CLAB_UPDATE_SNAPSHOTS=1` set, it writes `value` there first, unless `holds(checked_in)` says the checked-in one already holds it.
+`tests/conftest.py` `snapshot(name, value, holds)` returns the checked-in JSON under `tests/snapshots/`; with `NNSPEC_UPDATE_SNAPSHOTS=1` set, it writes `value` there first, unless `holds(checked_in)` says the checked-in one already holds it.
 
 | snapshot, under `tests/snapshots/` | pinned by | holds, compared how |
 |---|---|---|
@@ -76,7 +76,7 @@ Which file runs a document is decided in `tests/conftest.py`. One named in `FIT`
 To re-pin after a change that means to move numbers, rerun the files whose pins move with the variable set, then read what changed:
 
 ```bash
-CLAB_UPDATE_SNAPSHOTS=1 uv run --no-sync pytest tests/test_documents.py -q
+NNSPEC_UPDATE_SNAPSHOTS=1 uv run --no-sync pytest tests/test_documents.py -q
 git diff tests/snapshots/
 ```
 
@@ -100,14 +100,14 @@ A new corpus document has no pins yet, so its tests fail with `FileNotFoundError
 They read the corpus's `data/` and want a GPU:
 
 ```text
-clab run documents/real/head_patching.json --device cuda --batch-size 16
-clab run documents/real/das.json --engine hooks --device cuda --batch-size 16
+nnspec run documents/real/head_patching.json --device cuda --batch-size 16
+nnspec run documents/real/das.json --engine hooks --device cuda --batch-size 16
 ```
 
 - **`pattern_patching.json` needs eager.** It reads the attention pattern inside the attention's forward, so its model block gives `"attn_implementation": "eager"`. The hooks engine refuses it by name, and so does an NDIF deployment that runs sdpa.
 - **Through `--engine ndif`**, the server must serve the checkpoint at the document's revision, and in float32 for the numbers to be the ones the descriptions state ([engines.md](../usage/engines.md#what-the-server-must-have)).
 
-`tests/test_real.py` runs these documents on the nnterp and hooks engines on `cuda` at batch size 16: its pins, the engines' agreement, and the findings each description states. It skips without a CUDA device and the checkpoint at the revision it pins in the local cache. It runs from a venv whose torch works with your CUDA driver, with clab installed without dependencies, from the repo root:
+`tests/test_real.py` runs these documents on the nnterp and hooks engines on `cuda` at batch size 16: its pins, the engines' agreement, and the findings each description states. It skips without a CUDA device and the checkpoint at the revision it pins in the local cache. It runs from a venv whose torch works with your CUDA driver, with nnspec installed without dependencies, from the repo root:
 
 ```bash
 uv venv --python <a python whose torch runs on your driver> --system-site-packages <venv>
@@ -117,7 +117,7 @@ CUDA_VISIBLE_DEVICES=0 HF_HUB_OFFLINE=1 PYTHONPATH=. <venv>/bin/python -m pytest
 
 The other GPU tests skip under the suite's default of no CUDA device:
 
-- `tests/test_device.py`: on a GPU, every tensor clab builds meets an activation on its device;
+- `tests/test_device.py`: on a GPU, every tensor nnspec builds meets an activation on its device;
 - the device test in `tests/test_featurizers.py`, the CUDA and Llama-3.2-1B cases of `tests/test_quantized.py`, and the two-GPU cases of `tests/test_tp.py`;
 - `tests/test_vllm.py`, which also needs `vllm` importable beside nnsight and nnterp, and `HuggingFaceTB/SmolLM2-135M-Instruct` at the revision it pins in the cache. It holds the vllm engine bit-equal to plain nnsight on `StandardizedVLLM`, and checks its nulls, repeats, generation, readouts, refusals and run record. It holds the nnterp engine's numbers to vLLM's rounding. Run it with the command above, `tests/test_vllm.py` in place of `tests/test_real.py`, from a venv that has vLLM.
 
@@ -125,7 +125,7 @@ The rest of `tests/test_tp.py` starts its two ranks with torchrun on the CPU, in
 
 ## The FORMAT drift test
 
-`tests/test_format.py` fails when the committed FORMAT.md differs from what `clab/docs.py` `markdown` renders from the code, and when an engine option has no docstring line saying what it takes. Fix the first by regenerating it with `uv run --no-sync clab describe --markdown`, as [contributing.md](contributing.md#changing-the-format) says.
+`tests/test_format.py` fails when the committed FORMAT.md differs from what `nnspec/docs.py` `markdown` renders from the code, and when an engine option has no docstring line saying what it takes. Fix the first by regenerating it with `uv run --no-sync nnspec describe --markdown`, as [contributing.md](contributing.md#changing-the-format) says.
 
 ## The docs test
 
@@ -150,13 +150,13 @@ The standard it enforces is in [contributing.md](contributing.md#docs).
 uvx pyright
 ```
 
-From the repo root; it reads `[tool.pyright]` in `pyproject.toml`, checks `clab/` and `tests/`, and runs clean.
+From the repo root; it reads `[tool.pyright]` in `pyproject.toml`, checks `nnspec/` and `tests/`, and runs clean.
 
 ## Continuous integration
 
 `.github/workflows/test.yml` runs on every push to `master` and every pull request, on a GitHub-hosted `ubuntu-latest` runner (4 CPUs) with Python 3.12, within 20 minutes:
 
-1. It checks clab out, and `ndif-team/nnterp` beside it at the commit the README names. It points the runner's copy of `pyproject.toml` at that checkout (the nnterp source and pyright's `extraPaths`). uv reads a path source from `pyproject.toml` alone: a `uv.toml` may not hold `sources`, and no environment variable sets one.
+1. It checks nnspec out, and `ndif-team/nnterp` beside it at the commit the README names. It points the runner's copy of `pyproject.toml` at that checkout (the nnterp source and pyright's `extraPaths`). uv reads a path source from `pyproject.toml` alone: a `uv.toml` may not hold `sources`, and no environment variable sets one.
 2. `uv sync --dev`, then `uv pip install transformers==5.20.2`, the transformers the snapshots were made with. `UV_NO_SYNC=1` keeps `uv run` from syncing back to the newest.
 3. `uvx pyright`, then `tests/test_docs.py` and `tests/test_format.py`.
 4. The checkpoints and the dataset of the table above, fetched with hub access where the cache lacks them, each repository's `main` set to its pinned revision. They are cached under a hash of the table's rows, so a new row fetches what is new. The gated checkpoint is not fetched, so the test of its tensor-parallel plan in `tests/test_tp.py` skips.
@@ -179,7 +179,7 @@ From the repo root; it reads `[tool.pyright]` in `pyproject.toml`, checks `clab/
 | `tests/test_padding.py` | every corpus document under `batch` and `sorted` padding: close to the exact run at a stated tolerance, the same rows missing and positions, the engines bit-equal, rows put back in order |
 | `tests/test_patching.py` | `documents/patching.json` end to end, on every engine, and its output |
 | `tests/test_generate.py` | generation, and what a position means across calls |
-| `tests/test_fit.py` | the documents that train or load a featurizer, from `clab run` on every engine |
+| `tests/test_fit.py` | the documents that train or load a featurizer, from `nnspec run` on every engine |
 | `tests/test_positions.py` | every input token a position, numbered one way everywhere |
 | `tests/test_answers.py` | answer columns lined up with reads: flags, sets, `before` scopes, list inputs |
 | `tests/test_layers.py` | writes across layers, operands aligned by layer label, sweep labels |
@@ -191,9 +191,9 @@ From the repo root; it reads `[tool.pyright]` in `pyproject.toml`, checks `clab/
 | `tests/test_load.py` | a value one run saved, loaded into another document: the numbers of the document that made it, bit-equal, on each engine, under `remote="local"` and through the stand-in server (which the value reaches inside the plan); what a load refuses |
 | `tests/test_quantized.py` | quantized `dtype`s on both engines |
 | `tests/test_tp.py` | the nnterp engine's `tp` under torchrun: its refusals, what every rank holds whole, rank 0 writing |
-| `tests/test_device.py` | on a GPU, every tensor clab builds meets an activation on its device |
+| `tests/test_device.py` | on a GPU, every tensor nnspec builds meets an activation on its device |
 | `tests/test_vllm.py` | on a GPU with vLLM, the vllm engine is bit-equal to plain nnsight on `StandardizedVLLM`, exact in its nulls and repeats, and refuses what vLLM cannot do by name |
-| `tests/test_cli.py` | `clab compile`, `clab show` and `clab table`, and what `clab run` prints and refuses |
+| `tests/test_cli.py` | `nnspec compile`, `nnspec show` and `nnspec table`, and what `nnspec run` prints and refuses |
 | `tests/test_table.py` | `table`: values joined on the keys they share, and what has no rows to table |
 
 What to add for a new op, kind, component or step kind is in [extending.md](extending.md).

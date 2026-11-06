@@ -1,10 +1,10 @@
-# clab
+# nnspec
 
-clab runs interpretability experiments on transformer language models. An experiment is one JSON document:
+nnspec runs interpretability experiments on transformer language models. An experiment is one JSON document:
 the checkpoint, the data, the forwards and generations to run, the reads and writes on the model's internals,
 the ops that score what comes out, and what to save. The same document runs unchanged on a model loaded
 locally or on an [NDIF](https://ndif.us/) server. A run writes each saved value to a directory with a
-manifest, which a person reads as a table and a script loads back as tensors. clab runs on
+manifest, which a person reads as a table and a script loads back as tensors. nnspec runs on
 [nnsight](https://github.com/ndif-team/nnsight) and names a model's components in
 [nnterp](https://github.com/ndif-team/nnterp)'s vocabulary.
 
@@ -56,12 +56,12 @@ last token of the counterfactual prompt, `patched` swaps that value into the bas
 reads the logits, and the two `op` steps score them. `saves` lists what the run writes.
 
 ```text
-$ clab run documents/patching.json
+$ nnspec run documents/patching.json
 patching on nnterp (batch size 8, device cpu, tp 1) -> out/patching
   iia.safetensors         iia         [4,1]
   logit_diff.safetensors  logit_diff  [4,1]
   out/patching/manifest.json
-$ clab table out/patching iia logit_diff
+$ nnspec table out/patching iia logit_diff
 row  pos  pos_token  input                              cf_answer  iia  base_answer  logit_diff
 0    10   ▁is        If today is Thursday, tomorrow is   Sunday    0.0   Friday      -0.027417995035648346
 1    8    ▁is        If today is Friday, tomorrow is     Monday    0.0   Saturday    0.18085992336273193
@@ -72,18 +72,18 @@ row  pos  pos_token  input                              cf_answer  iia  base_ans
 `iia` is 1 where the patched model's most likely next token is the counterfactual answer, and `logit_diff` is
 the counterfactual answer's logit less the base answer's. The corpus checkpoint has random weights, so these
 numbers show the mechanics, not a finding. `pos` and `pos_token` say where the scored read landed: "Thursday"
-is three tokens, so row 0's last token is at position 10. `clab show out/patching` prints how the run went:
+is three tokens, so row 0's last token is at position 10. `nnspec show out/patching` prints how the run went:
 what each step cost, the positions each entry resolved to per row, and each saved value's layout and shape.
-`clab compile documents/patching.json` checks a document with no model and prints what would run
+`nnspec compile documents/patching.json` checks a document with no model and prints what would run
 ([docs/usage/running.md](docs/usage/running.md#check-before-you-run)).
 
-From Python, `clab.run` returns the filled plan:
+From Python, `nnspec.run` returns the filled plan:
 
 ```python
-import clab
-from clab import Plan
+import nnspec
+from nnspec import Plan
 
-plan = clab.run("documents/patching.json")      # writes out/patching
+plan = nnspec.run("documents/patching.json")    # writes out/patching
 plan                                            # Plan(patching, run on nnterp, 2 results)
 plan.results["logit_diff"][:, 0]                # tensor([-0.0274,  0.1809,  0.0351, -0.1933])
 
@@ -126,7 +126,7 @@ Across techniques:
 
 ## Install
 
-clab is not on PyPI. From a checkout of this repository:
+nnspec is not on PyPI. From a checkout of this repository:
 
 ```bash
 uv sync
@@ -134,8 +134,8 @@ source .venv/bin/activate
 ```
 
 It needs Python 3.10 or later; `uv sync` installs nnsight, nnterp, torch and the rest into the checkout's
-`.venv`. Inside that venv a command is `clab …`, as every page spells it. From outside it, the same command is
-`uv run --no-sync clab …`: `uv run` without `--no-sync` syncs the venv first, which puts transformers back at
+`.venv`. Inside that venv a command is `nnspec …`, as every page spells it. From outside it, the same command is
+`uv run --no-sync nnspec …`: `uv run` without `--no-sync` syncs the venv first, which puts transformers back at
 the lock's newer version, and the snapshots were made at the one the tests below pin.
 
 nnterp 2 comes from a checkout of [ndif-team/nnterp](https://github.com/ndif-team/nnterp)'s `v2.0.0` branch, at
@@ -181,13 +181,13 @@ CUDA_VISIBLE_DEVICES=0 HF_HUB_OFFLINE=1 PYTHONPATH=. <venv>/bin/python -m pytest
 
 `--engine ndif` sends the whole run as one request to the NDIF server nnsight is configured for (`NDIF_HOST`
 and `NDIF_API_KEY`, or `nnsight.CONFIG`), and writes the output directory locally from what comes back. The
-server needs clab installed at your version and the document's checkpoint deployed at its revision.
+server needs nnspec installed at your version and the document's checkpoint deployed at its revision.
 `-o remote=local` makes the same trip in this process without a server, and on `documents/patching.json` it
 gives the nnterp engine's numbers
 ([docs/usage/running.md](docs/usage/running.md#when-two-runs-give-the-same-numbers)):
 
 ```bash
-clab run documents/patching.json --engine ndif -o remote=local
+nnspec run documents/patching.json --engine ndif -o remote=local
 ```
 
 [docs/usage/engines.md](docs/usage/engines.md) has what each engine serves, devices, and what a server must have.
@@ -201,8 +201,8 @@ clab run documents/patching.json --engine ndif -o remote=local
 - [docs/concepts/](docs/concepts/index.md): why it behaves as it does: the plan's lifecycle, one session per run, positions, values and layout, names and sweeps.
 - [docs/errors/](docs/errors/index.md): refusals by their message, and [the symptom index](docs/errors/symptom-index.md) for wrong numbers nothing refused.
 - [docs/reference/](docs/reference/index.md): the CLI, the Python API and the glossary.
-- [docs/developing/](docs/developing/index.md): how clab is built ([architecture](docs/developing/architecture.md)), how to add an op, a featurizer kind, a component or a step kind ([extending](docs/developing/extending.md)), the engine protocol, testing and contributing.
-- [FORMAT.md](FORMAT.md): every field, step kind, op, component, featurizer kind and engine option, generated from the code by `clab describe --markdown`; `clab describe ops` prints one of its tables.
+- [docs/developing/](docs/developing/index.md): how nnspec is built ([architecture](docs/developing/architecture.md)), how to add an op, a featurizer kind, a component or a step kind ([extending](docs/developing/extending.md)), the engine protocol, testing and contributing.
+- [FORMAT.md](FORMAT.md): every field, step kind, op, component, featurizer kind and engine option, generated from the code by `nnspec describe --markdown`; `nnspec describe ops` prints one of its tables.
 
 ## Agents
 

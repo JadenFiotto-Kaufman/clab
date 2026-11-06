@@ -3,7 +3,7 @@ title: Symptom Index
 one_liner: "Something ran and the numbers are wrong: the silent cases, from indices counted within a select list to a published SAE stated at the wrong layer, each with what it is and where it is explained."
 tags: [errors, symptoms, silent-failure, index]
 related: [docs/errors/index.md, docs/errors/alignment-missing.md, docs/usage/positions.md, docs/usage/output.md, docs/usage/interventions.md, docs/usage/ops.md, docs/usage/sweeps.md, docs/usage/generate.md, docs/usage/featurizers.md, docs/usage/data.md, docs/usage/bundles.md, docs/usage/running.md, docs/patterns/attribution-patching.md, docs/patterns/trained-subspaces.md]
-sources: [clab/compile/positions.py, clab/compile/interventions.py, clab/ops/reductions.py, clab/ops/transforms.py, clab/ops/edits.py, clab/compile/answers.py, clab/output/table.py, clab/featurizers/sae.py, clab/steps/batches.py]
+sources: [nnspec/compile/positions.py, nnspec/compile/interventions.py, nnspec/ops/reductions.py, nnspec/ops/transforms.py, nnspec/ops/edits.py, nnspec/compile/answers.py, nnspec/output/table.py, nnspec/featurizers/sae.py, nnspec/steps/batches.py]
 ---
 
 # Symptom Index
@@ -14,9 +14,9 @@ Start here when the run finished, nothing was refused, and the numbers look wron
 
 Most of these show up in what the run recorded ([output.md](../usage/output.md)):
 
-- where each read and write landed: each entry's `positions`, the entry lines of `clab show`, the `pos` and `pos_token` columns of `clab table`;
+- where each read and write landed: each entry's `positions`, the entry lines of `nnspec show`, the `pos` and `pos_token` columns of `nnspec table`;
 - how many rows each value holds;
-- the sweep axes each result depends on, which `clab show` lists.
+- the sweep axes each result depends on, which `nnspec show` lists.
 
 ## Positions and selections
 
@@ -47,11 +47,11 @@ Most of these show up in what the run recorded ([output.md](../usage/output.md))
 
 | What you saw | What it is | Where |
 |---|---|---|
-| A grid of two sweeps came back as its diagonal | Two sweeps with no `label` on fields of one name are both labelled with that name, and one label is one axis, so they zip. Give each its own `label`, and check the `axes` column of `clab show`. | [sweeps.md](../usage/sweeps.md#labels-zip-or-cross) |
+| A grid of two sweeps came back as its diagonal | Two sweeps with no `label` on fields of one name are both labelled with that name, and one label is one axis, so they zip. Give each its own `label`, and check the `axes` column of `nnspec show`. | [sweeps.md](../usage/sweeps.md#labels-zip-or-cross) |
 | A position sweep of a patch shows effects at positions the counterfactual was never read at | A sweep of the write's `pos` alone moves where the counterfactual's value lands; the read stays where it was. Sweep the read's `pos` over the same values, which pairs the two. | [activation-patching.md](../patterns/activation-patching.md#a-layer-by-position-map) |
 | A patch meant for one layer at a time changed every layer at once | A `layers` slice or list on a write writes at every layer it picks, in one forward. One layer per point is `"layers": {"sweep": [...]}`. | [interventions.md](../usage/interventions.md#writes-across-layers) |
 | A vector read at one layer changed every layer of a write across `layers` | An operand without a `layers` axis is the same at every layer the write is made at. Read the operand at the same `layers` to pair layer with layer, by label. | [interventions.md](../usage/interventions.md#writes-across-layers) |
-| A swept step's saved read is one tensor, not a dict keyed by point | A result is keyed by the sweep axes its own value depends on (`axes`, which `clab show` lists per result). In `documents/generate_probe.json`, `p_answer` is a dict by `frame` and `patched` one `[4, 3]` tensor. | [sweeps.md](../usage/sweeps.md#reading-swept-results) |
+| A swept step's saved read is one tensor, not a dict keyed by point | A result is keyed by the sweep axes its own value depends on (`axes`, which `nnspec show` lists per result). In `documents/generate_probe.json`, `p_answer` is a dict by `frame` and `patched` one `[4, 3]` tensor. | [sweeps.md](../usage/sweeps.md#reading-swept-results) |
 | A `mean` or `sum` came back with one number per layer | A reduction removes the rows and positions by default and keeps a `layers` axis. Name `layers` in `over` to remove it. | [ops.md](../usage/ops.md#reductions-and-over) |
 
 ## Values and reductions
@@ -94,16 +94,16 @@ Most of these show up in what the run recorded ([output.md](../usage/output.md))
 | A read at a later decode call is NaN on some rows | Those rows stopped at an EOS before that call, so they are `alignment_missing` there. | [alignment-missing.md](alignment-missing.md#causes) |
 | A generation with a read at the head at every call ran out of memory, or its memory grew with `max_new_tokens` | A per-call read with no ops, or whose first op waits for the whole value, is held whole until its batch's generation ends: `calls × vocab_size` values a row. Score it with an op that runs at each call (`token_prob`, `argmax`), or lower `--batch-size`. | [generate.md](../usage/generate.md#a-read-at-every-call) |
 | `{"frame": -1}` read every prompt token on some rows | On a row whose first generated token was EOS the last call is the prefill, and `{"frame": -1}` without an `index` is all of it. Write `{"frame": -1, "index": -1}`. | [positions.md](../usage/positions.md#generated-tokens) |
-| A write and a read with the same scoped `pos` landed on different tokens | A write found online sees nothing past the token it is fed, so it takes an occurrence's end as a word's end; a read is resolved after the row stops and sees what follows. Compare both entries' positions in `clab show`. | [concepts/positions.md](../concepts/positions.md#where-a-write-lands) |
+| A write and a read with the same scoped `pos` landed on different tokens | A write found online sees nothing past the token it is fed, so it takes an occurrence's end as a word's end; a read is resolved after the row stops and sees what follows. Compare both entries' positions in `nnspec show`. | [concepts/positions.md](../concepts/positions.md#where-a-write-lands) |
 
 ## Tables and reproducibility
 
 | What you saw | What it is | Where |
 |---|---|---|
-| `clab table out a b` prints nothing, while each alone prints rows | A table joins its values on the keys they share, and two reads of one input at different positions share no `pos`, so no row agrees on every key. Table them one at a time. | [output.md](../usage/output.md#clab-table), [sweeps.md](../usage/sweeps.md#pitfalls) |
+| `nnspec table out a b` prints nothing, while each alone prints rows | A table joins its values on the keys they share, and two reads of one input at different positions share no `pos`, so no row agrees on every key. Table them one at a time. | [output.md](../usage/output.md#nnspec-table), [sweeps.md](../usage/sweeps.md#pitfalls) |
 | The last bits of a value differ between two runs | Another batch shape is another matrix: another `--batch-size`, `--padding`, `--readout` or thread count, or a trailing partial batch. A run's numbers reproduce at the settings its run record holds. | [running.md](../usage/running.md#when-two-runs-give-the-same-numbers) |
 | One row's last bits moved when the dataset changed (a `take`, a `skip`, another split) | Under the default `--padding dataset` every batch is as wide as the input's longest row, so a dataset with another longest row gives every row another matrix. | [running.md](../usage/running.md#batch-size-and-padding) |
-| `clab table` refuses a value the run saved, `'<x>' was not saved` | A second run into the same `--out` replaced `manifest.json`, which names only its own saves; the first run's files are still there. Give each run its own `--out`, and copy a bundle to where the loading document's `file_path` points. | [bundles.md](../usage/bundles.md#the-two-document-workflow) |
+| `nnspec table` refuses a value the run saved, `'<x>' was not saved` | A second run into the same `--out` replaced `manifest.json`, which names only its own saves; the first run's files are still there. Give each run its own `--out`, and copy a bundle to where the loading document's `file_path` points. | [bundles.md](../usage/bundles.md#the-two-document-workflow) |
 | An apply document's numbers differ from its fit's eval in the last bits | A fit's body runs in batches of the fit's `batch_size`, the apply document in batches of `--batch-size`. Run the apply document at the fit's `batch_size` for the same numbers; on a GPU a loaded bundle's can still differ in the last bits, so compare at a tolerance. | [bundles.md](../usage/bundles.md#reproducing-a-fits-numbers-in-the-apply-document) |
 
 ## A window between rows of equal length
@@ -115,4 +115,4 @@ pairs.b: ['<s>', '▁If', '▁today', '▁is', '▁Monday', ',', '▁so', '▁th
 pairs.a: ['<s>', '▁If', '▁today', '▁is', '▁Th', 'urs', 'day', ',', '▁tom', 'orrow', '▁is']
 ```
 
-Scope each side to its own text, as `documents/entity_patch.json` does, and check both entries' positions in `clab show`.
+Scope each side to its own text, as `documents/entity_patch.json` does, and check both entries' positions in `nnspec show`.

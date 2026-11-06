@@ -1,14 +1,14 @@
 ---
 title: Glossary
-one_liner: clab's words, each in one sentence with the page that explains it.
+one_liner: nnspec's words, each in one sentence with the page that explains it.
 tags: [reference, glossary]
 related: [docs/reference/index.md, FORMAT.md, docs/usage/writing-a-document.md, docs/concepts/plan-lifecycle.md]
-sources: [clab/plan.py, clab/docs.py]
+sources: [nnspec/plan.py, nnspec/docs.py]
 ---
 
 # Glossary
 
-Each word as clab uses it, in one sentence, with the page that explains it. Exact fields and signatures are in [FORMAT.md](../../FORMAT.md).
+Each word as nnspec uses it, in one sentence, with the page that explains it. Exact fields and signatures are in [FORMAT.md](../../FORMAT.md).
 
 | word | meaning | explained in |
 |---|---|---|
@@ -26,7 +26,7 @@ Each word as clab uses it, in one sentence, with the page that explains it. Exac
 | bracket | An `encode` and the `decode` that closes it within one entry; the ops between act on the featurizer's coordinates, and only their change is written back. | [featurizers.md](../usage/featurizers.md#brackets) |
 | bundle | A safetensors file holding one featurizer's tensors and a header saying what made them, written by a saved fit member or `pca` op and loaded with `file_path`. | [bundles.md](../usage/bundles.md) |
 | bundle of entries | A named dict of entries under the root `interventions`, pulled into a step by name, its names resolving in the step that pulls it in. | [interventions.md](../usage/interventions.md#named-bundles) |
-| call | One forward pass of a generation: 0 the prefill, k ≥ 1 decode call k; the `call` column of `clab table`. | [generate.md](../usage/generate.md#frames-which-forward-call) |
+| call | One forward pass of a generation: 0 the prefill, k ≥ 1 decode call k; the `call` column of `nnspec table`. | [generate.md](../usage/generate.md#frames-which-forward-call) |
 | chat | An input whose value on each row is a list of `{"role", "content"}` messages, rendered through the checkpoint's own chat template. | [data.md](../usage/data.md#chat-inputs) |
 | class | Every vocabulary token that compares the same as an answer token under `strip` or `lower`, scored together; a linear probe's classes are instead the distinct values of its `classes` column. | [data.md](../usage/data.md#answer-columns) |
 | column | A field of a dataset's rows, referenced as `<dataset>.<column>` and read as an input, as text to find, or as an answer. | [data.md](../usage/data.md) |
@@ -49,7 +49,7 @@ Each word as clab uses it, in one sentence, with the page that explains it. Exac
 | engine | The object that loads a checkpoint and runs a compiled plan on it: `nnterp`, `hooks`, `ndif` or `vllm`. | [engines.md](../usage/engines.md) |
 | entry | One item of a step's `interventions`: a site, a `pos` and the ops run there, binding `<step>.<entry>`. | [interventions.md](../usage/interventions.md) |
 | eval | A fit's body once more after training, scored, as steps after the fit (`<fit>.<eval>.<step>`), with datasets read as others (`{"held_out": {"train": "test"}}`). | [fit.md](../usage/fit.md#evals) |
-| example_id | A dataset column that names each row, which leads every row of `clab table`. | [data.md](../usage/data.md#example_id) |
+| example_id | A dataset column that names each row, which leads every row of `nnspec table`. | [data.md](../usage/data.md#example_id) |
 | featurizer | A space or a function declared under `featurizers` and reached from an entry by `encode`, `decode` and `apply`: drawn from a seed, trained by a fit, or loaded from a bundle. | [featurizers.md](../usage/featurizers.md) |
 | fit | The step kind that trains featurizers inside the run, through the frozen model. | [fit.md](../usage/fit.md) |
 | float32 rule | Metrics, every reduction but `pca` and the elementwise arithmetic compute and return float32; an edit computes in float32 and rounds once to the value's dtype; a comparison gives its 0 or 1 in the value's dtype, float32 on ids. | [ops.md](../usage/ops.md#the-float32-rule) |
@@ -71,7 +71,7 @@ Each word as clab uses it, in one sentence, with the page that explains it. Exac
 | missing | An entry of a value with no data (a row not reached, a position or key past a row's own): NaN in floats, -1 in ids. | [values-and-layout.md](../concepts/values-and-layout.md#missing-entries) |
 | NaN rule | A missing entry, NaN or an id's -1, makes every metric, edit, elementwise transform and comparison of it NaN, and `argmax` or `top_k` of it -1. | [ops.md](../usage/ops.md#missing-values) |
 | ndif | The engine that runs the whole plan in one session on an NDIF server, holding a weightless model on the client. | [engines.md](../usage/engines.md#running-on-ndif) |
-| nnterp | The default engine, nnterp's standardized model inside one nnsight session; also the library whose names are clab's component names. | [engines.md](../usage/engines.md) |
+| nnterp | The default engine, nnterp's standardized model inside one nnsight session; also the library whose names are nnspec's component names. | [engines.md](../usage/engines.md) |
 | null control | A run that changes nothing by construction (a self-swap, an edit at its identity, a fit at `epochs: 0`), whose scores the effect is measured against. | [interventions.md](../usage/interventions.md#the-null-control) |
 | objective | A fit's weighted sum of terms, each a body op or a trained featurizer's scalar, which the optimizer minimizes. | [fit.md](../usage/fit.md#the-objective) |
 | occurrence | Which match of a scope's text the scope is: 0 the first (the default), -1 the last, `":"` every one, ordered by where each ends. | [positions.md](../usage/positions.md#words-and-occurrences) |
@@ -84,10 +84,10 @@ Each word as clab uses it, in one sentence, with the page that explains it. Exac
 | point | One combination of the sweep axes a step depends on, run as a whole step. | [names-and-sweeps.md](../concepts/names-and-sweeps.md#points) |
 | pos | An entry's positions, narrowed in three stages: frame, scope, index. | [positions.md](../usage/positions.md) |
 | position | Where one input token sits in one row, numbered from 0 with BOS first, the same numbering everywhere a token is counted. | [concepts/positions.md](../concepts/positions.md) |
-| positions | An entry's record of the positions it resolved to on each row, or `alignment_missing` for a row it did not reach, which `clab show` prints per entry. | [positions.md](../usage/positions.md#check-where-it-landed) |
+| positions | An entry's record of the positions it resolved to on each row, or `alignment_missing` for a row it did not reach, which `nnspec show` prints per entry. | [positions.md](../usage/positions.md#check-where-it-landed) |
 | prefill | Forward call 0, which holds every prompt token; a `forward` step's only call. | [concepts/positions.md](../concepts/positions.md#a-generation-is-a-timeline-of-calls) |
 | preflight | The checks the run makes with the model loaded and before any forward: tokens, sizes, served components, positions, answers and widths. | [plan-lifecycle.md](../concepts/plan-lifecycle.md#4-preflight-the-model-in-hand-no-forward-yet) |
-| published SAE | A safetensors file with no clab header holding `W_enc`, `W_dec`, `b_enc`, `b_dec` (and a JumpReLU's `threshold`), which an `sae` loads only with `activation`, `centered` and `site` stated. | [featurizers.md](../usage/featurizers.md#loading-a-published-sparse-autoencoder) |
+| published SAE | A safetensors file with no nnspec header holding `W_enc`, `W_dec`, `b_enc`, `b_dec` (and a JumpReLU's `threshold`), which an `sae` loads only with `activation`, `centered` and `site` stated. | [featurizers.md](../usage/featurizers.md#loading-a-published-sparse-autoencoder) |
 | quantized dtype | A `model.dtype` that names a quantization (`nf4`, `fp4`, `int8`, `fp8`), whose model computes in `bfloat16` (`int8` in `float16`). | [engines.md](../usage/engines.md#quantized-and-sharded-models) |
 | ragged | A record whose rows hold different numbers of positions: as wide as its widest row, NaN past each row's own. | [positions.md](../usage/positions.md#static-width-or-ragged) |
 | read | An entry with no edit among its ops, which binds the value at its selection and leaves the model alone; as a value record's field, `read` is the entry whose value it is, null for a `permute`'s. | [interventions.md](../usage/interventions.md), [FORMAT.md](../../FORMAT.md#derived-fields) |
@@ -113,7 +113,7 @@ Each word as clab uses it, in one sentence, with the page that explains it. Exac
 | step | One item of `steps`, a `forward`, `generate`, `op`, `fit` or `load`, run in document order. | [writing-a-document.md](../usage/writing-a-document.md#the-document-top-to-bottom) |
 | stopped | `plan.run.stopped`: the refusal of a step that ran out of CUDA memory, after which the run saved the steps that finished. | [running.md](../usage/running.md#when-a-step-runs-out-of-memory) |
 | sweep | `{"sweep": [...]}` standing for a value, so that every step using it runs once per value. | [sweeps.md](../usage/sweeps.md) |
-| table | The rows `clab table` and `plan.table` make of saved values, one per example and position, labelled with tokens and dataset columns. | [output.md](../usage/output.md#clab-table) |
+| table | The rows `nnspec table` and `plan.table` make of saved values, one per example and position, labelled with tokens and dataset columns. | [output.md](../usage/output.md#nnspec-table) |
 | teacher forcing | A list input that appends each row's answer to its prompt, read at the positions before the answer with `before`. | [generation-experiments.md](../patterns/generation-experiments.md#a-fixed-answer-token-by-token-teacher-forcing) |
 | template | A dataset's arguments to the checkpoint's `apply_chat_template` wherever a chat of it renders (`add_generation_prompt`, ...). | [data.md](../usage/data.md#chat-inputs) |
 | tp | The nnterp and vllm engines' option that shards the model by tensor parallelism over that many ranks: on nnterp one process each under torchrun, on vllm its `tensor_parallel_size`. | [engines.md](../usage/engines.md#quantized-and-sharded-models) |

@@ -3,7 +3,7 @@ title: Fit
 one_liner: "How do I train a featurizer inside a run? Objective, optimizer, epochs, early stopping, evals, history, what a fit costs, and the epochs-0 null."
 tags: [usage, fit, training, objective, eval, history, optimizer, memory]
 related: [docs/usage/featurizers.md, docs/usage/bundles.md, docs/usage/sweeps.md, docs/usage/ops.md, docs/usage/running.md, docs/concepts/names-and-sweeps.md, docs/patterns/trained-subspaces.md, docs/patterns/probing.md, docs/patterns/sae.md, docs/patterns/lora.md]
-sources: [clab/steps/fit.py, clab/steps/batches.py, clab/compile/__init__.py, clab/plan.py, clab/featurizers/__init__.py]
+sources: [nnspec/steps/fit.py, nnspec/steps/batches.py, nnspec/compile/__init__.py, nnspec/plan.py, nnspec/featurizers/__init__.py]
 ---
 
 # Fit
@@ -65,7 +65,7 @@ A value from before the fit with a row per example of one of the body's datasets
 A harvest of another dataset than the body's is refused, since a minibatch's ids would pair its rows with others:
 
 ```text
-clab: steps.fit.steps.patched.interventions.patch.ops[1].with: 'train.input' has a row per example of 'train' and 'v_cf' of 'test'; an op takes one dataset's rows
+nnspec: steps.fit.steps.patched.interventions.patch.ops[1].with: 'train.input' has a row per example of 'train' and 'v_cf' of 'test'; an op takes one dataset's rows
 ```
 
 The body's datasets are those its forwards read (with none, the one its harvests are of), paired row by row, so they hold as many rows as each other. A reduction over rows inside the body is the minibatch's statistic; a statistic of the dataset is a step before the fit. A body holds no fit, and its step names are not dataset or featurizer names. The rules are in [FORMAT.md](../../FORMAT.md#fit).
@@ -82,8 +82,8 @@ An sae's scalars are over the coordinates the body reads of it with an `encode` 
 Compile also refuses a term that is neither, and an objective none of whose terms depends on what the fit trains, which has no gradient to step on:
 
 ```text
-clab: steps.fit.objective.patched.logits: not a body op or a trained featurizer's scalar; body ops: v_cf, iia, ce
-clab: steps.fit.objective: none of its terms (pce) depends on what the fit trains (rot): each is a body op over values no trained featurizer reaches, so there is no gradient to step on; make a term of an op over a value the trained featurizer's encode, decode or apply made, or of its scalar
+nnspec: steps.fit.objective.patched.logits: not a body op or a trained featurizer's scalar; body ops: v_cf, iia, ce
+nnspec: steps.fit.objective: none of its terms (pce) depends on what the fit trains (rot): each is a body op over values no trained featurizer reaches, so there is no gradient to step on; make a term of an op over a value the trained featurizer's encode, decode or apply made, or of its scalar
 ```
 
 A metric term is a float32 loss whatever the model's dtype, as every metric is ([ops.md](ops.md#the-float32-rule)).
@@ -116,15 +116,15 @@ Each name under `eval` runs the body once more after training, scored, with each
 - **`{}` is the data it trained on**; `{"train": "test"}` reads `test` wherever the body says `train`.
 - **Every reference to the replaced dataset follows**, columns and scopes included: under `held_out`, `train.cf_answer` reads `test.cf_answer`.
 - **An eval is ordinary steps after the fit.** Compile writes the body's steps out as `<fit>.<eval>.<step>` (`lora_train.json`'s `fit.held_out.adapted` and `fit.held_out.ce`), listed in the fit's record (its `evals`). Each runs over every row of its dataset, through `<fit>.<featurizer>`, on the fit's sweep axes, in batches of the fit's `batch_size`.
-- **It reports as a step.** `clab show` lists its cost and where each of its entries resolved, and a refusal names it (`fit.held_out.adapted.adapt: row 0: …`).
-- **A replacement may hold another number of rows**, and its values are aligned to its own rows. So `lora_train.json`'s `fit.held_out.ce` and `fit.train.ce` cannot share one `clab table` (`'fit.held_out.ce' has a row per example of 'test' and 'fit.train.ce' of 'train'; a table joins the values of one dataset`).
+- **It reports as a step.** `nnspec show` lists its cost and where each of its entries resolved, and a refusal names it (`fit.held_out.adapted.adapt: row 0: …`).
+- **A replacement may hold another number of rows**, and its values are aligned to its own rows. So `lora_train.json`'s `fit.held_out.ce` and `fit.train.ce` cannot share one `nnspec table` (`'fit.held_out.ce' has a row per example of 'test' and 'fit.train.ce' of 'train'; a table joins the values of one dataset`).
 - **A chat dataset's replacement renders with the same `template`**; one with another is refused (`dataset 'train' is read as 'test', and their templates differ`).
 - **An eval's name** is not `history` or a featurizer the fit trains, and has no dot.
 
 An eval cannot replace the dataset of a harvest the body reads, since no step made the harvest over the other's rows. Evaluate on other data in steps after the fit, as `das.json` does:
 
 ```text
-clab: steps.fit.eval.held_out: the body uses 'counterfactual.h', made before the fit with a row per example of 'train', and this eval reads 'train' as 'test', over whose rows no step made it; evaluate on 'test' in steps after the fit, which reach what it trained as 'fit.rot'
+nnspec: steps.fit.eval.held_out: the body uses 'counterfactual.h', made before the fit with a row per example of 'train', and this eval reads 'train' as 'test', over whose rows no step made it; evaluate on 'test' in steps after the fit, which reach what it trained as 'fit.rot'
 ```
 
 ## Members
@@ -146,7 +146,7 @@ That draw comes from the featurizer's own `seed`, 0 when unset, whatever the fit
 
 ### History
 
-A history holds one entry per epoch run: fewer when `early_stop` ends the fit, none (`[0]`) at `epochs: 0`. Every body op gets one, in the objective or not, so an aggregate you want to watch belongs in the body: a `mean` of a `match` there is both `<fit>.<eval>.acc` and `<fit>.history.acc`. `clab table <out> fit.history.ce` prints a row per epoch, with an `epochs` column. Under a sweep, every member is a dict keyed by coordinate ([sweeps.md](sweeps.md#reading-swept-results)).
+A history holds one entry per epoch run: fewer when `early_stop` ends the fit, none (`[0]`) at `epochs: 0`. Every body op gets one, in the objective or not, so an aggregate you want to watch belongs in the body: a `mean` of a `match` there is both `<fit>.<eval>.acc` and `<fit>.history.acc`. `nnspec table <out> fit.history.ce` prints a row per epoch, with an `epochs` column. Under a sweep, every member is a dict keyed by coordinate ([sweeps.md](sweeps.md#reading-swept-results)).
 
 ## `epochs: 0` is a null control
 

@@ -3,12 +3,12 @@ title: Steering
 one_liner: "How do I push the model with a direction? A mean difference at a dose set from the activations, a matched random control, clamping, and steering every generated token."
 tags: [patterns, steering]
 related: [docs/usage/interventions.md, docs/usage/ops.md, docs/usage/sweeps.md, docs/usage/generate.md, docs/patterns/generation-experiments.md, docs/patterns/ablation.md]
-sources: [clab/ops/edits.py, clab/ops/reductions.py, clab/steps/batches.py]
+sources: [nnspec/ops/edits.py, nnspec/ops/reductions.py, nnspec/steps/batches.py]
 ---
 
 # Steering
 
-Steering adds a direction to the residual stream to push the model toward a behavior, and measures what moves. In clab the direction is a value earlier steps compute (a mean, a difference of means), the write is `add` with a `scale` (the dose), and the evidence is a sweep over that dose with the unsteered run beside it.
+Steering adds a direction to the residual stream to push the model toward a behavior, and measures what moves. In nnspec the direction is a value earlier steps compute (a mean, a difference of means), the write is `add` with a `scale` (the dose), and the evidence is a sweep over that dose with the unsteered run beside it.
 
 ## The canonical document
 
@@ -67,7 +67,7 @@ A direction for a behavior is usually the difference between mean activations on
 }
 ```
 
-The means come from two datasets, which is allowed because a mean has no rows. `base` runs once; `steered` and the steps after it run once per dose. `clab table <out> drift effect`:
+The means come from two datasets, which is allowed because a mean has no rows. `base` runs once; `steered` and the steps after it run once per dose. `nnspec table <out> drift effect`:
 
 ```text
 at             drift                   effect

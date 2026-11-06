@@ -3,12 +3,12 @@ title: Activation Patching
 one_liner: "Which position or layer carries the answer? Swap a counterfactual's value in by position, window or entity, map layer by position, corrupt and restore."
 tags: [patterns, patching]
 related: [docs/usage/interventions.md, docs/usage/ops.md, docs/usage/positions.md, docs/usage/sweeps.md, docs/patterns/head-and-neuron-patching.md, docs/patterns/ablation.md]
-sources: [clab/ops/edits.py, clab/ops/metrics.py, clab/compile/interventions.py]
+sources: [nnspec/ops/edits.py, nnspec/ops/metrics.py, nnspec/compile/interventions.py]
 ---
 
 # Activation Patching
 
-Activation patching asks whether a component, at a position, carries what decides the answer. Read its value on a counterfactual prompt, swap it into the base prompt at the same place, and score the base run: if it now gives the counterfactual's answer, that value was enough to move it. In clab that is two forwards and a swap: one read, one write, and the metrics after.
+Activation patching asks whether a component, at a position, carries what decides the answer. Read its value on a counterfactual prompt, swap it into the base prompt at the same place, and score the base run: if it now gives the counterfactual's answer, that value was enough to move it. In nnspec that is two forwards and a swap: one read, one write, and the metrics after.
 
 ## The canonical document
 
@@ -25,8 +25,8 @@ Activation patching asks whether a component, at a position, carries what decide
 ```
 
 ```text
-clab run documents/patching.json --out out/patching
-clab table out/patching iia logit_diff
+nnspec run documents/patching.json --out out/patching
+nnspec table out/patching iia logit_diff
 ```
 
 The choices it makes:
@@ -91,7 +91,7 @@ A position pairs across prompts of different lengths only where every token betw
 }
 ```
 
-`data/weekdays_aligned/data.json` holds the pairs whose prompts tokenize to the same length, so every count names the same word on both sides. The same document over the ragged `weekdays/train` runs too, since its four counts fall in the `, tomorrow is` every prompt ends with ([above](#by-content-not-by-count)). Eight points: `counterfactual` writes nothing, so its eight reads share one forward, and `patched` runs one forward per point ([sweeps](../usage/sweeps.md#what-a-sweep-costs)). `clab table <out> mean_ld`:
+`data/weekdays_aligned/data.json` holds the pairs whose prompts tokenize to the same length, so every count names the same word on both sides. The same document over the ragged `weekdays/train` runs too, since its four counts fall in the `, tomorrow is` every prompt ends with ([above](#by-content-not-by-count)). Eight points: `counterfactual` writes nothing, so its eight reads share one forward, and `patched` runs one forward per point ([sweeps](../usage/sweeps.md#what-a-sweep-costs)). `nnspec table <out> mean_ld`:
 
 ```text
 at                     value
@@ -100,7 +100,7 @@ at                     value
 {"layers":1,"pos":-2}  -0.002695823786780238
 ```
 
-The map's null is a self-swap swept like the patch: a read of the base prompt in the clean forward at the swept site and `pos`, and a `null` forward that swaps it back in. A read's points share one forward (`clab show` prints `all 8 points` beside it), so the null's read adds no forward and its writes add one per point. Its scores equal the clean run's at every point ([interventions](../usage/interventions.md#the-null-control) has the one-point document):
+The map's null is a self-swap swept like the patch: a read of the base prompt in the clean forward at the swept site and `pos`, and a `null` forward that swaps it back in. A read's points share one forward (`nnspec show` prints `all 8 points` beside it), so the null's read adds no forward and its writes add one per point. Its scores equal the clean run's at every point ([interventions](../usage/interventions.md#the-null-control) has the one-point document):
 
 ```json
 "clean": {"kind": "forward", "input": "pairs.input", "interventions": {
@@ -141,7 +141,7 @@ with the sites `embed` (`token_embeddings`) and `head` (`lm_head_output`) declar
 
 ## Two experiments, one baseline
 
-`documents/two_observes.json` declares patching and mean ablation as bundles at the root and runs each in its own step against one shared clean run, its metrics named apart (`patching_ld`, `ablation_ld`) so `clab table` joins them row by row. `documents/gpt2_reach.json` is the canonical document on tiny GPT-2 at layer 2: the component names are the same on every model family.
+`documents/two_observes.json` declares patching and mean ablation as bundles at the root and runs each in its own step against one shared clean run, its metrics named apart (`patching_ld`, `ablation_ld`) so `nnspec table` joins them row by row. `documents/gpt2_reach.json` is the canonical document on tiny GPT-2 at layer 2: the component names are the same on every model family.
 
 ## Pitfalls
 
