@@ -253,7 +253,8 @@ def compile_entry(cx: Compiling, path: str, spec: Intervention, plan: Plan, step
                 fail(f"{here}.{key}", f"{written!r} has a pos axis, and this write lands beyond the prefill: at each "
                      "decode call it names, as the call runs, on that call's one position, where an operand's "
                      "positions are not split among the calls; write at one decode call, {'frame': 3, 'index': 0}, "
-                     "with the operand read at that call the same way, an entry per call")
+                     "an entry per call, with an operand of one position: a prefill read, or one read at that call "
+                     "under a min_new_tokens that reaches it on every row")
             why = mismatch(ours, theirs, o.op, key, written, repr(step.input), i <= last, written in live,
                            adapts(plan, o), lambda read: spec if read == where else entry_of(cx.steps, read, at)[1])
             if why:
