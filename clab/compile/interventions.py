@@ -327,8 +327,7 @@ def kept_of(select: dict[str, Selector] | None) -> dict[str, selectors.Kept]:
 def read_positions(steps: dict, read: str, at: dict[str, int]) -> list | None:
     """The positions per row the read `read` holds at `at`, under its dataset, where they are known: the
     prefill's before any forward, a generation's decode calls' once it ran; else None."""
-    record = record_of(steps, read, at)
-    assert isinstance(record, Intervention), f"{read} is no read"
+    record = entry_of(steps, read, at)[1]
     return record.positions.get(cast(str, record.dataset))
 
 

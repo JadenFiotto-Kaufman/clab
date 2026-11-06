@@ -1521,8 +1521,7 @@ def featurizer_uses(steps: dict[str, Entry], declared: dict[str, FeaturizerEntry
         if ref is not None:                 # a body's step sees the body's steps beside the root's
             fit = name.rpartition(".")[0]
             scope = {**steps, **agreeing_point(steps[fit], step.at).steps} if fit else steps
-            read = record_of(scope, cast(str, step.read), step.at)
-            assert isinstance(read, Intervention), f"{name}: an encode or apply step is over a read"
+            read = entry_of(scope, cast(str, step.read), step.at)[1]
             yield (ref if ref in declared else ref.partition(".")[2], name, read, step.at, step,
                    [Op(op="encode", **s) for s in read.space])
         for key, entry in entries(step).items():
@@ -1580,8 +1579,7 @@ def entry_of(steps: dict[str, Entry], ref: str, at: dict[str, int]) -> tuple[For
     return step, entries(step)[member]
 
 
-def record_of(steps: dict[str, Entry], ref: str, at: dict[str, int],
-              declared: dict[str, FeaturizerEntry] | None = None) -> Labelled:
+def record_of(steps: dict[str, Entry], ref: str, at: dict[str, int], declared: dict[str, FeaturizerEntry]) -> Labelled:
     """The record of the value `ref` names among `steps`, at the point agreeing with `at`, which carries its
     labelled layout: an entry's (`<step>.<entry>`, a load's read among them), an op step's, a generation's or a
     load's own (`<step>`), a `top_k` step's member's (`<step>.ids`, `member_of`: the step's labels), a fit
@@ -1589,9 +1587,9 @@ def record_of(steps: dict[str, Entry], ref: str, at: dict[str, int],
     (`<fit>.history.<term>`, `[epochs]`), a trained featurizer (no axes) or one of its tensors
     (`<fit>.<featurizer>.<tensor>`, on the fit's axes), or a tensor of one of the plan's featurizers, `declared`
     (`<featurizer>.<tensor>`, on the featurizer's axes), each laid out at the featurizer's first use among `steps`
-    (`tensor_record`)."""
+    (`tensor_record`). Every caller passes the plan's featurizers, which a tensor's layout needs."""
     thing, _, member = ref.partition(".")
-    if declared is not None and thing in declared:
+    if thing in declared:
         found = tensor_record(steps, declared, thing, member, at, list(agreeing_point(declared[thing], at).at))
         assert found is not None, f"{ref}: no step uses {thing!r}, whose site its tensors are laid out at"
         return found
@@ -1608,7 +1606,6 @@ def record_of(steps: dict[str, Entry], ref: str, at: dict[str, int],
     if label == "history" or label in step.train and not rest:
         return Labelled(dims=["epochs"] if label == "history" else [], axes=list(step.at))
     if label in step.train:
-        assert declared is not None, f"{ref} is a featurizer's tensor, which the plan's featurizers lay out"
         found = tensor_record(steps, declared, f"{thing}.{label}", rest, step.at, list(step.at))
         assert found is not None, f"{ref}: no step uses {thing}.{label}, whose site its tensors are laid out at"
         return found

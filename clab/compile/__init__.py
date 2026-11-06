@@ -585,7 +585,7 @@ def compile_load(cx: Compiling, path: str, name: str, spec: Load, plan: Plan, at
         fail(f"{path}.from", f"{spec.from_} ran another model than this document's: " + ", ".join(
             f"{k} {theirs.get(k)!r} where this document's is {ours.get(k)!r}" for k in differ))
     there = {label: at[label] for label in d["axes"]}         # the point here is the point there: same labels, values
-    record = record_of(ran.steps, spec.value, there)
+    record = record_of(ran.steps, spec.value, there, ran.featurizers)
     made = agreeing_point(runnable(ran.steps)[made_by(ran, spec.value)], there)      # an eval's member's: its eval step
     producer, entry = entry_of(ran.steps, record.read, there) if record.read is not None else (None, None)
     if made.kind == "fit" and spec.value.partition(".")[2] in made.train or \
@@ -770,7 +770,7 @@ def compile_fit(cx: Compiling, path: str, name: str, spec: Fit, plan: Plan, at: 
         body[n] = within.steps[n] = compile_step(within, f"{path}.steps.{n}", n, s, view, at)
         for r in refs:
             thing = r.partition(".")[0]
-            if thing in cx.steps and thing not in body and "rows" in (record_of(cx.steps, r, at).dims or []):
+            if thing in cx.steps and thing not in body and "rows" in (record_of(cx.steps, r, at, cx.featurizers).dims or []):
                 harvests.setdefault(r, n)
         if any(r in trained or r.partition(".")[0] in trained for r in refs):
             trained.add(n)                  # a step whose value depends on what the fit trains
@@ -808,7 +808,7 @@ def compile_fit(cx: Compiling, path: str, name: str, spec: Fit, plan: Plan, at: 
                 if d not in cx.rows:
                     fail(where, f"no dataset {d!r}; datasets: {', '.join(cx.rows)}")
             for ref in harvests:
-                if record_of(cx.steps, ref, at).dataset == a:
+                if record_of(cx.steps, ref, at, cx.featurizers).dataset == a:
                     fail(where, f"the body uses {ref!r}, made before the fit with a row per example of {a!r}, and "
                          f"this eval reads {a!r} as {b!r}, over whose rows no step made it; evaluate on {b!r} in "
                          "steps after the fit, which reach what it trained as "
@@ -845,15 +845,15 @@ def compile_fit(cx: Compiling, path: str, name: str, spec: Fit, plan: Plan, at: 
         over = arguments(s).get("over") if isinstance(s, OpStep) and s.op == "top_k" else None
         if over == "rows" or isinstance(over, list) and "rows" in over:
             assert isinstance(s, OpStep)
-            of = record_of(within.steps, s.of, at)
+            of = record_of(within.steps, s.of, at, cx.featurizers)
             held = (fewest, f"those the fewest-row run of the body holds, of {total} rows in minibatches of {size}")
             if why := k_past(s.op, arguments(s), of, None, {**known_counts(within, of, s.of, at), "rows": held}):
                 fail(f"{path}.steps.{n}.k", why)
     # The rows a minibatch's ids are: of the datasets the body's forwards read, or, with none, its first harvest's.
     rows = {s.dataset for s in body.values() if s.kind != "op"} or \
-        {record_of(cx.steps, r, at).dataset for r in list(harvests)[:1]}
+        {record_of(cx.steps, r, at, cx.featurizers).dataset for r in list(harvests)[:1]}
     for ref, n in harvests.items():
-        d = record_of(cx.steps, ref, at).dataset
+        d = record_of(cx.steps, ref, at, cx.featurizers).dataset
         if d not in rows:
             theirs = " and ".join(map(repr, sorted(map(str, rows))))
             fail(f"{path}.steps.{n}", f"the body uses {ref!r}, made before the fit with a row per example of {d!r}, "

@@ -785,7 +785,7 @@ def resampled(change=None) -> Plan:
 
 def drawn(plan: Plan, name: str) -> list[int]:
     """The permutation op step `name` drew, as its record holds it."""
-    record = record_of(plan.steps, name, {})
+    record = record_of(plan.steps, name, {}, plan.featurizers)
     assert isinstance(record, OpStep) and record.permutation is not None
     return record.permutation
 
@@ -846,7 +846,8 @@ def test_a_ragged_permuted_value_is_refused_as_another_forwards_operand_and_may_
             d["steps"].pop(name)
         d["steps"]["per_row"] = {"kind": "op", "op": "mean", "of": "donor", "over": ["pos"]}
         d["saves"] = ["per_row"]
-    assert record_of(resampled(reduced).steps, "per_row", {}).dims == ["rows", "hidden_size"]
+    plan = resampled(reduced)
+    assert record_of(plan.steps, "per_row", {}, plan.featurizers).dims == ["rows", "hidden_size"]
 
 
 def permuted_pair(width: int | dict | None, ragged: bool = False) -> Plan:
@@ -878,7 +879,8 @@ def test_two_permuted_values_pair_positions_by_width_and_a_ragged_one_with_none(
     width, as two reads of different inputs do, and at another width, or ragged, they are refused by name."""
     with pytest.raises(PlanError, match=r"^steps\.diff\.with: " + message):
         permuted_pair(width, ragged=width is None)
-    assert record_of(permuted_pair({"index": "-3:"}).steps, "diff", {}).width == 3
+    plan = permuted_pair({"index": "-3:"})
+    assert record_of(plan.steps, "diff", {}, plan.featurizers).width == 3
 
 
 @pytest.mark.parametrize("kind", ["nnterp", "hooks"])
