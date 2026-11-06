@@ -44,7 +44,16 @@ At layer L the write takes row L of the mask and the slice of `corrupt.z` labell
 - **The untrained gate is the clean run.** Every θ starts at +1, and `apply` with `with` is the value itself where a unit is on. Set the fit's `"epochs": 0`: its `train` eval scores that draw ([fit.md](../usage/fit.md#epochs-0-is-a-null-control)), and `fit.train.ld` equals `clean_ld` on every engine (`tests/test_fit.py` `test_an_untrained_head_gate_with_the_corrupt_value_is_the_clean_run_to_the_bit`).
 - **A gate off everywhere writes `with` itself.** Where a unit is off the write is `corrupt.z` exactly, which saving the write's own value (`fit.train.run.gated`) shows.
 - **That is the corrupt run only where the two prompts share the read's token.** With every head off at every position, the read's position takes nothing from the others but the corrupt run's attention. Its own embedding and MLPs see its own token, so the logits there are the corrupt run's wherever that token is the same on both prompts.
-- **Measured on GPT-2** (`openai-community/gpt2` at `607a30d783dfa663caf39e06633721c8d4cfcd7e`, CPU, float32), with every head of every layer off at all 14 positions. Two IOI pairs that differ only at the subject's second mention gave logits equal to the corrupt run's ([running.md](../usage/running.md#when-two-runs-give-the-same-numbers)). A pair that differs at the last token, the one read, gave logits up to 9.0 from the corrupt run's.
+- **Measured on GPT-2** (`openai-community/gpt2` at `607a30d783dfa663caf39e06633721c8d4cfcd7e`, CPU, float32), with every head of every layer off at all 14 positions: a `swap` of `corrupt.z`, read at `attention_premix` over `"layers": ":"` at `{"index": "0:14"}`, which is what a gate off everywhere writes. The logits were read at `lm_head_output`, `pos: -1`, in one batch. Two IOI pairs that differ only at the subject's second mention gave logits equal to the corrupt run's ([running.md](../usage/running.md#when-two-runs-give-the-same-numbers)):
+
+  ```json
+  {"input": "When Mary and John went to the store, John gave a drink to",
+   "cf": "When Mary and John went to the store, Mary gave a drink to"},
+  {"input": "When Tom and Anna went to the park, Tom gave a ball to",
+   "cf": "When Tom and Anna went to the park, Anna gave a ball to"}
+  ```
+
+  The first pair with its corrupt prompt ending `a drink for` instead, which differs at the last token, the one read, gave logits up to 9.0 from the corrupt run's.
 - **Write the interpolation with `with`.** `[{"op": "sub", "with": "corrupt.z"}, {"op": "apply", "featurizer": "fit.heads"}, {"op": "add", "with": "corrupt.z"}]` means the same thing and computes `(h − c)·1 + c`, which rounds. Its null moves the logits in their last bits (`tests/test_fit.py` `test_the_sub_apply_add_form_of_the_interpolation_is_not_exact`).
 
 ## Reading the heads kept
