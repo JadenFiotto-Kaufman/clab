@@ -1,6 +1,6 @@
 ---
 title: Ops
-one_liner: "Scoring and reducing values: metrics on logits or probe scores, reductions and over (norm, dot, count, std, entropy among them), transforms like readout, argmax, top_k, detokenize, grad and permute, elementwise arithmetic and comparisons, op steps versus ops inside an entry, and the float32 rule."
+one_liner: "Which op scores, reduces or transforms a value? Metrics, KL in either direction, reductions (median, count), top_k over rows and positions, permute, arithmetic, and step versus entry."
 tags: [usage, ops]
 related: [docs/usage/interventions.md, docs/usage/data.md, docs/usage/output.md, docs/concepts/values-and-layout.md, docs/errors/alignment-missing.md, docs/patterns/logit-lens.md, docs/patterns/probing.md, docs/patterns/steering.md]
 sources: [clab/ops/__init__.py, clab/ops/metrics.py, clab/ops/reductions.py, clab/ops/transforms.py, clab/ops/edits.py, clab/compile/arguments.py, clab/steps/__init__.py, clab/steps/batches.py]
@@ -8,7 +8,7 @@ sources: [clab/ops/__init__.py, clab/ops/metrics.py, clab/ops/reductions.py, cla
 
 # Ops
 
-An op is one function that runs in two places: as an `op` step over a value an earlier step produced, or inside an entry of `interventions` on the entry's selection. Ops come in four groups: metrics score each example, reductions remove axes, edits change contents and write back ([interventions](interventions.md)), transforms change the layout or compute on each entry without writing back. Every op's arguments and axes are in [FORMAT.md#ops](../../FORMAT.md#ops); this page is how to use them.
+An op is one function that runs in two places: as an `op` step over a value an earlier step produced, or inside an entry of `interventions` on the entry's selection. Metrics score each example; reductions remove axes; edits change contents and write back ([interventions](interventions.md)); transforms change the layout or compute on each entry without writing back. Every op's arguments and axes are in [FORMAT.md#ops](../../FORMAT.md#ops); this page is how to use them.
 
 ## Canonical example
 
@@ -24,36 +24,59 @@ The two scores of `documents/patching.json`, and the accuracy over rows that usu
 
 ## A step or an entry
 
-Inside an entry, the ops after its last edit run on its value as each batch comes off the model; the entry binds their result. It is the same function as the step: `token_prob` or `kl` inside the head's entry and as a step over the saved logits give the same numbers to the bit. `documents/real/head_patching.json` scores its 96 points that way:
+Inside an entry, the ops after its last edit run on its value as each batch comes off the model; the entry binds their result. It is the same function as the step: `token_prob` or `kl` inside the head's entry and as a step over the saved logits give the same numbers ([running](running.md#when-two-runs-give-the-same-numbers)). `documents/real/head_patching.json` scores its 96 points that way:
 
 ```json
 "hit": {"site": "head", "pos": -1, "ops": [{"op": "match", "expected": "days.cf_answer"}]}
 ```
 
-Scoring inside the entry keeps memory flat, since a row's logits never outlive its batch. A value a step binds stays on the model's device until the run ends, when the saved ones move to the CPU (`clab/steps/__init__.py` `detached_cpu_clone`); a read's batches are joined on that device, briefly twice the value's size (`clab/steps/batches.py` `join_batches`); and an op step computes over the whole value at once. So an op step over two saved `[rows, pos, vocab_size]` float32 reads builds temporaries their size: a `kl` between two `[64, 127, 256000]` reads makes several of 8 GB each, and a run that does not fit stops at that step, naming it and every value the run holds, with the steps before it saved ([running.md](running.md#when-a-step-runs-out-of-memory)). Score in the later forward's head entry instead, `{"op": "kl", "against": "clean.logits"}`, which keeps only the reference.
+Scoring inside the entry keeps memory flat, since a row's logits never outlive its batch. An op step holds more:
 
-An entry sees one batch, so an op that aggregates over rows is refused there (`'mean' aggregates over rows, and inside an entry it sees one batch; make it a step after the forward`), and so is any reduction `over` `layers`: inside an entry an op acts at each layer in turn, and the `layers` axis exists only on what the entry binds. Make those op steps after the forward. A reduction over `pos` alone keeps the rows and may stay in the entry: `{"op": "mean", "over": ["pos"]}` on a read at `layers: ":"` and `{"index": ":"}` gives the step form's numbers to the bit, and only the mean leaves the model.
+- A value a step binds stays on the model's device until the run ends, when the saved ones move to the CPU (`clab/steps/__init__.py` `detached_cpu_clone`).
+- A read's batches are joined on that device, briefly twice the value's size (`clab/steps/batches.py` `join_batches`).
+- An op step computes over the whole value at once. Over two saved `[rows, pos, vocab_size]` reads, `kl` builds several float32 temporaries of `rows × pos × vocab_size × 4` bytes each.
+- A run that does not fit stops at that step, naming it and every value the run holds, with the steps before it saved ([running](running.md#when-a-step-runs-out-of-memory)).
 
-If the `mean` was meant as the value a write puts in, a mean ablation, it is an op step *before* the forward, over a read of the site, and the write swaps it in ([interventions](interventions.md#edit-recipes)). Moved after the forward, the entry has no edit left and only reads: the run gives the unpatched numbers, to the bit, without a refusal.
+Score in the later forward's head entry instead, `{"op": "kl", "against": "clean.logits"}`, which keeps only the reference. What an entry cannot hold:
+
+- **An entry sees one batch.** An op that aggregates over rows is refused there (`'mean' aggregates over rows, and inside an entry it sees one batch`); make it an op step after the forward.
+- **An entry acts at each layer in turn.** A reduction `over` `layers` is refused there, since the `layers` axis exists only on what the entry binds.
+- **A reduction over `pos` alone may stay.** `{"op": "mean", "over": ["pos"]}` on a read at `layers: ":"` and `{"index": ":"}` gives the step form's numbers, and only the mean leaves the model.
+- **A mean ablation's mean is a step before the forward.** It is an op step over a read of the site, and the write swaps it in ([interventions](interventions.md#edit-recipes)). Moved after the forward, as the refusal says, the entry has no edit left and only reads: the run gives the unpatched numbers, without a refusal.
 
 ## Metrics
 
-A metric returns one number per row and position, in float32. Most take logits (or a probe's scores) and an answer column. How a column becomes answer tokens (exact spelling, leading spaces, `strip`, `lower`, sets) is on [data](data.md#answer-columns); here is the choice of metric.
+A metric returns one number per row and position, in float32. Most take logits (or a probe's scores) and an answer column. How a column becomes answer tokens (spelling, leading spaces, `strip`, `lower`, sets, literals) is [data](data.md#answer-columns); here is the choice of metric.
 
 - `match`: 1 where the most likely token is the answer, else 0, an exact tie going to the lower id. The interchange accuracy of patching.
 - `logit_diff`: one answer's logit less another's. Use it for a contrast between two answers: a single logit carries an offset shared by every token, which the softmax ignores and a difference cancels.
+- `token_logit`: one answer's raw logit. It carries the offset every token shares, so compare it only with another logit of the same read; a `logit_diff` is that difference.
 - `token_prob`: the answer's probability, the soft version of `match`. `cross_entropy` is minus its log.
-- `kl` and `js`: how far a whole next-token distribution moved, against another read of the same layout (`documents/faithfulness.json` scores a patched run against the clean one), or of the same layout without its `layers` axis, which then compares every layer with that one distribution: a lens against the model's `logits` is the wiring check in [logit lens](../patterns/logit-lens.md#check-the-wiring-then-trust-the-lens). `against` must be a named value. `kl` is KL(`of` ‖ `against`), the value scored the first distribution and the named one the second, and `"reverse": true` makes it KL(`against` ‖ `of`); the two directions give different numbers. In a step over two reads of one layout either may be `of` (`documents/faithfulness.json` scores `patched.logits` against `clean.logits`). The side is fixed in two places: inside an entry `of` is the entry's value, and an operand may leave out the `layers` axis but not carry one `of` lacks, so a lens is `of` against the logits. `reverse` names the direction in either place: SAEBench reports KL(clean ‖ patched), which the patched forward's head entry scores as `{"op": "kl", "against": "clean.logits", "reverse": true}`, and a tuned lens is trained on KL(final ‖ lens), `kl` of the lens with `reverse` ([logit lens](../patterns/logit-lens.md#a-tuned-lens)). `js` is symmetric and takes none.
+- `kl` and `js`: how far a whole next-token distribution moved, against another read (below).
 - `cosine`: a residual-stream value against another of the same layout or one vector, over `hidden_size` (`documents/cosine_metric.json`).
 - `contains`: whether a row's decoded generation contains its answer ([generate](generate.md)).
 
-An answer the same on every row is a literal in the column's place: `{"op": "token_prob", "token": {"text": "</think>"}}` scores `</think>` on every row, and `{"op": "contains", "of": "text", "text": {"text": "\\boxed{", "strip": true}}` looks for one fixed text. A literal is read as a column holding its text on every row is, flags and sets included ([data](data.md#answer-columns)), and gives the same bits.
+`kl` and `js` compare two distributions:
 
-An answer column whose row is a set of strings (`[" Saturday", " Sunday"]`) is any of them: `match` hits any, `token_prob` sums them. `logit_diff` and `token_logit` need one id, and preflight refuses a set there by row. An answer of several tokens scores the read's position i against token i, so the read must carry that many positions, and preflight refuses a row where it does not; a scope with `before` reads the positions that predict an answer ([positions](positions.md)).
+| field | what it is |
+|---|---|
+| `of` | the first distribution: the value scored, inside an entry the entry's value |
+| `against` | the second, a named value: the same layout as `of`, or that layout without its `layers` axis, which compares every layer with one distribution |
+| `"reverse": true` | makes `kl` KL(`against` ‖ `of`) instead of KL(`of` ‖ `against`); the two directions give different numbers |
+| `js` | symmetric, so it takes no `reverse` |
 
-**A metric against an answer column needs the whole vocabulary.** It looks each answer up by token id along `vocab_size`, so on a head narrowed with `select: {"vocab_size": [...]}` the ids do not index the axis, and compile refuses it: `steps.iia.expected: the value 'match' scores keeps 3 of its vocab_size (select), and it scores 'pairs.cf_answer' by its id over the whole vocabulary, where index i of the selection is not id i: score the whole vocabulary (read it without the select, and narrow what the metric gives), or rank within the selection by index (argmax or top_k over it)`. Score the full head. To look at a few candidates' logits as well, read the head a second time with the `select` and no metric: those values equal the full head's at the selected ids, and an `argmax` over them is an index into the `select` list.
+- **`reverse` names the direction in either place.** In a step over two reads of one layout either may be `of`. Inside an entry `of` is the entry's value, and an operand may leave out `layers` but not carry one `of` lacks, so a lens is `of` against the logits ([logit lens](../patterns/logit-lens.md#check-the-wiring-then-trust-the-lens)).
+- **KL(clean ‖ patched)**, as SAEBench reports it, is the patched forward's head entry `{"op": "kl", "against": "clean.logits", "reverse": true}`. `documents/faithfulness.json` scores KL(patched ‖ clean).
+- **A tuned lens** is trained on KL(final ‖ lens): `kl` of the lens with `reverse` ([logit lens](../patterns/logit-lens.md#a-tuned-lens)).
+- **A `kl` near zero can be a little below it.** Float32 rounding does that to two near-equal distributions (`documents/expert_knockout.json`'s `knockout.kl` at expert 2, row 2); read it as zero.
 
-**Vocabulary or classes.** After `encode` through a linear probe the last axis is `classes`, the distinct values of the probe's column, and the same metrics score it against a column of those labels ([probing](../patterns/probing.md)). `argmax` and `top_k` rank `vocab_size` by default; on probe scores give `"over": "classes"`, or they are refused.
+An answer the same on every row is a literal in the column's place: `{"op": "token_prob", "token": {"text": "</think>"}}` scores `</think>` on every row ([data](data.md#answer-columns)).
+
+An answer column whose row is a set of strings (`[" Saturday", " Sunday"]`) is any of them: `match` hits any, `token_prob` sums them. `logit_diff` and `token_logit` need one id, and preflight refuses a set there by row; score a set with `token_prob` or `match`. An answer of several tokens scores the read's position i against token i. The read must carry that many positions, and preflight refuses a row where it does not; a scope with `before` reads the positions that predict an answer ([positions](positions.md)).
+
+**A metric against an answer column needs the whole vocabulary.** It looks each answer up by token id along `vocab_size`, so on a head narrowed with `select: {"vocab_size": [...]}` the ids do not index the axis. Compile refuses it: `the value 'match' scores keeps 3 of its vocab_size (select), and it scores 'pairs.cf_answer' by its id over the whole vocabulary`. Score the full head. To look at a few candidates' logits as well, read the head a second time with the `select` and no metric. Those values equal the full head's at the selected ids, and an `argmax` over them is an index into the `select` list.
+
+**Vocabulary or classes.** After `encode` through a linear probe the last axis is `classes`, the distinct values of the probe's column. The same metrics score it against a column of those labels ([probing](../patterns/probing.md)). `argmax` and `top_k` rank `vocab_size` by default; on probe scores give `"over": "classes"`, or they are refused.
 
 ## Reductions and `over`
 
@@ -66,29 +89,86 @@ An answer column whose row is a set of strings (`[" Saturday", " Sunday"]`) is a
 | `layers, rows, pos` | `{"op": "mean", "over": ["layers", "rows", "pos"]}` | one number |
 | `rows, pos, hidden_size` | `{"op": "mean", "over": ["pos"]}` | `rows, hidden_size`: one vector per row |
 
-`min` and `max` keep an infinity among the values there: a `min` of `log` of a probability of 0 is `-inf`, never the dtype's lowest finite number. `std` is the sample standard deviation, `sqrt(sum((x - mean)^2) / (n - 1))` over the n values there, NaN where fewer than two are. `median` is the middle of the n values there, sorted, and for an even n the mean of the two middle ones, as numpy's `median` has it (torch's is the lower of the two), NaN where none is; it is a sort and a gather, the same bits on every device. So a dose set from a site's activations is a step: a `norm` of a read there, its `median`, then `scale` of the direction by that number (`"factor": "<the median's step>"`), which a write `add`s (`"with": "<that step>"`). `norm` and `dot` reduce a vector's features: by default over `hidden_size`, which a value without one names in `over`. `{"kind": "op", "op": "norm", "of": "base.resid"}` is each row and position's length, the `sqrt` of the `sum` of the `square` to the bit, and `"p"` gives another Lp norm (`1`, the sum of absolute values); `{"kind": "op", "op": "dot", "of": "base.resid", "with": "direction"}` is each vector's component along a unit `direction`, `mul` by it then `sum`, to the bit (`cosine` divides that by both lengths). `count` counts the positions along `over`, by default `pos`, that hold the value, a vector counted once, so it removes the features with them: on `weekdays/train` a read at the whole-entity scope counts 3, 1, 1 and 1, each row's own tokens, a generation's read at `{"frame": "1:"}` counts the decode calls each row made, and a row a read never reached counts 0, so `count` over `rows` of a scored read is how many rows it scored. In ids a hole is -1, and every reduction leaves it out, `count` too: over a ragged `expert_indices` or `argmax` read, a `min` is the least of a row's own ids and a `mean` their mean, never pulled down by the -1 past a shorter row's positions. A `count` is a number on every row, 0 on a row with no position there (a row that is all NaN), so a `mean` of it over `rows` takes those rows in too.
-
-`entropy` is the entropy in nats of a softmax over the axes `over` names, by default `vocab_size` where the value has it, else `num_experts`, so `{"op": "entropy"}` at the head is the next-token distribution's and at `router_logits` the routing's ([expert ablation](../patterns/expert-ablation.md#routing-entropy-and-usage)); an attention score's is `"over": ["key"]`. A missing entry has no share of the softmax (a row's keys past its own), a vector with none is NaN, and a uniform softmax over n gives ln n.
-
-A reduction that would remove no axis is refused (`a reduction of a value laid out [] removes no axis of it`). A reduction takes the values that are there: over a read whose rows hold different numbers of positions, the `mean` is over every position present, so a row with three tokens weighs three times a row with one ([ablation](../patterns/ablation.md#a-mean-over-an-entitys-tokens)). `pca` is a reduction whose value is a bundle a `pca` featurizer loads ([trained subspaces](../patterns/trained-subspaces.md)).
+- A generate step's ids, and a comparison of them, are laid out `rows, new`, and the default keeps `new`: `{"op": "mean"}` gives `new`, and `"over": ["rows", "new"]` gives one number ([steering](../patterns/steering.md#through-every-generated-token)).
+- `min` and `max` keep an infinity among the values there: a `min` of `log` of a probability of 0 is `-inf`, never the dtype's lowest finite number.
+- `std` is the sample standard deviation, n − 1 in the denominator, NaN where fewer than two values are there. `std` of a metric over `rows` is the spread a mean effect is read against.
+- `median` of an even count is the mean of the two middle values, as numpy's is (torch's is the lower of the two), and NaN where none is there. A steering dose set from the activations is the `median` of a `norm` ([steering](../patterns/steering.md#a-dose-set-from-the-activations)).
+- `norm` and `dot` reduce over `hidden_size` by default; a value without one names its axis in `over`.
+- `norm` takes `p` for another Lp norm (`1` is the sum of absolute values). At `p` 2 it equals the `sqrt` of the `sum` of the `square`.
+- `dot` with a unit direction is each vector's component along it, `mul` then `sum`; `cosine` divides that by both lengths.
+- `count` counts the positions along `over` (by default `pos`) that hold a value, a vector counted once, and removes the feature axes with them.
+- `count` over `pos` is each row's own number of positions: of a read at `{"frame": "1:"}`, the decode calls the row made; of a row the read never reached, 0. `count` over `rows` of a scored read is how many rows it scored.
+- A `count` is a number on every row, 0 where nothing is there, so a `mean` of it over `rows` takes those rows in.
+- `entropy` is the entropy in nats of a float32 softmax over `over`: by default `vocab_size`, else `num_experts` ([expert ablation](../patterns/expert-ablation.md#routing-entropy-and-usage)). An attention score's is `"over": ["key"]`.
+- A missing entry takes no share of `entropy`'s softmax, a vector with none is NaN, and a uniform softmax over n gives ln n.
+- In ids a hole is -1, and every reduction leaves it out, `count` included: a `min` over a ragged `argmax` read is the least of a row's own ids.
+- Over a ragged read a reduction takes the positions present, so a `mean` weighs positions, not rows: a row with three tokens weighs three times a row with one ([ablation](../patterns/ablation.md#a-mean-over-an-entitys-tokens)).
+- A reduction that would remove no axis is refused: `a reduction of a value laid out [] removes no axis of it`.
+- `pca` is a reduction whose value is the bundle a `pca` featurizer loads ([trained subspaces](../patterns/trained-subspaces.md)).
 
 ## What is not an op
 
-The ops are the table in [FORMAT.md#ops](../../FORMAT.md#ops) and nothing else. No op reduces across sweep points, since an op sees one point at a time, so a ranking of heads across points is not one; there is no grouped mean, no statistic with an interval and no `where` with two branches (a mask is `mul` by a comparison, and a second branch is `mul` by the opposite comparison, then `add`, as steps). As steps, a relative effect is `sub` then `div`, a recovery the same, and a rate such as "logit difference above zero" is `gt` then `mean`; what is left (a confidence interval, a ranking across points, a join across runs) is computed in Python from `Plan.load(out).results` ([output](output.md#in-python)).
+The ops are the table in [FORMAT.md#ops](../../FORMAT.md#ops) and nothing else. No op reduces across sweep points, since an op sees one point at a time, so a ranking of heads across points is not one. There is no grouped mean, no statistic with an interval and no `where` with two branches. As steps:
+
+- a mask is `mul` by a comparison, and a second branch is `mul` by the opposite comparison, then `add`;
+- a relative effect is `sub` then `div`, and a recovery the same;
+- a rate such as "logit difference above zero" is `gt` then `mean`.
+
+What is left (a confidence interval, a ranking across points, a join across runs) is computed in Python from `Plan.load(out).results` ([output](output.md#in-python)).
 
 ## Transforms
 
-- `readout` projects a residual-stream value through the model's final norm and head: the logit lens ([logit lens](../patterns/logit-lens.md)). It takes the components in the stream's basis (`token_embeddings`, `layer_input`, `attention_output`, `layer_mid`, `mlp_output`, `layer_output`) and refuses any other by name, and a site that selects part of `hidden_size`.
-- `argmax` and `top_k` rank along `over`, by default the vocabulary: `argmax` gives the top id, `top_k` the `k` best `ids` with their `probs` (a float32 softmax). Over another axis (`key` on an attention pattern, `features` after an `encode`), `top_k` gives `values` instead of `probs`. As a step over logits, `top_k` also holds the decoded `tokens`; `clab table --csv` prints them whole. Each id is spelled as the tokenizer's piece, as `pos_token` spells it, a SentencePiece word-start `▁` kept: the corpus Llama's 17972 is `▁Fed`, and 4598 is `Handler`. A later step names a `top_k` step's members as it names a fit's: `top3.ids`, `top3.probs` (or `values`) and `top3.tokens`, each laid out as `top3` is, saved and tabled under its own name; `documents/readout.json` with `{"kind": "op", "op": "eq", "of": "top3.ids", "with": "best"}` beside an `argmax` step `best` is 1 at each row's first pick. The value itself is several tensors, so an op over it, an operand naming it and an op after a `top_k` in its entry are refused at compile, naming the members (`'top3' is a top_k's value, several tensors (its ids, their probs and their tokens), and 'mean' takes one: name the member it needs ('top3.ids', 'top3.probs'), …`); `top3.tokens` is text, which no op takes. A `top_k` inside an entry has no members: make it a step after the forward.
-- `top_k` over a list of axes ranks all their entries together, as a step: `{"op": "top_k", "of": "harvest.feats", "k": 10, "over": ["rows", "pos"]}` is each feature's ten largest latents over every (row, position) pair, laid out `[features, k]`, its `ids` one tensor per axis (`top.ids.rows` and `top.ids.pos` to a later step, `plan.results["top"]["ids"]["rows"]` in Python) beside `values`; a list of one axis gives that form too (`"over": ["pos"]`), where `"over": "pos"` gives `ids` one tensor. An exact tie goes to the lower index along the first axis listed. A `k` below 1 is refused at compile, and so is one past the entries it ranks where compile knows their number (a `select`, the layers, a static width, the dataset's rows, or in a fit's body those of its fewest-row run, a probe's classes, a featurizer's coordinates, an earlier `top_k`'s `k`); before any forward one past the model's size of the axis or a width the rows confirm (`k 5 is more than the 3 entries it ranks, 3 along vocab_size (those its select keeps), …`). Along a ragged axis (a pattern's keys, positions where rows hold different numbers) a pick past a row's own is -1, however large `k` is; along an axis neither stage knows the number of (a drawn gate's coordinates, a generation's `new`, a fit's `epochs`, a load's `k`), torch stops the op at the run. `clab table` of one over `rows` prints a row per pick, with the picked row's columns and the picked position's token ([output](output.md#clab-table)); inside an entry a list is refused, since an entry's batches do not join an index per axis, and an axis named alone is not.
-- `detokenize` turns a `generate` step's ids into text, stopped before each row's first EOS ([generate](generate.md)); with `after` (a column or a literal), each row's text after the first occurrence of it, the whole text where it does not occur ([generate](generate.md#score-what-follows-a-text-after)).
-- `encode` turns a value into a featurizer's coordinates ([featurizers](featurizers.md)).
-- `grad` puts the gradient of a later entry of the same forward in the value's place, in its layout; it is the first op of an entry, and the ops after it act on the gradient ([interventions](interventions.md#a-gradient-at-a-site)).
-- `permute` reorders a value's rows, row i holding row π(i)'s, π drawn from `seed` alone, so a resample ablation is a read the document already has, permuted, and swapped into a later forward ([ablation](../patterns/ablation.md#resample-by-permuting-the-rows)). It is an op step only, since an entry's ops act on each row's own value; the step's record says what it drew (`permutation`, the dataset row each row's value is).
+- `readout` projects a residual-stream value through the model's final norm and head: the logit lens ([logit lens](../patterns/logit-lens.md)).
+- `readout` takes `token_embeddings`, `layer_input`, `attention_output`, `layer_mid`, `mlp_output` and `layer_output`. It refuses any other component by name, and a site that selects part of `hidden_size`.
+- `argmax` and `top_k` rank along `over`, by default `vocab_size`; on probe scores, attention keys or features give `over`. `argmax` gives the top id; `top_k` gives the `k` best `ids` with their `probs`, a float32 softmax.
+- Over another axis (`key` on an attention pattern, `features` after an `encode`), `top_k` gives `values` instead of `probs`.
+- As a step over logits, `top_k` also holds the decoded `tokens`; `clab table --csv` prints them whole.
+- Each id is spelled as the tokenizer's piece, as `pos_token` spells it, a SentencePiece word-start `▁` kept: the corpus Llama's 17972 is `▁Fed`.
+- A later step names a `top_k` step's members as it names a fit's: `top3.ids`, `top3.probs` (or `top3.values`) and `top3.tokens`. Each is laid out as `top3` is, and is saved and tabled under its own name. Added to `documents/readout.json` beside an `argmax` step `best`, `{"kind": "op", "op": "eq", "of": "top3.ids", "with": "best"}` is 1 at each row's first pick.
+- The value itself is several tensors, which no op takes. An op over it, an operand naming it and an op after a `top_k` in its entry are refused at compile, naming the members to use (`'top3' is a top_k's value, several tensors`). `top3.tokens` is text, which no op takes either (`'top3.tokens' is a top_k's tokens`). Its ids are `top3.ids`.
+- A `top_k` inside an entry has no members. Make it a step after the forward.
+- `top_k` over a list of axes ranks all their entries together, removes every listed axis and adds `k`.
+- A feature's max-activating examples are one such step: `{"op": "top_k", "of": "harvest.feats", "k": 10, "over": ["rows", "pos"]}` is each feature's ten largest latents over every (row, position) pair, laid out `[features, k]`. A `top_k` over `rows` of a `max` over `pos` instead ranks each row by its best position and loses which position that was.
+- Over a list, `ids` is one tensor per listed axis, beside `values`. A later step names each by its axis, `top.ids.rows` and `top.ids.pos`; in Python it is `plan.results["top"]["ids"]["rows"]`. An op over `top.ids` itself is refused (`'top.ids' is a top_k's ids over a list of axes`). A list of one axis (`"over": ["pos"]`) gives this form; a bare axis name gives one tensor.
+- An exact tie goes to the lower index along the first axis listed, then the next.
+- A `k` below 1 is refused at compile (`k 0: a top_k picks at least one entry`). A `k` past the entries it ranks is refused where compile or preflight knows their number (`k 5 is more than the 3 entries it ranks`); [FORMAT.md#transforms](../../FORMAT.md#transforms) lists which stage knows which.
+- Along a ragged axis (a pattern's `key`, a `pos` whose rows hold different numbers of positions) a pick past a row's own is -1, however large `k` is.
+- Along an axis neither stage knows the size of (a drawn gate's coordinates, a generation's `new`, a fit's `epochs`, a load's `k`), a `k` past it stops the op at the run with torch's error.
+- `clab table` of a `top_k` over `rows` prints a row per pick, with the picked row's columns and the picked position's token ([output](output.md#clab-table)).
+- A list of axes is refused inside an entry, since an entry's batches do not join an index per axis; one axis named alone is not.
+- `detokenize` turns a `generate` step's ids into text, stopped before each row's first EOS ([generate](generate.md)).
+- `detokenize` with `after` (a column or a literal) keeps each row's text after the first occurrence of it, and the whole text where it does not occur.
+- `encode` gives a featurizer's coordinates ([featurizers](featurizers.md)).
+- `grad` is the first op of an entry. It puts the gradient of a later entry of the same forward in the value's place, in its layout, and the ops after it act on the gradient ([interventions](interventions.md#a-gradient-at-a-site)).
+- `permute` reorders a value's rows, row i holding row π(i)'s, π drawn from `seed` alone. It is an op step only, and its record holds what it drew (`permutation`). A resample ablation swaps a permuted read into a later forward ([ablation](../patterns/ablation.md#resample-by-permuting-the-rows)).
 
-`abs`, `exp`, `log`, `sign`, `sqrt`, `square`, `neg`, `mul`, `div` and `pow` compute on each entry in float32 and keep the layout; each one's formula is its row in [FORMAT.md#transforms](../../FORMAT.md#transforms). They are transforms, not edits, so in a read they change what the entry binds and nothing the model sees: `{"op": "neg"}` in a read is the negated value, where `{"op": "scale", "factor": -1}` would write it back, and `{"op": "mul", "with": "direction"}` the product, where `scale` by `direction` would. An edit stays an edit in a read: `add`, `sub`, `scale` and `normalize` in an entry write back what they compute, whatever ops follow them, so a difference or a relative effect of a read is `sub` then `div` as steps after the forward, and a product inside the read is `mul`. `div` takes a number or a named value, laid out by the operand rule as `scale`'s `factor` is, and is NaN wherever that is 0, so a relative effect, as steps `sub` of the clean score then `div` by it, is missing rather than infinite on a row whose clean score is zero, and a `mean` leaves that row out. `log` is `-inf` at 0 and NaN below it, `sqrt` NaN below 0. In ids a hole, -1, is NaN to each of them, a named operand's too, as it is to a comparison.
+### Arithmetic
 
-`eq`, `ne`, `gt`, `ge`, `lt` and `le` compare each entry with a number or a named value: 1 where the comparison holds, 0 where not, in the value's dtype (float32 on ids), and NaN where either side is missing, a -1 id included, so `eq` and `ne` of the same arguments sum to exactly 1 wherever both are there. A rate is the `mean` of one, over the rows that are there: `{"kind": "op", "op": "gt", "of": "logit_diff", "with": 0}`, then a `mean` of it, is the fraction of rows whose patched logit difference is above zero. A product with one is a mask: in a read or as a step `{"op": "mul", "with": "<the comparison>"}` keeps each entry where it holds and zeroes it where not, and in a write `{"op": "scale", "factor": "<the comparison>"}` writes that masked value back. Ids compare as they are, and a comparison of a hole is a hole: on `weekdays/train` read at every token (11, 9, 9 and 9 positions), `{"kind": "op", "op": "eq", "of": "top", "with": "other_top"}`, of the logits' `argmax` and the `argmax` of their `square`, is NaN at the six positions past the shorter rows' own, and a `mean` of it, 0.737, is the agreement over the 38 positions there.
+`abs`, `exp`, `log`, `sign`, `sqrt`, `square`, `neg`, `mul`, `div` and `pow` compute on each entry in float32 and keep the layout. Each one's formula is its row in [FORMAT.md#transforms](../../FORMAT.md#transforms).
+
+| to compute | ops |
+|---|---|
+| an effect's size whatever its sign | `abs` |
+| a log-probability from a `token_prob` | `log` |
+| a probability back from a log-probability | `exp` |
+| whether two effects agree in direction | `sign` of each, then `eq` |
+| a root-mean-square | `square`, `mean`, then `sqrt` |
+| a power other than 2 | `pow` with its `exponent` |
+| a read negated, or multiplied by a value, without writing back | `neg`, `mul` |
+| a relative effect | `sub` of the clean score, then `div` by it, as steps |
+
+- **They are transforms, not edits.** In a read they change only what the entry binds: `{"op": "neg"}` is the negated value, where `{"op": "scale", "factor": -1}` would write it back. An edit in a read still writes ([interventions](interventions.md#the-order-ops-run-in)).
+- `div` takes a number or a named value, laid out by the operand rule as `scale`'s `factor` is. It is NaN wherever the divisor is 0, so a relative effect on a zero clean score is missing, and a `mean` leaves that row out.
+- `log` is `-inf` at 0 and NaN below it; `sqrt` is NaN below 0.
+- In ids a hole (-1) is NaN to every elementwise transform, a named operand's too.
+
+### Comparisons
+
+- `eq`, `ne`, `gt`, `ge`, `lt` and `le` compare each entry with a number or a named value. They give 1 where the comparison holds and 0 where not, in the value's dtype (float32 on ids).
+- A comparison is NaN where either side is missing, a -1 id included, so `eq` and `ne` of the same arguments sum to exactly 1 wherever both are there.
+- A comparison of a hole is a hole, so an agreement over a ragged read is over the positions present.
+- A rate is the `mean` of a comparison: `{"kind": "op", "op": "gt", "of": "logit_diff", "with": 0}`, then a `mean` of it, is the fraction of rows whose patched logit difference is above zero.
+- A comparison is a mask. `{"op": "mul", "with": "<the comparison>"}` in a read or a step keeps each entry where it holds and zeroes the rest. `{"op": "scale", "factor": "<the comparison>"}` in a write writes that masked value back.
 
 ## The float32 rule
 
@@ -110,19 +190,16 @@ Metrics, every reduction but `pca` and the elementwise arithmetic (`abs` to `pow
 
 `clab show` prints the dtype the model was served in (`served: bfloat16 on cpu`); [values and layout](../concepts/values-and-layout.md) explains the mechanism. What it means for a bfloat16 model's numbers:
 
-- An op adds no rounding of its own. A probability or a cosine near 1 keeps float32's resolution, and a mean of bfloat16 reads is the float32 mean of them, not the bfloat16 one (they differ by about 6e-5 on the tiny model's residual stream).
+- An op adds no rounding of its own. A probability or a cosine near 1 keeps float32's resolution.
+- A mean of bfloat16 reads is the float32 mean of them; the bfloat16 mean would be that mean rounded once more.
 - An edit rounds once: `add` of a float32 mean at `"scale": 4.0` writes `(value + 4 * mean)` computed in float32 and then rounded, which differs from adding in bfloat16.
 - It cannot undo the model's own rounding. Logits a bfloat16 model returns are bfloat16: one near 20 is a multiple of 0.125, and a `logit_diff` of two of them moves in those steps. A difference finer than that needs the model in float32.
 - Ranks are the same either way: `match`, `argmax` and `top_k` pick the same ids from a bfloat16 value and its float32 copy.
-- A bundle is float32 whatever the model's dtype, a `pca`'s as a fit's: its basis is orthonormal to float32's precision in the file, and a featurizer rounds it to the value's dtype where it meets the value, as every featurizer's math runs in that dtype.
-- A null that holds to the bit in bfloat16 proves the read and the write are at one place; it does not make an effect below the dtype's rounding readable. On Qwen3-4B, a head whose effect is exactly zero in float32 shows about ±0.02 in a mean logit difference over 120 rows in bfloat16, early layers included. Recompute a few points in float32 before reading effects near that size.
+- A bundle is float32 whatever the model's dtype, a `pca`'s as a fit's. Its basis is orthonormal to float32's precision in the file.
+- A featurizer's `encode` and a bracket's `decode` run in the value's dtype; `apply` is an edit, computed in float32 and rounded once ([featurizers.md](featurizers.md#the-dtype-a-featurizer-computes-in)).
+- A null that equals the clean run in bfloat16 proves the read and the write are at one place. It does not make an effect below the dtype's rounding readable.
+- In bfloat16 every write that changes a value changes the rounding of every operation after it. A component with no effect in float32 still moves a bfloat16 run's logits by about their rounding step, at every layer. Recompute a few points in float32 before reading effects near that size.
 
 ## Missing values
 
-A row or position that a read did not reach (a generation that stopped early, a position past a shorter row's own) is NaN, and so is every metric, edit and elementwise transform of it, a comparison's included; `argmax` and `top_k` give it id -1, and a comparison, an elementwise transform or a reduction takes that id as missing again. Reductions skip it: a `mean` is over the values present, NaN only where none is, and `count` counts only the positions present. Where missingness comes from and how to make it a refusal: [alignment missing](../errors/alignment-missing.md).
-
-## Pitfalls
-
-- `top_k` and `argmax` rank the vocabulary unless told otherwise; on probe scores, attention keys or features give `over`. A max-activating example is a `top_k` over `["rows", "pos"]`, not a `top_k` over `rows` of a `max` over `pos`, which ranks each row by its best position and loses which position that was.
-- A `mean` keeps `layers` by default; one number over layers needs `"over": ["layers", "rows", "pos"]`.
-- `logit_diff` on a set answer is refused; score a set with `token_prob` or `match`.
+A row or position that a read did not reach (a generation that stopped early, a position past a shorter row's own) is NaN. So is every metric, edit and elementwise transform of it, a comparison's included. `argmax` and `top_k` give it id -1, and a comparison, an elementwise transform or a reduction takes that id as missing again. Reductions skip it: a `mean` is over the values present, NaN only where none is, and `count` counts only the positions present. Where missingness comes from and how to make it a refusal: [alignment missing](../errors/alignment-missing.md).

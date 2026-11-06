@@ -1,6 +1,6 @@
 ---
 title: Activation Patching
-one_liner: "Interchange interventions: swap one position, a window or an entity's token from a counterfactual run into a base run, score with match and logit_diff, map layer by position with paired sweeps, and corrupt and restore with noise."
+one_liner: "Which position or layer carries the answer? Swap a counterfactual's value in by position, window or entity, map layer by position, corrupt and restore."
 tags: [patterns, patching]
 related: [docs/usage/interventions.md, docs/usage/ops.md, docs/usage/positions.md, docs/usage/sweeps.md, docs/patterns/head-and-neuron-patching.md, docs/patterns/ablation.md]
 sources: [clab/ops/edits.py, clab/ops/metrics.py, clab/compile/interventions.py]
@@ -25,8 +25,8 @@ Activation patching asks whether a component, at a position, carries what decide
 ```
 
 ```text
-uv run clab run documents/patching.json --out out/patching
-uv run clab table out/patching iia logit_diff
+clab run documents/patching.json --out out/patching
+clab table out/patching iia logit_diff
 ```
 
 The choices it makes:
@@ -34,7 +34,7 @@ The choices it makes:
 - **Site**: `target` is `layer_output` at layer 0, the residual stream leaving block 0. At a position it holds everything computed there so far, so patching it moves the whole state, not one component's share; [head and neuron patching](head-and-neuron-patching.md) narrows it.
 - **Position**: `-1`, the last token, where the next token is predicted. Patching there asks whether the prediction is sensitive to this layer; patching the entity's token asks whether the information sits there ([below](#by-content-not-by-count)).
 - **Metrics**: `match` against the counterfactual answer is 1 where the patched model's top token is that answer, so its mean is the interchange accuracy. `logit_diff` (counterfactual answer less base answer) is the graded version and moves before any top token flips.
-- **Null**: add the self-swap of [interventions](../usage/interventions.md#the-null-control); its scores equal the clean run's to the bit, and the effect is the difference.
+- **Null**: add the self-swap of [interventions](../usage/interventions.md#the-null-control); its scores equal the clean run's, and the effect is the difference.
 
 The weights of the tiny checkpoint are random, so every number this corpus prints shows the mechanism and nothing about weekdays.
 
@@ -46,17 +46,13 @@ The weights of the tiny checkpoint are random, so every number this corpus print
 "patch": {"site": "target", "pos": {"index": "-4:-1"}, "ops": [{"op": "swap", "with": "counterfactual.v_cf"}]}
 ```
 
-The two give the same logits to the bit: a window is its positions patched together. An effect carried jointly by several positions can show in the window and in no single position.
+The two give the same logits: a window is its positions patched together. An effect carried jointly by several positions can show in the window and in no single position. To patch whole prompts, on a dataset whose prompts are one token length, use a window of that static width: `{"index": "0:9"}` on both sides over `data/weekdays_aligned/data.json`, whose prompts are 9 tokens each. `{"index": ":"}` from another forward is refused whatever the rows hold ([positions](../usage/positions.md#static-width-or-ragged)).
 
 ## By content, not by count
 
-Counted positions pair the counterfactual's i-th with the base's i-th. When a pair's prompts tokenize to different lengths (" Thursday" is three tokens on this tokenizer, " Saturday" one), the same count can name different words, and the run refuses it before any forward:
+Counted positions pair in order ([interventions](../usage/interventions.md#operands)). A negative count counts from each row's own end. So a read and a write at the same negative `pos` (`-1`, `{"index": "-3:"}`) pair on prompts of different lengths wherever the prompts end alike. The prompts of `data/weekdays/train.json` are 9 and 11 tokens (" Thursday" is three tokens on this tokenizer, " Saturday" one), and `-1` to `-4` fall in the `, tomorrow is` they all end with.
 
-```text
-patched.patch: operand 'counterfactual.v_cf' was read on pairs.counterfactual_inputs[0], row 0 of which is 9 tokens; pairs.input has 11, so position 0 pairs ' is' with 'urs'; use a scope to name the token in each row
-```
-
-`documents/entity_patch.json` names the token by what it says, on each side its own entity:
+A count that reaches past the tokens both prompts share at their start or their end can name different words. The run refuses it before any forward (`pos: 5`, or `-6`, on that data): `operand 'counterfactual.v_cf' was read on pairs.counterfactual_inputs[0], row 0 of which is 9 tokens`. `documents/entity_patch.json` names the token by what it says, on each side its own entity:
 
 ```json
 "v_cf": {"site": "target", "pos": {"scope": {"column": "pairs.counterfactual_inputs_variables[0].entity"}, "index": -1}},
@@ -64,7 +60,7 @@ patched.patch: operand 'counterfactual.v_cf' was read on pairs.counterfactual_in
           "ops": [{"op": "swap", "with": "counterfactual.v_cf"}]}
 ```
 
-`index: -1` takes the entity's last token, one position on every row whatever the entity's length, so read and write pair up. [positions](../usage/positions.md) has the scope recipes. Rows whose two prompts tokenize to the same length are not checked: there a counted position pairs whatever tokens share it ([symptom index](../errors/symptom-index.md#a-window-between-rows-of-equal-length)), so scope the patch unless the data is built to align.
+`index: -1` takes the entity's last token, one position on every row whatever the entity's length, so read and write pair up. [positions](../usage/positions.md) has the scope recipes. Without `index`, the whole entity pairs where every row's entity is the same number of tokens (`documents/entity_patch_scope.json`), and is refused naming the rows where it is not ([positions](../usage/positions.md#static-width-or-ragged)). Rows whose two prompts tokenize to the same length are not checked, so scope the patch unless the data is built to align ([symptom index](../errors/symptom-index.md#a-window-between-rows-of-equal-length)).
 
 ## A layer by position map
 
@@ -95,22 +91,32 @@ patched.patch: operand 'counterfactual.v_cf' was read on pairs.counterfactual_in
 }
 ```
 
-`data/weekdays_aligned/data.json` holds the pairs whose prompts tokenize to the same length, so every count names the same word on both sides. Eight points: `counterfactual` writes nothing, so its eight reads share one forward, and `patched` runs one forward per point ([sweeps](../usage/sweeps.md#what-a-sweep-costs)). `clab table <out> mean_ld`:
+`data/weekdays_aligned/data.json` holds the pairs whose prompts tokenize to the same length, so every count names the same word on both sides. The same document over the ragged `weekdays/train` runs too, since its four counts fall in the `, tomorrow is` every prompt ends with ([above](#by-content-not-by-count)). Eight points: `counterfactual` writes nothing, so its eight reads share one forward, and `patched` runs one forward per point ([sweeps](../usage/sweeps.md#what-a-sweep-costs)). `clab table <out> mean_ld`:
 
 ```text
 at                     value
-{"layers":0,"pos":-1}  -0.0029188443440943956
-{"layers":0,"pos":-2}  -0.0026546120643615723
 ...
 {"layers":1,"pos":-1}  0.0026958249509334564
 {"layers":1,"pos":-2}  -0.002695823786780238
 ```
 
-Read the corners before the middle. At the last layer, a patch at the last position reproduces the counterfactual run's logits, and a patch at any earlier position leaves the base run's logits bit-identical, since nothing after the last block carries one position to another. So a layer sweep at the last position always ends at full effect: it measures how late the answer can still be swapped in, not where it is computed. The earlier layers at the other positions are where a map localizes. `documents/real/layer_sweep.json` is this experiment on a real checkpoint (it needs a GPU and a gated model).
+The map's null is a self-swap swept like the patch: a read of the base prompt in the clean forward at the swept site and `pos`, and a `null` forward that swaps it back in. A read's points share one forward (`clab show` prints `all 8 points` beside it), so the null's read adds no forward and its writes add one per point. Its scores equal the clean run's at every point ([interventions](../usage/interventions.md#the-null-control) has the one-point document):
+
+```json
+"clean": {"kind": "forward", "input": "pairs.input", "interventions": {
+  "v_self": {"site": "target", "pos": {"sweep": [-1, -2, -3, -4]}},
+  "logits": {"site": "head", "pos": -1}}},
+"null": {"kind": "forward", "input": "pairs.input", "interventions": {
+  "patch": {"site": "target", "pos": {"sweep": [-1, -2, -3, -4]}, "ops": [{"op": "swap", "with": "clean.v_self"}]},
+  "logits": {"site": "head", "pos": -1}}}
+```
+
+Read the corners before the middle. At the last layer, a patch at the last position reproduces the counterfactual run's logits. A patch at any earlier position there leaves the base run's logits as they were, since nothing after the last block carries one position to another. So a layer sweep at the last position always ends at full effect: it measures how late the answer can still be swapped in, not where it is computed. The earlier layers at the other positions are where a map localizes. `documents/real/layer_sweep.json` is this experiment on a real checkpoint (it needs a GPU and a gated model).
 
 ## Scoring more than the answer
 
-`documents/faithfulness.json` scores how far the patch moved the whole next-token distribution against the clean run on the same prompts: `kl` (KL(patched ‖ clean), in nats), `js` (symmetric, at most log 2) and `token_prob` of the counterfactual answer. `documents/cosine_metric.json` scores the residual stream instead: it reads layers 0, 2 and 4 of tiny GPT-2 at the last two tokens in the clean and the patched forward, with a write at layer 1's last token, and `cosine` between them is 1 to within rounding wherever the write cannot reach (layer 0, and the second-to-last token) and drops below 1 at the last token after layer 1.
+- **The whole distribution.** `documents/faithfulness.json` scores how far the patch moved the next-token distribution against the clean run on the same prompts: `kl` (KL(patched ‖ clean), in nats), `js` (symmetric, at most log 2) and `token_prob` of the counterfactual answer ([ops](../usage/ops.md#metrics)).
+- **The residual stream.** `documents/cosine_metric.json` reads layers 0, 2 and 4 of tiny GPT-2 at the last two tokens, in the clean and the patched forward, with a write at layer 1's last token. `cosine` between them is 1 to within rounding wherever the write cannot reach (layer 0, and the second-to-last token). It drops below 1 at the last token after layer 1.
 
 ## Corrupt and restore
 
@@ -131,7 +137,7 @@ The causal-tracing form patches clean states into a corrupted run. Corrupt the e
 }
 ```
 
-with the sites `embed` (`token_embeddings`) and `head` (`lm_head_output`) declared. `noise` draws from its `seed`, the row and the token position alone, so `corrupted` and `restored` add identical noise (`documents/noise_write.json` is the op alone). `clean` reads every layer once; each sweep point of `restore` takes the slice labelled with its layer. Restoring the last layer at the last position gives back the clean logits to the bit, which is the positive control; the effect at a layer is where between corrupted and clean its score lands.
+with the sites `embed` (`token_embeddings`) and `head` (`lm_head_output`) declared. `noise` adds the same noise in every forward, so `corrupted` and `restored` corrupt alike ([FORMAT.md#edits](../../FORMAT.md#edits); `documents/noise_write.json` is the op alone). `clean` reads every layer once; each sweep point of `restore` takes the slice labelled with its layer. Restoring the last layer at the last position gives back the clean logits, which is the positive control. The effect at a layer is where between corrupted and clean its score lands.
 
 ## Two experiments, one baseline
 
@@ -139,6 +145,4 @@ with the sites `embed` (`token_embeddings`) and `head` (`lm_head_output`) declar
 
 ## Pitfalls
 
-- A `layers` selector on the swap (`":"`) patches every layer in one forward; a per-layer result needs `"layers": {"sweep": [...]}`.
-- A write's `pos` swept alone moves where the counterfactual's value lands, not where it was read; sweep the read's `pos` with it.
 - `match` on a model that rarely puts the counterfactual answer on top is 0 everywhere; read `logit_diff` or `token_prob` beside it.

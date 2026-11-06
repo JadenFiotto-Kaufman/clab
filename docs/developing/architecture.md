@@ -3,7 +3,7 @@ title: Architecture
 one_liner: "How clab is built: the chain from document to output directory, the import direction, one concept per module, and where the code holds the five constraints that keep a document running the same everywhere."
 tags: [developing, architecture]
 related: [docs/developing/compile-and-run.md, docs/developing/engines.md, docs/developing/extending.md, docs/concepts/one-session.md, docs/concepts/plan-lifecycle.md]
-sources: [clab/__init__.py, clab/plan.py, clab/format/__init__.py, clab/compile/__init__.py, clab/steps/__init__.py, clab/engines/__init__.py, clab/engines/nnterp.py, clab/output/__init__.py, clab/docs.py, clab/cli.py]
+sources: [clab/__init__.py, clab/plan.py, clab/format/__init__.py, clab/compile/__init__.py, clab/compile/state.py, clab/steps/__init__.py, clab/engines/__init__.py, clab/engines/nnterp.py, clab/engines/vllm.py, clab/output/__init__.py, clab/docs.py, clab/cli.py]
 ---
 
 # Architecture
@@ -17,8 +17,8 @@ document.json
   Plan(path)              clab/plan.py       the records, validated as written
   plan.compile()          clab/compile/      names, sweeps, rows, bundles, axes, who serves whom; no model
   load(name, plan.model)  clab/engines/      the checkpoint loaded and placed, or a shell that loads it in its run
-  engine.execute(plan)    clab/engines/      the run opened, in one session
-    steps.run(...)        clab/steps/        preflight with the model, then every step at each point that runs
+  engine.execute(plan)    clab/engines/      start_run's checks, then the run, in one session where the engine opens one
+    steps.run(...)        clab/steps/        rows in view, preflight with the model, then every step at each point that runs
   plan.dump(out)          clab/output/       one file per save, manifest.json and tokens.json
   Plan.load(out), table   clab/output/       the directory read back as a plan, and as tables
 ```
@@ -65,6 +65,7 @@ Each module owns one concept and opens with a docstring that teaches it. A funct
 | datasets, encoding and padding | `clab/format/data.py` |
 | the records, uncompiled and compiled | `clab/plan.py` |
 | the compile driver, names and scoping | `clab/compile/__init__.py` |
+| what compile carries step to step, and what preflight hands the run | `clab/compile/state.py` (`Compiling`, `Findings`) |
 | everything checked with the model | `clab/compile/preflight.py` |
 | `pos` resolved per row | `clab/compile/positions.py` |
 | a column scored against a vocabulary | `clab/compile/answers.py` |
@@ -77,10 +78,10 @@ Each module owns one concept and opens with a docstring that teaches it. A funct
 | the generate step | `clab/steps/generate.py` |
 | the fit step | `clab/steps/fit.py` |
 | the engine protocol | `clab/engines/__init__.py` |
-| one engine each | `clab/engines/nnterp.py`, `clab/engines/hooks.py`, `clab/engines/ndif.py` |
+| one engine each | `clab/engines/nnterp.py`, `clab/engines/hooks.py`, `clab/engines/ndif.py`, `clab/engines/vllm.py` |
 | what the engines share | `clab/engines/standard.py` |
 | one op group each | `clab/ops/metrics.py`, `clab/ops/reductions.py`, `clab/ops/edits.py`, `clab/ops/transforms.py` |
-| one featurizer kind each | `clab/featurizers/subspace.py`, ... `clab/featurizers/lora.py` |
+| one featurizer kind each | one module per kind under `clab/featurizers/`, `clab/featurizers/subspace.py` to `clab/featurizers/constant.py` |
 | bundle files and headers | `clab/featurizers/bundles.py` |
 | the output directory | `clab/output/__init__.py` |
 | saved values as tables | `clab/output/table.py` |
@@ -90,10 +91,18 @@ Each module owns one concept and opens with a docstring that teaches it. A funct
 
 The constraints themselves, and why a document needs them to run the same locally and on a server, are in [concepts/one-session.md](../concepts/one-session.md). This is where each is enforced, and what a change must keep.
 
-- **[One session per run](../concepts/one-session.md#one-session-per-run-and-remote-is-the-only-difference).** `clab/engines/nnterp.py` `NnterpEngine.execute` opens `self.model.session(remote=self.remote)` once, calls `steps.run` inside it, and saves one dict holding `results`, `run` and the records as the run completed them (`steps`, and each featurizer's width), which is all that comes home. The ndif engine (`clab/engines/ndif.py` `NdifEngine`) inherits that `execute` and changes only how the model is built (a weightless shell) and `remote`. The hooks engine calls the same `steps.run` in plain Python, and so does the vllm engine (`clab/engines/vllm.py` `VllmEngine.execute`), each batch one trace that is one request to vLLM's worker, outside any session: nnsight marks what a trace saved by object id in a set a session keeps across its traces, and a later batch's objects could be taken for saved. A new step or check runs inside `steps.run`, never as a second trace or session.
-- **[The plan is pure data](../concepts/one-session.md#the-compiled-plan-is-pure-data).** `Plan` and every record are pydantic models (`clab/plan.py` `Record` refuses unknown fields). Its methods are views and serialization (`compile` returns a new plan; `dump`, `load`, `write`, `table`), none touches a model, and a plan pickles and comes back equal (`tests/test_plan.py` `test_a_plan_pickles_and_rebuilds_from_its_dump`). A method added to `Plan` stays a view.
-- **[Nothing decided from a tensor on the client](../concepts/one-session.md#nothing-is-decided-from-a-tensor-on-the-client).** Compile reads only the document, the data files and bundle headers. Everything that needs the tokenizer or a size of the model is `clab/compile/preflight.py` `preflight`, which `clab/steps/__init__.py` `run` calls first, inside the session: on the server, under ndif. Before the session opens, every engine's `execute` checks what the plan and the engine's declarations decide (`clab/steps/__init__.py` `start_run`): that the plan is compiled, at a batch size of one row or more, for the model block the engine loaded, with no `grad` entry where the engine declares that it refuses one (`gradless`), and, where the session is `remote`, with no more loaded tensors than a request carries inside its plan (`LOADED`). The vllm engine's `clab/engines/vllm.py` `VllmEngine.execute` also refuses three things of its own before `start_run`: a fit and a write at the recomputed attention pattern, each read off the plan, and a generate step's options its `sampling` cannot map, read against the checkpoint's generation config. A check that needs the model goes in preflight, never in compile or before the session.
-- **[The engine is the only client object](../concepts/one-session.md#the-engine-and-its-model-are-the-only-client-side-objects-in-the-session).** An engine holds its model and its configuration and nothing else (`clab/engines/__init__.py` `Engine`: `name`, `spec`, `model`, `device`, `options`, `remote`, `stops`). The session body names the engine, the plan and the batch size; the run's cross-step state is a dict that lives in `steps.run`'s frame and never leaves it.
-- **[Nothing ships by value](../concepts/one-session.md#nothing-of-clab-ships-by-value-it-resolves-by-import-on-the-server).** clab is installed where the session runs, so its modules travel by reference. `tests/conftest.py` `stand_in` serializes the request a real ndif run makes, runs it against a loaded model, and `by_reference` checks that it names `clab.plan`, `clab.engines.ndif` and `clab.steps` and carries no class or function by value; tests compare each trip to `TRIP`. Code the session body reaches lives in an installed clab module.
+- **[One session per run](../concepts/one-session.md#one-session-per-run-and-remote-is-the-only-difference).** `clab/engines/nnterp.py` `NnterpEngine.execute` opens `self.model.session(remote=self.remote)` once and calls `steps.run` inside it. It saves the one dict that comes home ([one-session.md](../concepts/one-session.md#the-idea) says what it holds).
+  - The ndif engine (`clab/engines/ndif.py` `NdifEngine`) inherits that `execute` and changes only how the model is built (a weightless shell) and `remote`.
+  - The hooks engine calls the same `steps.run` in plain Python.
+  - The vllm engine (`clab/engines/vllm.py` `VllmEngine.execute`) calls it in plain Python too, each batch one trace that is one request to vLLM's worker, outside any session. Inside one, nnsight would mark what a trace saved by object id in a set the session keeps across its traces, and a later batch's objects could be taken for saved.
+  - A new step or check runs inside `steps.run`, never as a second trace or session.
+- **[The plan is pure data](../concepts/one-session.md#the-compiled-plan-is-pure-data).** `Plan` and every record are pydantic models (`clab/plan.py` `Record` refuses unknown fields). None of its methods touches a model, and a plan pickles and comes back equal (`tests/test_plan.py` `test_a_plan_pickles_and_rebuilds_from_its_dump`). A method added to `Plan` stays a view.
+- **[Nothing decided from a tensor on the client](../concepts/one-session.md#nothing-is-decided-from-a-tensor-on-the-client).** Compile reads only the document, the data files and bundle headers.
+  - Everything that needs the tokenizer or a size of the model is `clab/compile/preflight.py` `preflight`. `clab/steps/__init__.py` `run` calls it before any step, inside the session: on the server, under ndif.
+  - Before any session opens, every engine's `execute` calls `clab/steps/__init__.py` `start_run`. It checks what the plan and the engine's declarations decide, `gradless` and `LOADED` among them ([engines.md](engines.md#execute) lists the checks).
+  - The vllm engine's `execute` refuses what vLLM cannot do before `start_run`, from the plan and the checkpoint's generation config.
+  - A check from the plan and the engine's declarations alone goes in `start_run`. A check that needs the model goes in preflight, never in compile or before the session. [compile-and-run.md](compile-and-run.md#where-a-check-belongs) has every seam.
+- **[The engine is the only client object](../concepts/one-session.md#the-engine-and-its-model-are-the-only-client-side-objects-in-the-session).** An engine holds its model and its configuration and nothing else (`clab/engines/__init__.py` `Engine`: `name`, `spec`, `model`, `device`, `options`, `remote`, `stops`, `cuda`). The session body names the engine, the plan and the run's settings. The run's cross-step state is a dict that lives in `steps.run`'s frame and never leaves it.
+- **[Nothing ships by value](../concepts/one-session.md#nothing-of-clab-ships-by-value-it-resolves-by-import-on-the-server).** clab is installed where the session runs, so its modules travel by reference. `tests/conftest.py` `stand_in` serializes the request a real ndif run makes and runs it against a loaded model. `by_reference` checks that the request names `clab.plan`, `clab.engines.ndif` and `clab.steps` and carries no class or function by value; tests compare each trip to `TRIP`. Code the session body reaches lives in an installed clab module.
 
 How compile, preflight and the run divide the work is [compile-and-run.md](compile-and-run.md); what an engine must do is [engines.md](engines.md).

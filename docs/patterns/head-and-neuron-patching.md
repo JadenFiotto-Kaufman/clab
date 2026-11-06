@@ -1,6 +1,6 @@
 ---
 title: Head and Neuron Patching
-one_liner: "Patching one head or a few neurons at a time: select on attention_premix, mlp_activation versus mlp_neurons, cross a layers sweep with a heads sweep, head sets, path patching, and the positional meaning of select lists."
+one_liner: "Which heads or neurons carry it? Patch one head or a few neurons at a time, head sets, and path patching."
 tags: [patterns, heads]
 related: [docs/patterns/activation-patching.md, docs/usage/sites.md, docs/usage/sweeps.md, docs/usage/interventions.md, docs/patterns/attention.md, docs/usage/engines.md, docs/concepts/values-and-layout.md]
 sources: [clab/compile/interventions.py, clab/steps/batches.py, clab/format/address.py]
@@ -27,11 +27,11 @@ at               row  pos  pos_token  input                              cf_answ
 {"num_heads":3}  3    8    ▁is        If today is Sunday, tomorrow is     Saturday   Monday      -0.19152364134788513
 ```
 
-The projection's input sits at a module boundary, so both engines reach it, and `--engine hooks` gives the same numbers as nnterp to the bit. `attention_head_outputs` is the same tensor read inside the attention's forward; nnterp serves it under `attn_implementation: "eager"` only, and there it equals `attention_premix` to the bit. Switching a model from sdpa to eager moves the last bits of everything downstream (about 2e-8 in this document's logit differences), so compare runs under one attention implementation ([engines](../usage/engines.md)).
+The projection's input sits at a module boundary, so both engines reach it, and `--engine hooks` gives the same numbers as nnterp. `attention_head_outputs` is the same tensor read inside the attention's forward. nnterp serves it under `attn_implementation: "eager"` only, and there it equals `attention_premix`. Switching a model from sdpa to eager moves the last bits of everything downstream, so compare runs under one attention implementation ([engines](../usage/engines.md)).
 
 ## A null per head
 
-The [null control](../usage/interventions.md#the-null-control) writes back what was read at the same place, and must leave the scores of the clean forward to the bit. On a swept head, read the head's own value and write it back in one forward, both at the swept site: the read narrows like the write and zips with its sweep, and an earlier entry of the same forward is a valid operand ([interventions](../usage/interventions.md#operands)). Added to `documents/head_patching.json`:
+The [null control](../usage/interventions.md#the-null-control) writes back what was read at the same place, and its scores must equal the clean forward's. On a swept head, read the head's own value and write it back in one forward, both at the swept site. The read narrows like the write and zips with its sweep, and an earlier entry of the same forward is a valid operand ([interventions](../usage/interventions.md#operands)). Added to `documents/head_patching.json`:
 
 ```json
 "clean": {"kind": "forward", "input": "pairs.input", "interventions": {"logits": {"site": "head", "pos": -1}}},
@@ -42,7 +42,7 @@ The [null control](../usage/interventions.md#the-null-control) writes back what 
 "null_ld": {"kind": "op", "op": "logit_diff", "of": "null.logits", "a": "pairs.cf_answer", "b": "pairs.base_answer"}
 ```
 
-Every point's `null_ld` equals the clean forward's `logit_diff` to the bit. `clean` needs no read at the swept site, since the null forward reads its own head: a self-read there, as the unswept null of interventions.md has, makes `clean` a swept step whose four points one forward serves.
+Every point's `null_ld` equals the clean forward's `logit_diff`. `clean` needs no read at the swept site, since the null forward reads its own head. A self-read in `clean` at the swept site would make `clean` a swept step, its four points served by one forward.
 
 ## Layers crossed with heads
 
@@ -57,9 +57,14 @@ Sweep `layers` on the patched site. Each sweep is labelled by its field (`layers
 }
 ```
 
-The counterfactual reads `every_layer` and the patch writes `target`. The two `num_heads` sweeps share a label and zip, so the counterfactual holds one value per head, `[layers, rows, pos, num_heads, head_dim]`, where reading at `target` holds one per layer and head; either way it is one forward, and the patched logits are byte-identical.
+The counterfactual reads `every_layer` and the patch writes `target`. The two `num_heads` sweeps share a label and zip, so the counterfactual holds one value per head, `[layers, rows, pos, num_heads, head_dim]`. Read at `target`, it would hold one per layer and head. Either way it is one forward, and the patched logits are equal.
 
-The corpus Llama has 2 layers (`plan.run.sizes["num_layers"]`) of 4 heads, each `head_dim` 4; a sweep lists its values, so every head of a layer is `[0, 1, 2, 3]` here, and on another model as many as its config's `num_attention_heads` (preflight refuses a head past them). Eight points, keyed `layers=0,num_heads=0` to `layers=1,num_heads=3`; a `mean` step over `logit_diff` gives one number per point, which `clab table` lists with its `at`. `layers` on the patch is a sweep, not a selector: `"layers": ":"` there would patch head h at every layer in one forward ([interventions](../usage/interventions.md#writes-across-layers)). `documents/real/head_patching.json` is the same grid on Llama-3.2-1B, three layers by 32 heads, 96 points; it reads its counterfactual at every layer with the heads sweep alone (`every_layer`), one forward for its 32 points, and runs one patched forward per point. It scores the head inside the entry (`match` and `logit_diff` in the head's `ops`) so no row of logits outlives its batch, and averages each point in a step. It needs a GPU and a gated checkpoint: read it, do not expect to run it on CPU.
+The corpus Llama has 2 layers (`plan.run.sizes["num_layers"]`) of 4 heads, each `head_dim` 4. A sweep lists its values, so every head of a layer is `[0, 1, 2, 3]` here, and on another model as many as its config's `num_attention_heads` (preflight refuses a head past them).
+
+- **Eight points**, keyed `layers=0,num_heads=0` to `layers=1,num_heads=3`. A `mean` step over `logit_diff` gives one number per point, which `clab table` lists with its `at`.
+- **Rank the heads in Python.** No op compares across points ([ops](../usage/ops.md#what-is-not-an-op)), so sort `Plan.load(out).results["<mean step>"]`, a dict keyed `(layer, head)` ([sweeps](../usage/sweeps.md#reading-swept-results)).
+- **`layers` on the patch is a sweep, not a selector** ([interventions](../usage/interventions.md#writes-across-layers)).
+- **`documents/real/head_patching.json`** is the same grid on Llama-3.2-1B, three layers by 32 heads, 96 points. It reads its counterfactual at `every_layer`, one forward for its 32 points, and runs one patched forward per point. It scores the head inside the entry (`match` and `logit_diff` in the head's `ops`; [ops](../usage/ops.md#a-step-or-an-entry)) and averages each point in a step. It needs a GPU and a gated checkpoint.
 
 ## Head sets
 
@@ -73,7 +78,7 @@ Each point's coordinate is the list (`num_heads=[0,1]`). Heads that back each ot
 
 ## Path patching
 
-Patching head h measures everything h changes downstream. Path patching keeps one path: here h's effect on the logits that does not pass through another head. Every head's result at the position is held at its clean value, and h alone takes the counterfactual's; the MLPs and the residual stream recompute, so the path is h's write into the stream and whatever the MLPs after it make of that.
+Patching head h measures everything h changes downstream. Path patching keeps one path: here h's effect on the logits that does not pass through another head. Every head's result at the position is held at its clean value, and h alone takes the counterfactual's. The MLPs and the residual stream recompute, so the path is h's write into the stream and whatever the MLPs after it make of that.
 
 1. Read every head's `attention_premix` at the position on the clean prompt, `layers: ":"`.
 2. In the patched forward, list a freeze entry that swaps that read back, then the entry that patches head h. Entries at one site compose in the order written ([interventions](../usage/interventions.md#the-order-ops-run-in)), so the freeze comes first and the patch overrides it at head h alone.
@@ -124,11 +129,13 @@ Patching head h measures everything h changes downstream. Path patching keeps on
 }
 ```
 
-The freeze is the same at every point, so it needs no sweep: the patch's `layers` sweep pairs with a freeze at `":"` as it is, and `clean` runs once. The counterfactual is read as in [layers crossed with heads](#layers-crossed-with-heads). Three nulls hold to the bit on the corpus:
+The freeze is the same at every point, so it needs no sweep. It is one entry at `layers: ":"` whatever the model's depth, the patch's `layers` sweep pairs with it as it is, and `clean` runs once. `path`, `path_null` and `plain` each run one forward per point, layers times heads. The counterfactual is read as in [layers crossed with heads](#layers-crossed-with-heads). Three nulls hold on the corpus:
 
 - `frozen.ld` equals `clean.ld`: the freeze alone writes back what was read.
 - `path_null.ld` equals `clean.ld` at every point: the patch sourced from the clean prompt.
-- At `layers=1`, the last layer, `path.ld` equals `plain.ld`: nothing after it is frozen. At layer 0 the two differ, by up to 1.3e-4 here.
+- At `layers=1`, the last layer, `path.ld` equals `plain.ld`: nothing after it is frozen. At layer 0 the two differ.
+
+**Check that the patch alone moved.** The nulls still pass when the patch lands on the wrong head, since `frozen` and `path_null` write clean values. Read `every_head` again after the writes, `"after": {"site": "every_head", "pos": {"index": "-3:"}}`, in `path` after `freeze` and the patch and in `frozen` after `freeze`. Then subtract: `"moved": {"kind": "op", "op": "sub", "of": "path.after", "with": "frozen.after"}`. At every point `moved` is nonzero only at the patched layer, the last position and head h, and `path.after` there equals `counterfactual.v_cf`. Read a window of static width: a read at every position pairs with no other forward's value ([positions](../usage/positions.md#static-width-or-ragged)).
 
 **To a later head's queries.** The path-patched forward reads the receiving head's query and a fresh forward on the clean prompt takes it in, so only the query moves. With the model block given `"attn_implementation": "eager"` ([attention](attention.md)), `one_head` at a layer before the receiver's, and `"receiver": {"component": "attention_queries", "layers": 1, "select": {"num_heads": [2]}}`:
 
@@ -141,11 +148,11 @@ The freeze is the same at every point, so it needs no sweep: the patch's `layers
   {"q": {"site": "receiver", "pos": -1, "ops": [{"op": "swap", "with": "path.q"}]}}, "score"]}
 ```
 
-Its null sourced from the clean prompt equals the clean run to the bit as well.
+Its null sourced from the clean prompt equals the clean run as well.
 
 ## Select lists are positional
 
-A narrowed axis keeps its indices in the order the list writes them, so `{"num_heads": [3, 1]}` holds head 3 at index 0, and an operand must hold the write's heads in the write's order or preflight refuses it ([sites](../usage/sites.md#select) has the rule, [operand-does-not-fit](../errors/operand-does-not-fit.md#a-select-list-is-positional) the refusals). Declaring one site and naming it in both the read and the write, as the corpus does, makes the two agree by construction.
+A narrowed axis keeps its indices in the order the list writes them, so `{"num_heads": [3, 1]}` holds head 3 at index 0. An operand must hold the write's heads in the write's order or preflight refuses it ([sites](../usage/sites.md#select) has the rule, [operand-does-not-fit](../errors/operand-does-not-fit.md#a-select-list-is-positional) the refusals). Declaring one site and naming it in both the read and the write, as the corpus does, makes the two agree by construction.
 
 ## Check where a head write landed
 
@@ -184,6 +191,4 @@ Which MLP component is "the neuron" matters on a gated MLP (Llama's `down(act(ga
 
 ## Pitfalls
 
-- A `layers` selector on a head patch patches that head at every layer at once; sweep `layers` for a layer by head grid.
-- A freeze listed after the patch it protects overwrites it: every point equals the clean run and the nulls still pass. List the freeze first ([interventions](../usage/interventions.md#the-order-ops-run-in)).
 - A head's result (`attention_premix`) and its pattern (`attention_probabilities`) answer different questions: what it writes versus where it looks ([attention](attention.md)).
