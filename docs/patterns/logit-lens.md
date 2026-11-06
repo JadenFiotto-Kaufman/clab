@@ -37,8 +37,8 @@ clab: steps.f.interventions.x.ops[0]: readout projects a residual-stream value; 
 
 As a step, `{"kind": "op", "op": "readout", "of": "f.x"}` over a saved read gives the entry form's numbers up to their last bits. A read of another component is refused there the same way (`steps.r.of: 'f.x' is read at mlp_norm_output: ...`).
 
-- **The entry form and the step form of `readout` can differ in the last bits, on any device.** The entry form projects one batch at one layer; the step form projects the whole saved read at once. The two are matmuls of different shapes, which sum in different orders.
-- **Measured on GPT-2** (`openai-community/gpt2` at `607a30d783dfa663caf39e06633721c8d4cfcd7e`, CPU, float32), four prompts at `--batch-size 2`. The entry form's last-layer `kl` against `logits` ran from -3.2e-7 to 8.7e-8, the step form's was 0.0, and `token_prob` differed by up to 2.8e-6. At `--batch-size 8` the two forms were equal.
+- **The entry form and the step form of `readout` are equal when the read is one batch, and can differ in the last bits otherwise, on any device.** The entry form projects one batch at one layer; the step form projects the whole saved read at once. Over several batches the two are matmuls of different shapes, which sum in different orders. Both move with the batch's shape, so neither is the reference.
+- **Measured on GPT-2** (`openai-community/gpt2` at `607a30d783dfa663caf39e06633721c8d4cfcd7e`, CPU, float32): the [wiring check below](#check-the-wiring-then-trust-the-lens) over `weekdays/train`'s four prompts, every layer at `pos: -1`, beside a plain read of `resid` at `pos: -1` taken through a `readout` step. In one batch (`--batch-size` 4 or more) the two forms were equal. At `--batch-size 2`, at 4 threads and at 12, the entry form's last-layer `kl` against `logits` ran from -1.22e-7 to 3.65e-7, and its `token_prob` of `base_answer` differed from the step form's by up to 8.85e-6.
 - **Compare within one form.** Write both sides of an exact comparison as `readout` steps over plain reads, or both as `readout` inside entries.
 
 ## Check the wiring, then trust the lens
