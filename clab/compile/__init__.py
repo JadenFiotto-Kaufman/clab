@@ -27,9 +27,9 @@ from typing import Any, Callable, cast
 
 from clab import featurizers, ops
 from clab.compile.answers import check_column_ref
-from clab.compile.arguments import (featurizer_kind, kept_labels, layout, mismatch, narrowed_readout_refusal,
-                                    k_past, known_counts, references, resolver, select_counts, select_kept,
-                                    selected_layers, space_of, value_record, whole_top_k)
+from clab.compile.arguments import (featurizer_kind, first_use_hint, kept_labels, layout, mismatch,
+                                    narrowed_readout_refusal, k_past, known_counts, references, resolver, select_counts,
+                                    select_kept, selected_layers, space_of, value_record, whole_top_k)
 from clab.compile.interventions import bundles_of, compile_entry, entries_with_paths
 from clab.compile.schedule import share_forwards
 from clab.compile.state import Compiling
@@ -524,7 +524,7 @@ def compile_op(cx: Compiling, path: str, name: str, spec: OpStep, plan: Plan, at
         why = mismatch(of, theirs, spec.op, key, written, repr(spec.of), False, False, adapts(plan, spec),
                        lambda read: entry_of(cx.steps, read, at)[1])
         if why:
-            fail(f"{path}.{key}", why)
+            fail(f"{path}.{key}", why + first_use_hint(cx, written, theirs, of, at))
     if spec.op == "permute" and isinstance(of, OpStep) and of.op in ("top_k", "detokenize"):
         fail(f"{path}.of", f"{spec.of!r} is a {of.op}'s value, which permute does not reorder; a {of.op} acts row by "
              f"row, so permute the value it is over ({of.of!r}) and {of.op} that")
