@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Any, cast
 from clab import featurizers, ops
 from clab.compile import positions
 from clab.compile.answers import answer, check_classes, check_tokens
-from clab.compile.arguments import k_past, kept_labels, mismatch, references
+from clab.compile.arguments import k_past, kept_labels, mismatch, references, select_kept
 from clab.compile.interventions import check_operands, read_positions, refuse_unserved
 from clab.compile.positions import prefill_positions
 from clab.compile.schedule import write_schedule
@@ -110,7 +110,11 @@ def prepare(engine: Engine, plan: Plan, steps: dict, classes: dict[str, list], f
                 if step.kind == "op":
                     args, of = arguments(step), record_of(plan.steps, step.of, step.at)
                     assert step.dims is not None and of.dims is not None
+                    compiled = dict(step.kept)
                     step.layers, step.kept, step.width = kept_labels(of, step.dims)     # completed from its producer's
+                    if step.op == "select":         # its own, held to the model's sizes and resolved among them
+                        step.kept |= select_kept(at_point(plan, name, step.at), of, args, sizes,
+                                                 probe_of(plan, of, classes), compiled)
                     if why := k_past(step.op, args, of, sizes, probe_of(plan, of, classes)):
                         raise ValueError(f"{at_point(plan, name, step.at)}: {why}")
                     for key, (written, theirs) in references(step.op, args, preflight_resolver(plan, step.at)).items():

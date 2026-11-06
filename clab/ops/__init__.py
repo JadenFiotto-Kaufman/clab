@@ -264,7 +264,8 @@ ORDER = [
     reductions.sum, reductions.min, reductions.max, reductions.std, reductions.median, reductions.count,
     reductions.norm, reductions.dot, reductions.entropy, reductions.pca, metrics.match, metrics.logit_diff, metrics.token_prob, metrics.token_logit,
     metrics.cross_entropy, metrics.contains, metrics.kl, metrics.js, transforms.top_k, transforms.argmax,
-    transforms.detokenize, transforms.permute, transforms.abs, transforms.exp, transforms.log, transforms.sign, transforms.sqrt,
+    transforms.select, transforms.detokenize, transforms.permute, transforms.abs, transforms.exp, transforms.log,
+    transforms.sign, transforms.sqrt,
     transforms.square, transforms.neg, transforms.mul, transforms.div, transforms.pow, transforms.eq, transforms.ne,
     transforms.gt, transforms.ge, transforms.lt, transforms.le, metrics.cosine]
 OPS.update((fn.__name__, fn) for fn in ORDER)

@@ -28,7 +28,7 @@ from typing import Any, Callable, cast
 from clab import featurizers, ops
 from clab.compile.answers import check_column_ref
 from clab.compile.arguments import (featurizer_kind, kept_labels, layout, mismatch, narrowed_readout_refusal,
-                                    k_past, known_counts, references, resolver, space_of, value_record,
+                                    k_past, known_counts, references, resolver, select_kept, space_of, value_record,
                                     whole_top_k)
 from clab.compile.interventions import bundles_of, compile_entry, entries_with_paths
 from clab.compile.schedule import share_forwards
@@ -536,6 +536,11 @@ def compile_op(cx: Compiling, path: str, name: str, spec: OpStep, plan: Plan, at
     # An encode's value is in its featurizer's coordinates, as an entry's is that leaves its encode open.
     space = of.space + space_of([spec]) if spec.op == "encode" else of.space if dims[-1:] == of.dims[-1:] else []
     layers, kept, width = kept_labels(of, dims)
+    if spec.op == "select":
+        try:
+            kept |= select_kept(path, of, args, None, known_counts(cx, of, spec.of, at))
+        except ValueError as e:
+            raise PlanError(str(e)) from None
     dataset = of.dataset if of.dataset is not None else \
         next((t.dataset for _, t in operands.values() if "rows" in (t.dims or []) and t.dataset is not None), None)
     if spec.op == "permute" and args.get("derangement") is True and dataset is not None and len(cx.rows[dataset]) < 2:
