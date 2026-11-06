@@ -24,28 +24,31 @@ def find_sweeps(document: dict) -> dict[tuple, str]:
     or a scope's occurrence, not the object.
 
     A sweep may stand for any value except under `description`, `model` and `data` (a dataset's rows are compiled
-    once, and a step reads them by name), on a name, a kind, a `file_path`, or a featurizer's `over` (a featurizer has
-    one layout at every point). One label is one axis: sweeps with one label, by default or given, and the same values
-    pair their points (zip), as one sweep reached from two places does (a swept site two steps use); sweeps with one
-    label and different values are refused, and sweeps with different labels cross. So a read's `layers` swept
-    `{"sweep": [0, 1, 2], "label": "src"}` and a write's `{"sweep": [0, 1, 2], "label": "dst"}` are a 3×3 grid in
-    one step, each point keyed `src=0,dst=2`; swept `{"sweep": [0, 1, 2]}` each, both are labelled `layers`, so they
-    pair up, the diagonal, layer L with layer L, and the grid gives one of them a `label`. A step that uses a swept
-    thing, or references a value that varies, becomes a list of points, one per combination of its axes, each a
-    whole step whose `at` gives its index on each axis; a step no sweep touches runs once.
+    once, and a step reads them by name), on a name, a kind, a `file_path`, or a featurizer's `over` (a featurizer
+    has one layout at every point). One label is one axis wherever its sweeps stand: sweeps with one label, by
+    default or given, and the same values pair their points (zip), as one sweep reached from two places does (a
+    swept site two steps use), in two ops of one entry, two fields of one op, two entries or an entry and its step's
+    options alike; sweeps with one label and different values are refused, and sweeps with different labels cross.
+    So a read's `layers` swept `{"sweep": [0, 1, 2], "label": "src"}` and a write's
+    `{"sweep": [0, 1, 2], "label": "dst"}` are a 3×3 grid in one step, each point keyed `src=0,dst=2`; swept
+    `{"sweep": [0, 1, 2]}` each, both are labelled `layers`, so they pair up, the diagonal, layer L with layer L,
+    and the grid gives one of them a `label`. A step that uses a swept thing, or references a value that varies,
+    becomes a list of points, one per combination of its axes, each a whole step whose `at` gives its index on each
+    axis; a step no sweep touches runs once.
 
     A value of a swept step depends on some of the step's axes, which its record says (`axes`): the sweeps on its
-    own entry (its site, its positions, an op's literal argument), those of every value or featurizer its ops
-    name, and, for an entry of a forward, the forward's own, which are the step's options' and its writes' (each
-    write's site, positions, ops up to its last edit and their operands; an operand from an earlier entry of the
-    forward counts that entry's); an op step's value depends on its `of`'s and its operands' axes beside its own
-    sweeps, and a fit's members on the fit's. So a read of a forward whose writes do not vary depends on its own
-    sweeps alone, and a generation's ids on the forward's. A value is made once per distinct point on its axes,
-    and a saved value is a dict keyed by coordinate on those axes (the axis's value, or a tuple of them in axis
-    order), the value itself where it depends on none; so a read swept over layers beside writes that do not vary
-    is a dict by layer, and a sampled generation whose points differ in reads alone is one sample. Two points of a
-    forward or generate step run one forward exactly when they agree on the forward's axes (`schedule`): a sweep
-    on what a step reads runs one forward, a sweep on what it writes one per point.
+    own entry (its site, its positions, an op's literal argument), those of every value or featurizer its ops name,
+    and, for an entry of a forward, the forward's own, which are the step's options' and its writes' (each write's
+    site, positions, ops up to its last edit and their operands; an operand from an earlier entry of the forward
+    counts that entry's), each label there the forward's though a read or an op after the edit holds it too; an op
+    step's value depends on its `of`'s and its operands' axes beside its own sweeps, and a fit's members on the
+    fit's. So a read of a forward whose writes do not vary depends on its own sweeps alone, and a generation's ids
+    on the forward's. A value is made once per distinct point on its axes, and a saved value is a dict keyed by
+    coordinate on those axes (the axis's value, or a tuple of them in axis order), the value itself where it depends
+    on none; so a read swept over layers beside writes that do not vary is a dict by layer, and a sampled generation
+    whose points differ in reads alone is one sample. Two points of a forward or generate step run one forward
+    exactly when they agree on the forward's axes (`schedule`): a sweep on what a step reads runs one forward, a
+    sweep on what it writes one per point.
     """
     labels: dict[tuple, str] = {}
     first: dict[str, tuple[str, list]] = {}         # each label's first sweep: where it stands and its values

@@ -344,6 +344,119 @@ def test_one_sweep_reached_by_a_read_and_a_write_shares_nothing(engines, kind):
     assert each_its_own(filled, alone(engine, "gpt2_reach", doc, 4))
 
 
+FILL = {"sweep": ["average", "contrast", "random"], "label": "fill"}
+EVERY = {"component": "layer_output", "layers": ":"}
+
+
+def ablation_doc(one_entry: bool) -> dict:
+    """Tiny GPT-2, the directional ablation of a corpus reproducer: three directions per block (the mean last-token
+    stream, its difference from the counterfactuals', and noise), `fill` sweeping which one is projected out of every
+    token at every block, and the cosine with it after the edit checking the write, in the same entry (`one_entry`)
+    or in a second one; the logit difference read at the head."""
+    project = {"op": "project_out", "direction": FILL}
+    cosine = {"op": "cosine", "with": FILL}
+    edit = {"site": EVERY, "pos": {"index": ":"}}
+    check = {"abl": {**edit, "ops": [project, cosine]}} if one_entry else \
+        {"abl": {**edit, "ops": [project]}, "check": {**edit, "ops": [cosine]}}
+
+    def change(d):
+        d["steps"] = {
+            "h": {"kind": "forward", "input": "pairs.input", "interventions": {"acts": {"site": EVERY, "pos": -1}}},
+            "cf": {"kind": "forward", "input": "pairs.counterfactual_inputs[0]",
+                   "interventions": {"acts": {"site": EVERY, "pos": -1}}},
+            "average": {"kind": "op", "op": "mean", "of": "h.acts"},
+            "cf_average": {"kind": "op", "op": "mean", "of": "cf.acts"},
+            "contrast": {"kind": "op", "op": "sub", "of": "average", "with": "cf_average"},
+            "zeros": {"kind": "op", "op": "mul", "of": "average", "with": 0.0},
+            "random": {"kind": "op", "op": "noise", "of": "zeros", "scale": 1.0, "seed": 0},
+            "ablated": {"kind": "forward", "input": "pairs.input", "interventions": {
+                **check, "ld": {"site": {"component": "lm_head_output"}, "pos": -1,
+                                "ops": [{"op": "logit_diff", "a": "pairs.cf_answer", "b": "pairs.base_answer"}]}}}}
+        d["saves"] = ["ablated.ld", "ablated.abl" if one_entry else "ablated.check"]
+    return doc_of("gpt2_reach", change)
+
+
+@pytest.mark.parametrize("kind", ["nnterp", "hooks"])
+def test_one_label_in_a_write_and_a_read_op_of_one_entry_is_one_axis_and_runs_a_forward_per_point(engines, kind):
+    """One entry projects a swept direction out of every token at every block and takes the cosine with the same
+    sweep after the edit: one label, one axis, which the write varies, so each of the three points runs its own
+    forward, and the entry and the head's read beside it carry the axis. Each point is the two-entry form's (the
+    edit in one entry, the cosine in the next), to the bit, and each point's own document's."""
+    doc = ablation_doc(one_entry=True)
+    plan = compiled("gpt2_reach", doc)
+    assert list(plan.sweeps) == ["fill"]
+    assert [p.schedule.get("axes") for p in points(plan.steps["ablated"])] == [["fill"]] * 3
+    assert axes_of(plan, "ablated.abl") == ["fill"] and axes_of(plan, "ablated.ld") == ["fill"]
+    assert served(plan, "ablated") == [[c] for c in all_points(plan, "ablated")]
+    engine = engines(kind, plan.model)
+    one = engine.execute(plan, batch_size=4)
+    assert costs(one, "ablated") == {c: (1, [c]) for c in all_points(plan, "ablated")}
+    two = engine.execute(compiled("gpt2_reach", ablation_doc(one_entry=False)), batch_size=4)
+    assert list(one.results["ablated.ld"]) == FILL["sweep"] == list(two.results["ablated.ld"])
+    assert same(one.results["ablated.ld"], two.results["ablated.ld"])
+    assert same(one.results["ablated.abl"], two.results["ablated.check"])
+    assert each_its_own(one, alone(engine, "gpt2_reach", doc, 4))
+    values = list(one.results["ablated.ld"].values())
+    assert not same(values[0], values[1]) and not same(values[1], values[2])
+
+
+@pytest.mark.parametrize("kind", ["nnterp", "hooks"])
+def test_one_label_in_two_entries_is_one_axis_and_runs_a_forward_per_point(engines, kind):
+    """The same ablation with the edit and the cosine in two entries: one axis, a forward per point, each point its
+    own document's, to the bit."""
+    doc = ablation_doc(one_entry=False)
+    plan = compiled("gpt2_reach", doc)
+    assert [p.schedule.get("axes") for p in points(plan.steps["ablated"])] == [["fill"]] * 3
+    assert axes_of(plan, "ablated.check") == ["fill"] and axes_of(plan, "ablated.ld") == ["fill"]
+    engine = engines(kind, plan.model)
+    filled = engine.execute(plan, batch_size=4)
+    assert costs(filled, "ablated") == {c: (1, [c]) for c in all_points(plan, "ablated")}
+    assert each_its_own(filled, alone(engine, "gpt2_reach", doc, 4))
+
+
+@pytest.mark.parametrize("kind", ["nnterp", "hooks"])
+def test_one_label_in_two_fields_of_one_op_is_one_axis_and_runs_a_forward_per_point(engines, kind):
+    """A noise write whose scale and seed are one sweep (label `k`) has two points, not four, each writing its own
+    dose with its own seed: a forward per point, the read after it on the axis, each point its own document's, to
+    the bit."""
+    k = {"sweep": [1, 2], "label": "k"}
+    doc = gpt2_doc({"noised": {"site": {"component": "layer_output", "layers": 1}, "pos": -1,
+                               "ops": [{"op": "noise", "scale": k, "seed": k}]},
+                    "read": at("layer_output", 3)})
+    plan = compiled("gpt2_reach", doc)
+    assert list(plan.sweeps) == ["k"] and len(points(plan.steps["lens"])) == 2
+    assert [p.schedule.get("axes") for p in points(plan.steps["lens"])] == [["k"]] * 2
+    assert axes_of(plan, "lens.read") == ["k"]
+    engine = engines(kind, plan.model)
+    filled = engine.execute(plan, batch_size=4)
+    assert costs(filled, "lens") == {c: (1, [c]) for c in all_points(plan, "lens")}
+    assert each_its_own(filled, alone(engine, "gpt2_reach", doc, 4))
+
+
+def test_one_label_in_a_generations_options_and_a_read_is_one_axis_and_generates_per_point(engines):
+    """generate_probe's patched generation with `max_new_tokens` and `min_new_tokens` swept under label `n`, its
+    head read at the prompt's last token, and a read of the patched block at prompt token 2 or 3 under the same
+    label: the options vary the generation, so each point generates its own, its ids and both reads carrying the
+    axis, each point its own document's, to the bit."""
+    n = {"sweep": [2, 3], "label": "n"}
+
+    def change(d):
+        patched = d["steps"]["patched"]
+        patched.update(max_new_tokens=n, min_new_tokens=n)
+        patched["interventions"]["logits"]["pos"] = -1
+        patched["interventions"]["token"] = {"site": "target", "pos": {"index": n}}
+        d["saves"].append("patched.token")
+    doc = doc_of("generate_probe", change)
+    plan = compiled("generate_probe", doc)
+    assert list(plan.sweeps) == ["n"] and points(plan.steps["patched"])[0].axes == ["n"]
+    assert axes_of(plan, "patched.logits") == ["n"] and axes_of(plan, "patched.token") == ["n"]
+    engine = engines("nnterp", plan.model)
+    filled = engine.execute(plan, batch_size=BATCH_SIZE)
+    assert costs(filled, "patched") == {"n=2": (4, ["n=2"]), "n=3": (6, ["n=3"])}
+    assert [v.shape for v in filled.results["patched"].values()] == [(4, 2), (4, 3)]
+    assert each_its_own(filled, alone(engine, "generate_probe", doc))
+
+
 LIVE = {"premix": {"site": {"component": "layer_output", "layers": 0}, "pos": -1},
         "added": {"site": {"component": "layer_output", "layers": 1}, "pos": -1,
                   "ops": [{"op": "add", "with": "lens.premix"}]}}

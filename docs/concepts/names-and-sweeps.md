@@ -53,7 +53,7 @@ An operand that names another step's entry (`counterfactual.v_cf` in `documents/
 
 ## Points
 
-`{"sweep": [...]}` stands for a value, and its label names an axis. The label is the `label` you give, or else the last key of the sweep's path: `layers`, `pos`, `frame`, `scale`, or `mask.mask` for a swept objective weight in `documents/dbm.json`. How two labels zip or cross is [usage/sweeps.md](../usage/sweeps.md#labels-zip-or-cross).
+`{"sweep": [...]}` stands for a value, and its label names an axis. The label is the `label` you give, or else the last key of the sweep's path: `layers`, `pos`, `frame`, `scale`, or `mask.mask` for a swept objective weight in `documents/dbm.json`. One label is one axis wherever it recurs, in one entry, across a step's entries or across steps. How two labels zip or cross is [usage/sweeps.md](../usage/sweeps.md#labels-zip-or-cross).
 
 Compile builds the document once for each combination of the axes a step depends on, with every sweep replaced by its value there. Each combination is a *point*: a complete step whose `at` gives its index on each axis. A step depends on two sets of axes:
 
