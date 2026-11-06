@@ -385,6 +385,9 @@ def test_an_inline_site_and_a_named_intervention_are_inlined():
      r"\(`clab describe components` says what each is\): token_embeddings, [a-z_, ]+, logits$"),
     (lambda d: d["data"]["pairs"].update(path=None, rows=[{"input": "x"}], split="train"),
      r"data\.pairs: 'split' is which split of a file or a hub dataset; inline 'rows' are the rows$"),
+    (lambda d: d["sites"]["target"].update(layers={"sweep": [0, 0]}),
+     r"^sites\.target\.layers: label 'layers' sweeps 0 twice; a sweep's points are its values, each keyed by its "
+     r"value: list each point once$"),
     (lambda d: d["sites"]["target"].update(component={"sweep": ["layer_output"]}),
      r"sites\.target\.component: a sweep cannot stand for 'component'$"),
     (lambda d: d["model"].update(revision={"sweep": ["main", "9fb191250dd56d0ba7ec9785a025ed29c03d5998"]}),

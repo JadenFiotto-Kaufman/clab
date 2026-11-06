@@ -550,6 +550,25 @@ def test_a_featurizer_sweep_point_its_use_refuses_is_refused_at_compile_naming_t
         edited("random_subspace", through(encoded, decoded)).compile()
 
 
+def test_a_featurizer_sweep_that_names_one_featurizer_twice_is_refused_at_compile():
+    """A sweep lists each point once: `rot_a` twice, or in das's body `rot` beside `fit.rot`, which there are one
+    featurizer, the one the fit trains; after the fit the two are the draw and the trained, and compile."""
+    with pytest.raises(PlanError, match=r"^steps\.counterfactual\.interventions\.v_cf\.ops\.0\.featurizer: label 'rot' "
+                                        r"sweeps 'rot_a' twice; a sweep's points are its values"):
+        edited("random_subspace", through({"sweep": ["rot_a", "rot_a"], "label": "rot"})).compile()
+
+    def body(d):
+        swept = {"sweep": ["rot", "fit.rot"], "label": "r"}
+        d["steps"]["fit"]["steps"]["v_cf"]["featurizer"] = swept
+        for i in (0, 2):
+            d["steps"]["fit"]["steps"]["patched"]["interventions"]["patch"]["ops"][i]["featurizer"] = swept
+    with pytest.raises(PlanError, match=r"^steps\.fit\.steps\.v_cf\.featurizer: label 'r' sweeps 'fit\.rot' twice "
+                                        r"\('rot' and 'fit\.rot' in the body of fit 'fit' are one featurizer, the one it "
+                                        r"trains\); a sweep's points are its values, each keyed by its value: list each "
+                                        r"point once$"):
+        edited("das", body).compile()
+
+
 def probe_fit(featurizer: Any, train: Any = None) -> dict:
     """Tiny Llama: a probe of layer 1's last token trained on its coordinates in `featurizer` (a name or a sweep
     over rot_a and rot_b), read by a forward of the fit's body as a nested encode, scored against the weekday."""

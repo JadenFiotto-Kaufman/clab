@@ -19,7 +19,8 @@ def find_sweeps(document: dict) -> dict[tuple, str]:
     """Every `{"sweep": [...], "label"?: "<name>"}` standing for a value, by document path, each with its label:
     the `label` it gives, letters, digits and underscores (a coordinate is `<label>=<value>`, joined by commas),
     else the name of the field it stands for (the last key of its path). A sweep's values are numbers, strings,
-    booleans or lists of them, each point keyed by its value, and hold no sweep: a `pos` sweeps its frame, its index
+    booleans or lists of them, each point keyed by its value, so each listed once (in a fit's body a trained
+    featurizer's bare name and `<fit>.<name>` are one value), and hold no sweep: a `pos` sweeps its frame, its index
     or a scope's occurrence, not the object.
 
     A sweep may stand for any value except under `description`, `model` and `data` (a dataset's rows are compiled
@@ -73,6 +74,7 @@ def find_sweeps(document: dict) -> dict[tuple, str]:
             if holds_sweep(value["sweep"]):
                 raise ValueError(f"{where}: a sweep's values hold no sweep")
             check_scalars(where, field, value["sweep"])
+            check_once(document, where, path, label, value["sweep"])
             if label in first and json.dumps(first[label][1]) != json.dumps(value["sweep"]):
                 other, values = first[label]
                 raise ValueError(f"{where}: label {label!r} is also the sweep at {other}, over {values}; one label "
@@ -128,6 +130,26 @@ def check_scalars(where: str, field: str, values: Any) -> None:
             raise ValueError(f"{where}: {said}; {value!r} is an object: sweep a scalar field inside it, {example}")
         if isinstance(value, list) and any(isinstance(v, (dict, list)) for v in value):
             raise ValueError(f"{where}: {said}; {value!r} holds a list or an object")
+
+
+def check_once(document: Mapping[str, Any], where: str, path: tuple, label: str, values: Any) -> None:
+    """Refuses a sweep that lists one value twice: its points are keyed by their values, so the second would run
+    again and its results collapse into the first's. In a fit's body a trained featurizer's bare name is the
+    featurizer the fit trains, `<fit>.<name>` (`compile_fit` writes it so), so the two spellings are one value."""
+    fit = (document.get("steps") or {}).get(path[1]) if path[0] == "steps" and path[2:3] == ("steps",) else None
+    trained = fit.get("train") or [] if isinstance(fit, dict) and fit.get("kind") == "fit" else []
+
+    def meant(v: Any) -> Any:
+        return f"{path[1]}.{v}" if path[-1] == "featurizer" and isinstance(v, str) and v in trained else v
+    spelled = [json.dumps(meant(v)) for v in values] if isinstance(values, list) else []
+    twice = next((i for i, v in enumerate(spelled) if v in spelled[:i]), None)
+    if twice is None:
+        return
+    first = values[spelled.index(spelled[twice])]
+    same = "" if first == values[twice] else (f" ({first!r} and {values[twice]!r} in the body of fit {path[1]!r} are "
+                                              "one featurizer, the one it trains)")
+    raise ValueError(f"{where}: label {label!r} sweeps {meant(values[twice])!r} twice{same}; a sweep's points are "
+                     "its values, each keyed by its value: list each point once")
 
 
 def holds_sweep(value: Any) -> bool:

@@ -46,7 +46,7 @@ A sweep is refused on `kind`, `op`, `site`, `component`, `input`, `of`, `train`,
 - **Two scope columns:** write one entry per column.
 - **Two optimizers:** write one fit per optimizer.
 
-Each value of a sweep is a number, a string, a boolean or a list of them. To vary a `pos` object, sweep a scalar inside it: `{"frame": 0, "index": {"sweep": [-1, -2]}}`.
+Each value of a sweep is a number, a string, a boolean or a list of them, listed once: a point is keyed by its value, so a repeat is refused (`label 'layers' sweeps 0 twice`). To vary a `pos` object, sweep a scalar inside it: `{"frame": 0, "index": {"sweep": [-1, -2]}}`.
 
 ```text
 clab: sites.target.component: a sweep cannot stand for 'component'

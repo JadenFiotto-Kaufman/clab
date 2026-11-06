@@ -1162,7 +1162,8 @@ columns), and an op takes one dataset's rows.
 Every `{"sweep": [...], "label"?: "<name>"}` standing for a value, by document path, each with its label:
 the `label` it gives, letters, digits and underscores (a coordinate is `<label>=<value>`, joined by commas),
 else the name of the field it stands for (the last key of its path). A sweep's values are numbers, strings,
-booleans or lists of them, each point keyed by its value, and hold no sweep: a `pos` sweeps its frame, its index
+booleans or lists of them, each point keyed by its value, so each listed once (in a fit's body a trained
+featurizer's bare name and `<fit>.<name>` are one value), and hold no sweep: a `pos` sweeps its frame, its index
 or a scope's occurrence, not the object.
 
 A sweep may stand for any value except under `description`, `model` and `data` (a dataset's rows are compiled
