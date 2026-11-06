@@ -1,6 +1,6 @@
 ---
 title: A Position Does Not Fit a Row
-one_liner: "Why a run refuses with 'row i: … is not in its input' or 'do not fit its N scope tokens': a prefill position that names nothing on one row, how to see that row's tokens, and the fix for each message."
+one_liner: "Why a run refuses with 'row i: … is not in its input' or 'index … does not fit the row's …': a prefill position that names nothing on one row, how to see that row's tokens, and the fix for each message."
 tags: [errors, positions, scope, preflight, refusals]
 related: [docs/usage/positions.md, docs/concepts/positions.md, docs/errors/alignment-missing.md, docs/errors/index.md, docs/usage/data.md]
 sources: [clab/compile/positions.py, clab/compile/preflight.py]
@@ -49,10 +49,10 @@ patched.patch: row 0: text ' is' occurs 2 times in the row's input; it has no oc
 
 The `occurrence` asks for more matches than the row holds; [positions.md](../usage/positions.md#words-and-occurrences) says how occurrences count. A list of picks (`[0, 2]`) needs every pick on every row.
 
-## `tokens … do not fit its N scope tokens`
+## `index … does not fit the row's …`
 
 ```text
-patched.patch: row 0: tokens 40 do not fit its 11 scope tokens
+patched.patch: row 0: index 40 does not fit the row's 11 positions at this frame
 ```
 
 An index of static width (an int, a list of picks, a slice like `"-4:-1"` or `"0:3"`) needs that many tokens on every row, counted in the whole prompt or, with a scope, in the scope's text. The shortest row decides.
@@ -60,7 +60,7 @@ An index of static width (an int, a list of picks, a slice like `"-4:-1"` or `"0
 In a `generate` step the prefill computes the head at the last position only, so an earlier prompt position of `lm_head_output` or `logits` does not fit:
 
 ```text
-answer.logits: row 0: tokens -2: do not fit its 1 scope tokens; a generation's prefill computes lm_head_output at its last position only, so that is all call 0 holds of it
+answer.logits: row 0: index -2: does not fit the row's 1 position at this frame; a generation's prefill computes lm_head_output at its last position only, so that is all call 0 holds of it
 ```
 
 Read the logits of earlier prompt positions in a `forward` step on the same input.

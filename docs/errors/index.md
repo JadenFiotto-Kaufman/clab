@@ -22,7 +22,7 @@ Each row quotes a message's first clause without its `<where>:`. `<x>` stands fo
 |---|---|---|
 | `unknown field '<f>'` | a misspelled key, or one on the wrong record | [FORMAT.md](../../FORMAT.md#root-keys) |
 | `Field required` | a required key is missing (`model`, `steps`) | [FORMAT.md](../../FORMAT.md#root-keys) |
-| `Input should be …` | a value of none of the field's forms; a field of several forms prints one line per form, its path ending in the form (`input.str: Input should be a valid string`, then `input.list[…]: …`) | [FORMAT.md](../../FORMAT.md#root-keys) |
+| `Input should be …` | a value of none of the field's forms; a field of several forms prints one line naming every form (`input: 5 should be a valid string, or a valid list`) | [FORMAT.md](../../FORMAT.md#root-keys) |
 | `unknown step kind '<k>'` | `kind` names no step kind | [FORMAT.md](../../FORMAT.md#step-kinds) |
 | `'<f>' is a derived field, which compile writes` | a field compile fills, set in a document: a step's `at` or `schedule`, `batch_size` on a forward or a generate, an entry's `positions`, `gathered`, `dims`, `width` or `space`, an op's `space` | [FORMAT.md](../../FORMAT.md#derived-fields) |
 | `'reads': a step's reads and writes are one 'interventions' value` | entries go in one `interventions` dict; an entry with an edit writes | [interventions.md](../usage/interventions.md) |
@@ -42,7 +42,7 @@ Each row quotes a message's first clause without its `<where>:`. `<x>` stands fo
 | `'<op>' takes no 'featurizer'` | an op on a featurizer's coordinates goes between its `encode` and its `decode` | [featurizers.md](../usage/featurizers.md#brackets) |
 | `'<op>' takes no 'select'`; `select <v>: an encode selects among a featurizer's coordinates` | only `encode` selects features, `{"features": <selector>}` | [featurizers.md](../usage/featurizers.md#selecting-features) |
 | `unknown featurizer kind '<k>'` | `kind` names no featurizer kind | [FORMAT.md](../../FORMAT.md#featurizer-kinds) |
-| `an sae's 'k' is how many latents 'topk' keeps` | `k` without `"activation": "topk"`, or `topk` without `k` | [featurizers.md](../usage/featurizers.md) |
+| `'k' is how many latents activation 'topk' keeps`; `activation 'topk' needs 'k', how many latents it keeps` | `k` without `"activation": "topk"`, or `topk` without `k` | [featurizers.md](../usage/featurizers.md) |
 | `'topk' keeps k = <k> of <n> latents` | `k` outside 1 to `latents` | [featurizers.md](../usage/featurizers.md) |
 | `a 'jumprelu' sae's threshold is a published file's` | a drawn `jumprelu` sae; load one with `file_path` | [featurizers.md](../usage/featurizers.md#loading-a-published-sparse-autoencoder) |
 | `epochs <n>: a fit runs 0 or more epochs` | negative `epochs` | [fit.md](../usage/fit.md) |
@@ -144,7 +144,7 @@ Each row quotes a message's first clause without its `<where>:`. `<x>` stands fo
 | `<out> saved no '<n>'` | a `value` the run did not save | [cached-harvest.md](../patterns/cached-harvest.md#what-the-load-checks) |
 | `<out>/<file> is missing, which its manifest says holds '<n>'` | a saved file gone from the run directory | [cached-harvest.md](../patterns/cached-harvest.md#what-the-load-checks) |
 | `<out>/manifest.json is not a run this clab reads` | a manifest that does not parse as a run | [cached-harvest.md](../patterns/cached-harvest.md#what-the-load-checks) |
-| `<out>/manifest.json predates …` | a run an older clab wrote; rerun the document that wrote it | [cached-harvest.md](../patterns/cached-harvest.md#what-the-load-checks) |
+| `<out>/manifest.json: a saved value's record holds no 'axes'`; `<out>/manifest.json: fit '<f>' has an 'eval' and no 'evals'` | a run an older clab wrote; rerun the document that wrote it | [cached-harvest.md](../patterns/cached-harvest.md#what-the-load-checks) |
 | `'<n>' was made over the rows of dataset '<d>', which this document does not declare` | the loading document gives the dataset another name, or none; declare it under the run's name | [cached-harvest.md](../patterns/cached-harvest.md#what-the-load-checks) |
 | `'<n>' was made over the rows of dataset '<d>', and this document's '<d>' is not the rows <out> read, in their order` | other rows: it ends `<m> rows where it read <n>` after another `take` or `skip`, or `as many rows, whose digest differs` | [cached-harvest.md](../patterns/cached-harvest.md#what-the-load-checks) |
 | `'<n>' was made over the rows of dataset '<d>', whose chats <out> rendered with template <t>` | the dataset's `template` differs from the run's | [cached-harvest.md](../patterns/cached-harvest.md#what-the-load-checks) |
@@ -176,7 +176,7 @@ Each row quotes a message's first clause without its `<where>:`. `<x>` stands fo
 | `row <i>: text '<t>' is not in its input` | a `text` scope a row does not hold, on word boundaries | [position-not-in-row.md](position-not-in-row.md#-is-not-in-its-input) |
 | `row <i>: column '<c>' ('<v>') is not in its input` | a `column` scope whose value a row does not hold | [position-not-in-row.md](position-not-in-row.md#-is-not-in-its-input) |
 | `row <i>: … occurs <n> times in the row's input; it has no occurrence <o>` | an `occurrence` past the row's count | [position-not-in-row.md](position-not-in-row.md#-occurs-n-times--it-has-no-occurrence-k) |
-| `row <i>: tokens <idx> do not fit its <n> scope tokens` | a static index wider than a row, or than its scope | [position-not-in-row.md](position-not-in-row.md#tokens--do-not-fit-its-n-scope-tokens) |
+| `row <i>: index <idx> does not fit the row's <n> positions at this frame`; `row <i>: index <idx> does not fit the row's <n> scope tokens` | a static index wider than a row, or than its scope | [position-not-in-row.md](position-not-in-row.md#index--does-not-fit-the-rows-) |
 | `row <i>: the write's positions hold no token of this row` | a write at an open-ended index past a short row | [position-not-in-row.md](position-not-in-row.md#the-writes-positions-hold-no-token-of-this-row) |
 | `row <i>: … begins the row, at position 0, which no position comes before` | `before` on a scope at a row's first token | [position-not-in-row.md](position-not-in-row.md#-begins-the-row-at-position-0-which-no-position-comes-before) |
 | `row <i>: the row has no '<role>' message` | a `turn` scope a row's chat does not hold | [position-not-in-row.md](position-not-in-row.md#the-row-has-no-role-message) |
@@ -224,7 +224,7 @@ Each row quotes a message's first clause without its `<where>:`. `<x>` stands fo
 | `operand '<x>' holds no position on row <r>` | a same-forward operand at an index a short row does not reach | [operand-does-not-fit.md](operand-does-not-fit.md#an-operand-from-the-same-forward) |
 | `operand '<x>' holds <n> position(s) on row <r> and this write <m>` | a same-forward operand whose width differs from the write's on a row | [operand-does-not-fit.md](operand-does-not-fit.md#an-operand-from-the-same-forward) |
 | `'<x>' is laid out […]; '<op>' acts on a value laid out […]` | an operand with an axis the value lacks | [operand-does-not-fit.md](operand-does-not-fit.md#-an-operands-axes-are-among-the-values-) |
-| `'<x>' holds a different number of positions on each row, which pair with no other value's` | at compile: a side whose `pos` leaves its width open ([which forms do](../usage/positions.md#static-width-or-ragged)), or a `permute` of one | [operand-does-not-fit.md](operand-does-not-fit.md#-holds-a-different-number-of-positions-on-each-row) |
+| `'<x>' has no width compile can fix (…), so it pairs with no other forward's value` | at compile: a side whose `pos` leaves its width open ([which forms do](../usage/positions.md#static-width-or-ragged)), or a `permute` of one | [operand-does-not-fit.md](operand-does-not-fit.md#-has-no-width-compile-can-fix) |
 | `operand '<x>' holds <n> position(s) on rows … and <m> positions on row <r>; a scoped read pairs with another forward's value when every row's scope holds the same number of tokens` | a scope's rows hold different numbers of tokens; at compile, without `operand`, for a loaded read's scope | [operand-does-not-fit.md](operand-does-not-fit.md#-a-scoped-read-pairs-with-another-forwards-value-when-every-rows-scope-holds-the-same-number-of-tokens) |
 | `operand '<x>' meets the value '<op>' acts on, which holds …` | the write's own scope holds different numbers of tokens by row | [operand-does-not-fit.md](operand-does-not-fit.md#-a-scoped-read-pairs-with-another-forwards-value-when-every-rows-scope-holds-the-same-number-of-tokens) |
 | `'<x>' holds <n> position(s) per row and the value '<op>' … holds <m>` | two static widths that differ | [operand-does-not-fit.md](operand-does-not-fit.md#-holds-n-positions-per-row-and-the-value--holds-m) |
@@ -442,5 +442,5 @@ Under `--engine ndif`, preflight and the run happen on the server. With `-o remo
 - [symptom-index](symptom-index.md) — Something ran and the numbers are wrong: the silent cases, from indices counted within a select list to a published SAE stated at the wrong layer, each with what it is and where it is explained.
 - [alignment-missing](alignment-missing.md) — Why a row is alignment_missing or a value is NaN, how missingness propagates through ops and tables, how to count it, and how to move the question into the prefill, where a miss is refused.
 - [operand-does-not-fit](operand-does-not-fit.md) — Why a swap, add, kl or cosine refuses its operand: layout, width, positions, selected heads, layers, coordinates, dataset, a same-forward entry, or two inputs of different lengths, with the fix for each message.
-- [position-not-in-row](position-not-in-row.md) — Why a run refuses with 'row i: … is not in its input' or 'do not fit its N scope tokens': a prefill position that names nothing on one row, how to see that row's tokens, and the fix for each message.
+- [position-not-in-row](position-not-in-row.md) — Why a run refuses with 'row i: … is not in its input' or 'index … does not fit the row's …': a prefill position that names nothing on one row, how to see that row's tokens, and the fix for each message.
 - [answer-does-not-line-up](answer-does-not-line-up.md) — Why a metric refuses its answer column ('is 3 tokens; the read has 1 position', 'no one logit for logit_diff', 'predicts … in the input'): how answers are tokenized and lined up with the read, and the fix for each message.
