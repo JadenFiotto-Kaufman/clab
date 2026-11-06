@@ -187,11 +187,11 @@ Refused by name:
 Run without a refusal:
 
 - a wrong `centered`, which shifts every latent;
-- a TopK file stated as `relu`, which keeps every positive latent (17 or 18 per row on `documents/sae_published_topk.json`'s fixture, where `topk` keeps 4);
+- a TopK file stated as `relu`, which keeps every positive latent. It changes exactly the tokens that have more than `k` positive pre-activations, so count the tokens whose L0 exceeds the release's `k`; under `topk` there are none. On a TopK dictionary clab trained on GPT-2's layer 6 (`openai-community/gpt2` at `607a30d783dfa663caf39e06633721c8d4cfcd7e`, 2048 latents, `k` 16), every held-out token after BOS was above 16 under `relu`, at 26 to 305 latents. Its reconstruction error moved only from 0.40 to 0.41 of each vector's norm, so the reconstruction does not show the mistake;
 - a wrong layer written in `site`;
 - a `site` written as the name of the entries' site.
 
-The `site` check compares your use with your claim; it cannot check the claim. Write the release's layer inline, `{"component": ..., "layers": <int>}`. `documents/sae_published_topk.json` names its site by the entries' site, `"site": "target"`, which moves with `target`'s `layers`; the layer written inline, as `sae_published_jumprelu.json` writes it, does not. Compare the mean L0 over every token after BOS with the release's before trusting the numbers ([sae.md](../patterns/sae.md#check-its-l0)).
+The `site` check compares your use with your claim; it cannot check the claim. Write the release's layer inline, `{"component": ..., "layers": <int>}`. `documents/sae_published_topk.json` names its site by the entries' site, `"site": "target"`, which moves with `target`'s `layers`; the layer written inline, as `sae_published_jumprelu.json` writes it, does not. Compare the mean L0 over every token after BOS with the release's, and for a TopK release count the tokens above its `k`, before trusting the numbers ([sae.md](../patterns/sae.md#check-its-l0)).
 
 ## What a featurizer cannot do
 
