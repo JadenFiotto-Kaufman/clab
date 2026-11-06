@@ -250,7 +250,7 @@ def probe_of(plan: Plan, record: Labelled, classes: dict[str, list]) -> dict[str
     `classes` by declared featurizer, as `arguments.k_past` takes it; none for a value with no `classes` axis."""
     if "classes" not in (record.dims or []) or not record.space:
         return {}
-    held = classes.get(declared(plan, record.space[-1]["featurizer"]))
+    held = classes.get(declared(plan.featurizers, record.space[-1]["featurizer"]))
     return {} if held is None else {"classes": (len(held), "the probe's")}
 
 
