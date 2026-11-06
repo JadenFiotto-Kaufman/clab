@@ -8,7 +8,7 @@ sources: [nnspec/cli.py, nnspec/__init__.py, nnspec/docs.py, nnspec/steps/__init
 
 # Command Line
 
-`nnspec` has five commands: `run`, `compile`, `show`, `table` and `describe`. They are spelled here as inside the repository's venv ([README.md](../../README.md#install) has the spelling from outside it). This page lists every argument and refusal; the workflow around them is [running.md](../usage/running.md), and reading output is [output.md](../usage/output.md).
+`nnspec` has five commands: `run`, `compile`, `show`, `table` and `describe`. They are spelled here as inside the repository's venv (from outside it, `uv run --no-sync nnspec …`; [testing.md](../developing/testing.md#running-the-suite) says why `--no-sync`). This page lists every argument and refusal; the workflow around them is [running.md](../usage/running.md), and reading output is [output.md](../usage/output.md).
 
 Every command exits 0 on success. A refusal or error that nnspec reports is printed to stderr as `nnspec: <message>`, and the command exits 1. A malformed command line (an unknown flag, a missing argument, a non-integer `--batch-size`, an unknown `WHAT`) gets argparse's usage message and exit status 2 ([errors/index.md](../errors/index.md#errors-that-are-not-nnspecs)).
 

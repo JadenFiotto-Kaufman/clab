@@ -18,7 +18,7 @@ uv pip install transformers==5.20.2
 CUDA_VISIBLE_DEVICES= HF_HUB_OFFLINE=1 uv run --no-sync pytest tests/ -q
 ```
 
-- **`uv sync --dev` needs nnterp's checkout** at the path `[tool.uv.sources]` in `pyproject.toml` names, at the commit [README.md](../../README.md#install) names.
+- **`uv sync --dev` needs nnterp's checkout** at the path `[tool.uv.sources]` in `pyproject.toml` names, at commit `e5d0f8e755c6c04ce7c84eeab2832e2ef8dfce20`, the one CI checks out.
 - **Every `uv run` on this page carries `--no-sync`.** The lock resolves a newer transformers than the snapshots' 5.20.2, and a plain `uv run` syncs the venv back to it without a word. Exporting `UV_NO_SYNC=1`, as CI does, has the same effect.
 - **CPU and offline by default.** `tests/conftest.py` sets `CUDA_VISIBLE_DEVICES` empty and `HF_HUB_OFFLINE=1` when they are unset. Setting either yourself overrides it; that is how the GPU tests run.
 - **The thread count is pinned.** The BLAS splits a matmul's reduction by thread, so the thread count sets the last bits. `tests/conftest.py` pins torch to `THREADS`, the count at which the snapshots and the bit-equality tests were made. Pinned, `OMP_NUM_THREADS` and the host's core count do not decide whether the suite passes. At another thread count, the tests that hold two runs bit-equal (a row against its batch companions, a fit's history) can fail.
