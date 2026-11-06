@@ -49,7 +49,7 @@ def negate(of: Tensor) -> Tensor:
 steps.flipped.interventions.neg.ops[0]: 'negate' takes no 'factor'; its arguments: none
 ```
 
-To see such a refusal without a run, compile a scratch document from Python: `Plan("scratch.json").compile()` raises it ([running.md](../usage/running.md#check-before-you-run)).
+To see such a refusal without a run, compile a scratch document: `clab compile scratch.json` prints it, and `Plan("scratch.json").compile()` raises it ([running.md](../usage/running.md#check-before-you-run)).
 
 A metric over next-token logits declares the vocabulary axis it scores:
 

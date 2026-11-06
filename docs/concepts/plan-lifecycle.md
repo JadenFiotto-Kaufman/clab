@@ -46,7 +46,7 @@ steps.patched.input: no dataset 'pears'; datasets: pairs
 data.pairs.take: take 400, and the dataset has 4 rows; take keeps at most as many as there are
 ```
 
-Compiling a compiled plan returns it unchanged. Compile runs before any engine loads, so a document it refuses never costs a model load. Under the `ndif` engine, such a document never reaches the server.
+`clab compile DOC` is this stage alone: it prints what would run, or the refusal ([running.md](../usage/running.md#check-before-you-run)). Compiling a compiled plan returns it unchanged. Compile runs before any engine loads, so a document it refuses never costs a model load. Under the `ndif` engine, such a document never reaches the server.
 
 ## 3. Load: the engine and its model
 
