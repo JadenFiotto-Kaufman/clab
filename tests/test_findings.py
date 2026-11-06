@@ -1060,8 +1060,9 @@ def test_m1_two_sweeps_of_one_label_zip_and_the_refusal_names_label():
 
 def test_m2_a_metric_over_two_reads_without_a_static_width_says_to_read_at_a_static_index():
     with pytest.raises(PlanError, match=r"steps\.kl\.against: 'f\.logits' has no width compile can fix \(an open "
-                                        r"index, an `until` scope, several occurrences\), so it pairs with no other "
-                                        r"forward's value; read both at a static index"):
+                                        r"index, an `until` scope, several occurrences\), and two values of different "
+                                        r"reads pair only at a fixed width, whether one forward or two made them; "
+                                        r"read both at a static index"):
         plan(data={"d": DAYS}, steps={
             "f": forward({"lens": {"site": {"component": "layer_output", "layers": -1}, "pos": {"index": ":"},
                                    "ops": [{"op": "readout"}]}, "logits": {"site": HEAD, "pos": {"index": ":"}}}),
@@ -1085,12 +1086,27 @@ def test_m4_an_operand_without_a_static_width_into_such_a_write_says_what_differ
     """trial-01, trial-02: the two layouts print the same, so the message says the difference is where the
     positions come from."""
     with pytest.raises(PlanError, match=r"with: 'abc\.v' has no width compile can fix \(an open index, an `until` "
-                                        r"scope, several occurrences\), so it pairs with no other forward's value; "
-                                        r"read both at a static index"):
+                                        r"scope, several occurrences\), and two values of different reads pair only "
+                                        r"at a fixed width, whether one forward or two made them; read both at a "
+                                        r"static index"):
         plan(data={"d": PAIR}, steps={
             "abc": {"kind": "forward", "input": "d.abc", "interventions": {"v": {"site": LAYER0, "pos": {"index": ":"}}}},
             "patched": forward({"w": {"site": LAYER0, "pos": {"index": ":"},
                                       "ops": [{"op": "swap", "with": "abc.v"}]}})}).compile()
+
+
+def test_sk2_two_open_reads_of_one_forward_in_an_op_step_are_refused_as_two_reads():
+    """skills wave: an op step over two `{"index": ":"}` reads of one forward was refused as pairing "with no other
+    forward's value"; the message names two reads, whichever forward made them, and a static index serves."""
+    def two(pos) -> Plan:
+        return plan(data={"d": DAYS}, steps={
+            "f": forward({"a": {"site": LAYER0, "pos": pos}, "b": {"site": {**LAYER0, "layers": 1}, "pos": pos}}),
+            "diff": {"kind": "op", "op": "sub", "of": "f.a", "with": "f.b"}}, saves=["diff"])
+    with pytest.raises(PlanError, match=r"^steps\.diff\.with: 'f\.b' has no width compile can fix \(an open index, an "
+                                        r"`until` scope, several occurrences\), and two values of different reads "
+                                        r"pair only at a fixed width, whether one forward or two made them; "):
+        two({"index": ":"}).compile()
+    assert points(two({"index": "-3:"}).compile().steps["diff"])[0].width == 3
 
 
 def test_m5_o2_argmax_ranks_the_axis_over_names_and_one_the_value_lacks_is_refused():

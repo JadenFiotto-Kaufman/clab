@@ -619,8 +619,9 @@ def test_a_metric_over_decode_frame_reads_is_told_a_frame_a_decode_read_can_sati
             d["saves"] = ["kl"]
         return apply
     with pytest.raises(PlanError, match=r"steps\.kl\.against at frame=0: 'counterfactual\.b' has no width compile can "
-                                        r"fix \(an open index, an `until` scope, several occurrences\), so it pairs "
-                                        r"with no other forward's value; read both at a static "
+                                        r"fix \(an open index, an `until` scope, several occurrences\), and two values "
+                                        r"of different reads pair only at a fixed width, whether one forward or two "
+                                        r"made them; read both at a static "
                                         r"index without a scope \('index': -1, or '-3:'\), at one occurrence of a scope "
                                         r"in the prefill, not until, whose rows give its width, or over decode calls at "
                                         r"a frame of a static number of them with an index of static width "

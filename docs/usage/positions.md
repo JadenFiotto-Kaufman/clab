@@ -117,6 +117,7 @@ A read pairs, position by position, with a value of another forward only where i
 | a frame of no fixed number of calls (`"1:"`, `":"`), or a decode call with an open index (`{"frame": 3}`) | open | no |
 
 - **Preflight records an open width where the rows agree.** In the prefill it resolves every row's positions before any forward and writes the count they share as the record's `width`. That recorded width pairs with nothing: `{"index": ":"}` over prompts of one length is refused at compile all the same.
+- **Two entries of one forward are two reads.** An op step `{"op": "sub", "of": "f.a", "with": "f.b"}` over two `{"index": ":"}` reads of one forward is refused at compile, as reads of two forwards are. A write's operand from its own forward is compared with the write row by row instead ([operand-does-not-fit.md](../errors/operand-does-not-fit.md#an-operand-from-the-same-forward)).
 - **A read is ragged where its rows hold different numbers of positions**, such as an entity of one token on one row and three on another.
 - **A ragged value is as wide as its widest row.** Row r's j-th position sits at index j, and past a row's own positions the value is NaN; `clab table` leaves those out.
 - **Index j along `pos` is the read's j-th position on that row**, not position j. Index 0 of `{"index": "-4:-1"}` is a different absolute position on rows of different lengths ([values-and-layout.md](../concepts/values-and-layout.md#an-index-counts-along-the-value)).
