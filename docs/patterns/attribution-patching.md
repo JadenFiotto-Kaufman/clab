@@ -42,11 +42,11 @@ Its layer 12 head 28 comes first, at about +2.20, where [head patching](head-and
 
 ## Check the gradient
 
-A gradient check tests the quantity the estimate uses: the gradient's dot with the counterfactual difference, the counterfactual's value at the read less the base's. It compares that with a central difference of the metric along the same difference, `(metric(+e) - metric(-e)) / 2e`, from two forwards that add `e` times the difference at the site and `-e` times it. This complete document runs both on GPT-2 at layer 6's last token and puts the gap in `gap`:
+A gradient check tests the quantity the estimate uses: the gradient's dot with the counterfactual difference, the counterfactual's value at the read less the base's. It compares that with a central difference of the metric along the same difference, `(metric(+e) - metric(-e)) / 2e`, from two forwards that add `e` times the difference at the site and `-e` times it. `central` scales their difference by `factor` 1/(2e), 2.5 at the `e` of 0.2 used here. This complete document runs both on GPT-2 at layer 6's last token over `weekdays/train` and puts the gap in `gap`:
 
 ```json
 {
-  "description": "The gradient check along the counterfactual difference: the gradient at layer 6's last token dotted with the counterfactual's value there less the base's, against a central difference of two forwards that add 0.1 and -0.1 times that difference there.",
+  "description": "The gradient check along the counterfactual difference: the gradient at layer 6's last token dotted with the counterfactual's value there less the base's, against a central difference of two forwards that add 0.2 and -0.2 times that difference there.",
   "model": {
     "key": "openai-community/gpt2",
     "revision": "607a30d783dfa663caf39e06633721c8d4cfcd7e",
@@ -72,21 +72,26 @@ A gradient check tests the quantity the estimate uses: the gradient's dot with t
     "term": {"kind": "op", "op": "scale", "of": "difference", "factor": "taken.g"},
     "along": {"kind": "op", "op": "sum", "of": "term", "over": ["hidden_size"]},
     "up": {"kind": "forward", "input": "pairs.input", "interventions": [
-      {"nudge": {"site": "target", "pos": -1, "ops": [{"op": "add", "with": "difference", "scale": 0.1}]}}, "scored"]},
+      {"nudge": {"site": "target", "pos": -1, "ops": [{"op": "add", "with": "difference", "scale": 0.2}]}}, "scored"]},
     "down": {"kind": "forward", "input": "pairs.input", "interventions": [
-      {"nudge": {"site": "target", "pos": -1, "ops": [{"op": "add", "with": "difference", "scale": -0.1}]}}, "scored"]},
+      {"nudge": {"site": "target", "pos": -1, "ops": [{"op": "add", "with": "difference", "scale": -0.2}]}}, "scored"]},
     "rise": {"kind": "op", "op": "sub", "of": "up.metric", "with": "down.metric"},
-    "central": {"kind": "op", "op": "scale", "of": "rise", "factor": 5},
+    "central": {"kind": "op", "op": "scale", "of": "rise", "factor": 2.5},
     "gap": {"kind": "op", "op": "sub", "of": "along", "with": "central"}
   },
   "saves": ["along", "central", "gap"]
 }
 ```
 
-On GPT-2 (`openai-community/gpt2` at `607a30d783dfa663caf39e06633721c8d4cfcd7e`, CPU, float32), row 0's `along` is 0.31854 and its `central` 0.31857. Over the four rows `gap` is at most 2.4e-4, where the largest `along` is 0.41.
+On GPT-2 (`openai-community/gpt2` at `607a30d783dfa663caf39e06633721c8d4cfcd7e`, CPU, float32, the default `--batch-size` 8), row 0's `along` is 0.31854 and its `central` 0.31860. Over the four rows `gap` is at most 1.6e-4, where the largest `along` is 0.41. The table below reruns the document with each `e`, `factor` 1/(2e).
 
-- **Find the step by trying several.** A central difference's own error falls as the step squared, and the two forwards' rounding, divided by twice the step, grows as it falls. On GPT-2 the largest gap was 9.3e-4 at `e` 0.4, 1.6e-4 at 0.2, 2.4e-4 at 0.1, 4.2e-3 at 0.01 and 2.7e-2 at 0.001. Below 0.2 the rounding of GPT-2's large logits took over.
-- **Pass the check at the step whose gap is least**, where that gap is a small fraction of the largest `along`; set the fraction before the run.
+| `e` | 1.6 | 0.8 | 0.4 | 0.2 | 0.1 | 0.05 |
+|---|---|---|---|---|---|---|
+| largest `gap` | 1.44e-2 | 3.61e-3 | 9.31e-4 | 1.58e-4 | 2.41e-4 | 6.62e-4 |
+
+- **A gap that falls about 4 times each time the step halves says the gradient is right.** A central difference's own error falls as the step squared: from 1.6 to 0.8 to 0.4 the gap fell 4.0 and 3.9 times.
+- **Below some step, rounding takes over.** The two forwards' rounding, divided by twice the step, grows as the step falls; here it took over below 0.2, where GPT-2's large logits round.
+- **Pass the check at the step whose gap is least**, 0.2 here, where that gap is a small fraction of the largest `along`; set the fraction before the run.
 - **Adding one number to every element checks nothing on a model with LayerNorm.** LayerNorm removes each vector's mean, so the derivative along that direction is about zero however the gradient is wired. On GPT-2 the gradient summed over `hidden_size` at layer 0's last token was below 3e-7 on every row. The counterfactual difference is the direction the estimate uses, so check along it.
 
 A `grad` of the wrong entry runs without a refusal and maps that entry, so run this check once on each new document. A gap far above the tolerance at every step is that case: check that `of` names the entry you meant. On the corpus model the corpus document's `patched.h` is the same central difference along `difference`, to 2e-5 (`tests/test_grad.py` `test_the_gradient_is_the_central_difference_of_the_metric`).
