@@ -49,6 +49,8 @@ pos_sweep: compiled, not run
 ```
 
 - **A refusal is the line `clab run` would print**, `clab: <where>: <what>` on stderr, with exit status 1; success exits 0.
+- **It reads what compile reads**: the data files, a hub dataset's rows through the `datasets` library, and bundle headers and files. Under `HF_HUB_OFFLINE=1` a hub dataset comes from the cache. Otherwise the library asks the hub first, and where the hub does not answer, compile waits on its retries; set `HF_HUB_OFFLINE=1` to read the cache alone.
+- **A `generate` step imports transformers**, whose `GenerationConfig` checks the step's options. Nothing else in compile needs it, and nothing in it loads an engine or a checkpoint.
 - **It takes only the document.** `clab run`'s options never reach compile: `--batch-size`, `--padding` and `--readout` are checked before it, `--engine`, `--device` and `-o` as the engine loads after it.
 - **From Python** it is `Plan(path).compile()`, which raises `clab.plan.PlanError`, a `ValueError`, with the same message.
 - **A forward that serves several sweep points is one row**, its `serves` cell `all 3 points` (`documents/generate_probe.json`); every other point is a row of its own.

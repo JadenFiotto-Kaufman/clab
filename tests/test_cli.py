@@ -217,13 +217,16 @@ def test_a_reader_that_goes_away_mid_print_ends_the_command_quietly(out, monkeyp
 @pytest.mark.parametrize("command", [["compile"], ["show"], ["table", "p_answer"], ["describe", "ops"]])
 def test_compile_show_table_and_describe_import_no_engine(out, command):
     """T9's P1: a command that compiles a document or reads an output directory or the format imports no engine, so
-    neither nnsight, transformers, nnterp nor sklearn (8.8 s of `clab table` at load 12); `run` alone loads one.
-    Counted in a fresh interpreter, whose modules this suite's have not already imported."""
-    given = {"compile": [document("patching")], "describe": []}.get(command[0], [out])
+    neither nnsight, nnterp nor sklearn, and but for compile no transformers (8.8 s of `clab table` at load 12); `run`
+    alone loads one. Compile imports transformers for a `generate` step's options (`GenerationConfig`), so the
+    document it compiles here has one. Counted in a fresh interpreter, whose modules this suite's have not already
+    imported."""
+    given = {"compile": [document("generate_probe")], "describe": []}.get(command[0], [out])
     argv = [command[0], *given, *command[1:]]
+    engines_ = ("nnsight", "nnterp", "sklearn", "clab.engines") + (() if command[0] == "compile" else ("transformers",))
     code = ("import contextlib, io, sys\nfrom clab.cli import main\nwith contextlib.redirect_stdout(io.StringIO()):\n"
             f"    assert main({argv!r}) == 0\n"
-            "print(sorted(m for m in ('nnsight', 'transformers', 'nnterp', 'sklearn', 'clab.engines') if m in sys.modules))")
+            f"print(sorted(m for m in {engines_!r} if m in sys.modules))")
     done = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, cwd=ROOT, check=True)
     assert done.stdout.strip() == "[]"
 

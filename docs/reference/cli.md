@@ -75,7 +75,7 @@ Under `--engine ndif`, a refusal raised on the server arrives as nnsight's `Remo
 clab compile DOCUMENT
 ```
 
-Reads and compiles the document, as `clab run` does before any engine loads, and nothing more: no engine, no model, no output directory. `DOCUMENT` resolves its data and bundles as under `clab run`. It takes no other argument, since none of `clab run`'s options reaches compile. On success it prints the plan as `clab show` prints a compiled plan that has not run, then exits 0. Each row is one run of a step, in run order, with the step's kind, a forward's or generation's input, the point it runs at (`—` unswept) and the points it serves:
+Reads and compiles the document, as `clab run` does before any engine loads, and nothing more: no engine, no model, no output directory. It reads the data files, a hub dataset's rows (from the cache under `HF_HUB_OFFLINE=1`, otherwise from the hub first) and bundle files, and imports transformers only where a `generate` step's options need checking. `DOCUMENT` resolves its data and bundles as under `clab run`. It takes no other argument, since none of `clab run`'s options reaches compile. On success it prints the plan as `clab show` prints a compiled plan that has not run, then exits 0. Each row is one run of a step, in run order, with the step's kind, a forward's or generation's input, the point it runs at (`—` unswept) and the points it serves:
 
 ```text
 patching: compiled, not run

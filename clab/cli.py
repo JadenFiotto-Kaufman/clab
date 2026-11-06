@@ -224,9 +224,10 @@ def option(text: str) -> tuple[str, Any]:
 
 
 def main(argv: list[str] | None = None) -> int:
-    # The engines (nnsight, transformers, nnterp) are imported by `run` alone, which loads one: `compile` reads a
-    # document, `show`, `table` and `describe` an output directory or the format, and `run` refuses an engine no one
-    # registered by name.
+    # The engines (nnsight, nnterp, and the model's transformers classes) are imported by `run` alone, which loads one,
+    # and refuses an engine no one registered by name. `compile` reads a document and what it names (data files, a hub
+    # dataset's rows, bundles), importing transformers only for a `generate` step's options (`GenerationConfig`);
+    # `show`, `table` and `describe` read an output directory or the format, and import none of it.
     parser = argparse.ArgumentParser(prog="clab")
     commands = parser.add_subparsers(dest="command", required=True)
     run = commands.add_parser("run", help="run a document end to end")
