@@ -74,6 +74,8 @@ the counterfactual answer's logit less the base answer's. The corpus checkpoint 
 numbers show the mechanics, not a finding. `pos` and `pos_token` say where the scored read landed: "Thursday"
 is three tokens, so row 0's last token is at position 10. `clab show out/patching` prints how the run went:
 what each step cost, the positions each entry resolved to per row, and each saved value's layout and shape.
+`clab compile documents/patching.json` checks a document with no model and prints what would run
+([docs/usage/running.md](docs/usage/running.md#check-before-you-run)).
 
 From Python, `clab.run` returns the filled plan:
 

@@ -20,7 +20,7 @@
 | Find a latent's max-activating examples (`top_k` over `["rows", "pos"]`) | [patterns/sae.md](docs/patterns/sae.md#find-a-latents-max-activating-examples) |
 | Run a technique (activation, path and attribution patching; zero, mean, resample and optimal ablation; expert ablation; attention; logit and tuned lenses; steering; DAS and DBM; head masking; SAEs; probes; LoRA) | [patterns/index.md](docs/patterns/index.md) |
 | Run a document and choose an engine (nnterp, hooks, ndif, vllm) | [usage/running.md](docs/usage/running.md), [usage/engines.md](docs/usage/engines.md) |
-| Check a document before the model loads | [usage/running.md](docs/usage/running.md#check-before-you-run) |
+| Check a document before the model loads (`clab compile`) | [usage/running.md](docs/usage/running.md#check-before-you-run) |
 | Feed fewer tokens, or compute the head only where it is read | [usage/running.md](docs/usage/running.md#batch-size-and-padding) |
 | Load a quantized model, or shard one over GPUs with `tp` | [usage/engines.md](docs/usage/engines.md#quantized-and-sharded-models), [usage/running.md](docs/usage/running.md#sharding-a-model--o-tp) |
 | Run many rows on GPUs with vLLM | [usage/engines.md](docs/usage/engines.md#running-on-vllm) |
