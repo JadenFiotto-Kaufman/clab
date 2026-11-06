@@ -1,5 +1,6 @@
 """The `pca` kind: the principal directions and mean a `pca` op saved."""
 
+import torch
 from torch import Tensor
 
 from clab.featurizers import Kind
@@ -7,12 +8,15 @@ from clab.featurizers import Kind
 
 class Pca(Kind):
     """The top-`k` principal directions (`basis`) and the `mean` a `pca` op saved, loaded from its bundle; its
-    coordinates are centred on the mean."""
+    coordinates are centred on the mean. A document always loads one (`file_path`); without a bundle it is zeros,
+    `[width, k]` and `[width]`, the shapes compile holds a loaded bundle to (`uses.check_bundle_shapes`)."""
     saves, header, counts = ("basis", "mean"), ("k",), ("k",)
 
     def __init__(self, width: int, file_path: str, k: int | None = None,
                  bundle: dict[str, Tensor] | None = None) -> None:
-        assert bundle is not None
+        if bundle is None:
+            assert k is not None, "a pca without its bundle is drawn at its k"
+            bundle = {"basis": torch.zeros(width, k), "mean": torch.zeros(width)}
         self.basis = bundle["basis"]
         self.mean = bundle["mean"]
 

@@ -69,7 +69,7 @@ A generation's write over decode calls lands at each call as it runs, on that ca
 
 - **An operand without a `pos` axis** (a `mean` step's vector) broadcasts over every call; reduce a per-position read over `pos` first.
 - **A per-position operand** takes one write per call, each entry at one call (`{"frame": 3, "index": 0}`) with an operand of one position.
-- **Read that operand where every row has it:** in the prefill at a static index, or at a decode call that `min_new_tokens` makes every row reach. An operand read at a decode call is missing on every row whose generation stopped before that call ([alignment-missing.md](alignment-missing.md)).
+- **Read that operand where every row has it:** in the prefill at a static index, or at a decode call that `min_new_tokens` makes every row reach. An operand read at a decode call is missing on every row whose generation stopped before that call, and a write that lands on such a row is refused ([alignment-missing.md](alignment-missing.md#how-it-propagates)).
 
 ## `… holds N position(s) per row and the value … holds M`
 

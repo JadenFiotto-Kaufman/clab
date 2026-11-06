@@ -16,7 +16,7 @@ clab's vocabulary is read off the code: an op's signature is what a document may
 
 - A parameter's name is the argument's spelling, with a trailing underscore dropped (`with_` is `"with"`). An unknown key is refused naming the valid ones, and a parameter without a default is required.
 - A parameter's annotation is how a document fills it. `Value` (a named value or a number), `Tokens` (a column resolved through the value's vocabulary), `Text` (a column read as text) and `Featurizer` (a featurizer's name) are resolved by compile; any other annotation is a literal type, checked strictly.
-- Parameters the run supplies are never the document's. For an op, those are `clab/ops/__init__.py` `SUPPLIED` (`engine`, `original`, `dims`, `layers`, `eos`, `rows`, `positions`). For a kind, they are `width`, `bundle`, `header`, `labels` and `kept`, and to its `apply` the `dims` and `layers` of the value it meets. Name one in the signature to receive it.
+- Parameters the run supplies are never the document's. For an op, those are `clab/ops/__init__.py` `SUPPLIED` (`engine`, `original`, `dims`, `layers`, `eos`, `rows`, `positions`). A document that gives an op one of them is refused by name (`clab/ops/__init__.py` `supplied`). For a kind, they are `width`, `bundle`, `header`, `labels` and `kept`, and to its `apply` the `dims` and `layers` of the value it meets. Name one in the signature to receive it.
 - The docstring's text is what `clab describe` and FORMAT.md print beside it.
 
 ## Adding an op

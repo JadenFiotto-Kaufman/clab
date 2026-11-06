@@ -10,8 +10,8 @@ from typing import TYPE_CHECKING, cast
 from clab import ops
 from clab.compile import positions
 from clab.compile.answers import check_text_ref, vocabulary
-from clab.compile.arguments import (featurizer_kind, layout, mismatch, narrowed_readout_refusal, references, resolver,
-                                    space_of)
+from clab.compile.arguments import (featurizer_kind, k_past, known_counts, layout, mismatch, narrowed_readout_refusal,
+                                    references, resolver, several, space_of)
 from clab.compile.positions import check_calls_known
 from clab.compile.state import Compiling, Findings
 from clab.format import address, data, registry, selectors
@@ -111,7 +111,8 @@ def compile_entry(cx: Compiling, path: str, spec: Intervention, plan: Plan, step
     `pos` and take no operand with a `pos` axis are counted into `per_call`, the ops the run applies at each call."""
     for written, record in [(path, spec)] + [(f"{path}.ops[{i}]", o) for i, o in enumerate(spec.ops)]:   # as written
         for key in sorted(record.model_fields_set & (set(type(record).model_fields) - set(documented(type(record))))):
-            fail(f"{written}.{key}", f"{key!r} is a derived field, which compile writes; an entry sets none")
+            fail(f"{written}.{key}", ops.supplied(key) if isinstance(record, Op) and key in ops.SUPPLIED else
+                 f"{key!r} is a derived field, which compile writes; an entry sets none")
     if isinstance(spec.site, Site):
         site = spec.site
     elif spec.site in plan.sites:
@@ -199,6 +200,10 @@ def compile_entry(cx: Compiling, path: str, spec: Intervention, plan: Plan, step
                  "a gradient off the model, which writes nothing back")
         if o.op == "readout" and (why := ops.transforms.unstreamed(site.component)):
             fail(here, why)
+        if (top := next((t for t in spec.ops[:i] if t.op == "top_k"), None)) is not None:
+            fail(here, f"{o.op!r} follows top_k, whose value is several tensors ({several(top)}), and {o.op!r} takes "
+                 "one: rank what it needs in this entry in place of the top_k, or make the top_k a step after the "
+                 f"forward and {o.op!r} a step over the member it needs (`<step>.ids`)")
         if o.op == "readout" and "hidden_size" in (site.select or {}) and "hidden_size" in dims:
             fail(here, narrowed_readout_refusal(
                 f"{site.component} select hidden_size {(site.select or {})['hidden_size']!r}"))
@@ -231,6 +236,8 @@ def compile_entry(cx: Compiling, path: str, spec: Intervention, plan: Plan, step
         ours = Labelled(dims=dims, space=outside[closes[i]["at"]] if i in closes else space,
                         **{**labels, "kept": {a: v for a, v in labels["kept"].items() if a in dims},
                            "width": labels["width"] if "pos" in dims else None})
+        if why := k_past(o.op, args, ours, None, known_counts(cx, ours)):
+            fail(f"{here}.k", why)
         operands = references(o.op, args, resolver(cx, here, "classes" in dims, at, live))
         for key, (written, theirs) in operands.items():
             if written in live and gathers(live[written]):
@@ -240,6 +247,8 @@ def compile_entry(cx: Compiling, path: str, spec: Intervention, plan: Plan, step
                 fail(f"{here}.{key}", f"{written!r} is an entry of this forward, and {o.op!r} here runs once the value "
                      "is off the model, batch by batch, where an operand is a value made before this step; an "
                      "operand from the same forward is a write's: take the two in an op step after the forward")
+            if i <= last and written not in live and (why := unreachable(cx, written, theirs, at)):
+                fail(f"{here}.{key}", why)
             if i <= last and "pos" in (theirs.dims or []) and step.kind == "generate" and not one_call(pos):
                 fail(f"{here}.{key}", f"{written!r} has a pos axis, and this write lands beyond the prefill: at each "
                      "decode call it names, as the call runs, on that call's one position, where an operand's "
@@ -273,6 +282,26 @@ def compile_entry(cx: Compiling, path: str, spec: Intervention, plan: Plan, step
     return Intervention(**spec.model_dump(exclude_defaults=True, exclude={"site", "ops"}), site=site, ops=laid,
                         dims=(["layers"] if address.stacks(site.layers) else []) + dims, **labels,
                         space=space, per_call=per_call)
+
+
+def unreachable(cx: Compiling, written: str, theirs: Labelled, at: dict[str, int]) -> str | None:
+    """Why a write cannot take the value `written` names as its operand: a generation's read at a decode call no row
+    can make, a fixed frame at or past the generation's `max_new_tokens` (its calls run from 0, the prefill, to
+    `max_new_tokens - 1`), which holds no value on any row. A write takes an operand read on every row it lands on;
+    the rows a generation stops on EOS before the call are the run's to say (`batches.refuse_unreached`), and a read
+    there, nothing writing it, is `alignment_missing`. `theirs` is the value's record, an entry of an earlier step
+    (not the write's own forward's, which is no generation's read). None for any other value."""
+    if not isinstance(theirs, Intervention):
+        return None
+    producer, read = entry_of(cx.steps, written, at)
+    frame, most = positions.parse(read.pos)["frame"], (producer.model_extra or {}).get("max_new_tokens")
+    if producer.kind != "generate" or not isinstance(frame, int) or not isinstance(most, int) or frame < most:
+        return None
+    name = written.partition(".")[0]
+    return (f"{written!r} is read at decode call {frame}, and {name!r} makes calls 0 to {most - 1} (max_new_tokens "
+            f"{most}), so it holds no value on any row; a write takes an operand read on every row it lands on: read "
+            f"it at a call below {most} ({{\"frame\": -1}} is each row's last), or give {name!r} a max_new_tokens "
+            f"past {frame}")
 
 
 def one_call(pos: dict) -> bool:

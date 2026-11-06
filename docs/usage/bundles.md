@@ -70,6 +70,8 @@ Compile reads the bundle into the plan and checks it with the document alone. Wh
 |---|---|---|
 | the file exists and is safetensors | compile | `documents/artifacts/nope.safetensors does not exist under the corpus root; run the document that writes it first` |
 | it holds exactly the kind's tensors | compile | `documents/artifacts/sae.safetensors holds W_dec, W_enc, b_dec, b_enc; a subspace bundle holds basis` |
+| the header records its `width` and every field a draw from it needs: a subspace's or a pca's `k`, an sae's `latents`, a lora's `rank` and `alpha`, a probe's `classes` | compile | `documents/artifacts/sae.safetensors: header records no 'latents', which a sae bundle records` |
+| every tensor's shape, against one drawn from the header at its `width` and fields: a subspace's `basis` `[width, k]`, a lora's `B` `[rank, width]`, a gate's `theta` `[width]` | compile | `'basis' is [16, 4], and its header lays a subspace out at width 16, k 8, parametrization cayley: 'basis' is [16, 8]` |
 | the kind's fields the document gives | compile | `header 'k' is '8'; this document expects '4'` |
 | the model's `key`, `revision` and `dtype` | compile | `header 'model.dtype' is 'float32'; this document expects 'bfloat16'` |
 | the component, and a layer written as a non-negative int, at every use | compile | `header 'layer' is '0'; this document uses 'rot' at layer_output layer 1 (counterfactual.v_cf)` |
@@ -107,8 +109,8 @@ save_file({"W": W, "b": b}, "documents/artifacts/probe.safetensors", metadata={
 ```
 
 - `classes` is the class list as `json.dumps` writes it, its `", "` separator included: `'["weekday","weekend"]'` is refused against `'["weekday", "weekend"]'`. It is checked, with `kind` and the three `model.` keys (the document's `model` block as written), when the document compiles.
-- `component` and `layer` (the one layer as an int, or a JSON list of several) are checked at every use when the document compiles, and `width`, the site's last axis, before any forward. A header without one of the three is refused (`header 'width' is None; this document uses 'probe' at layer_output, whose width is 16`).
-- The tensors' shapes are not checked against `width`. A `W` of another first axis fails at the first forward with torch's own error (`mm: mat1 and mat2 shapes cannot be multiplied (3x16 and 8x2)`).
+- `component` and `layer` (the one layer as an int, or a JSON list of several) are checked at every use when the document compiles, and `width`, the site's last axis, before any forward. A header without `width` is refused at compile (`header records no 'width', which a linear bundle records`). One without `component` or `layer` is refused at compile, naming the first use (`header 'layer' is None; this document uses 'probe' at layer_output layer 1`).
+- `W` and `b` are checked against the header's `width` and `classes` at compile. A `W` of another first axis is refused (`'W' is [8, 2], and its header lays a linear out at width 16`).
 
 ## Swept training runs
 

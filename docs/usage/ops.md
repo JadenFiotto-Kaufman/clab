@@ -90,6 +90,7 @@ An answer column whose row is a set of strings (`[" Saturday", " Sunday"]`) is a
 | `rows, pos, hidden_size` | `{"op": "mean", "over": ["pos"]}` | `rows, hidden_size`: one vector per row |
 
 - A generate step's ids, and a comparison of them, are laid out `rows, new`, and the default keeps `new`: `{"op": "mean"}` gives `new`, and `"over": ["rows", "new"]` gives one number ([steering](../patterns/steering.md#through-every-generated-token)).
+- `min` and `max` keep an infinity among the values there: a `min` of `log` of a probability of 0 is `-inf`, never the dtype's lowest finite number.
 - `std` is the sample standard deviation, n − 1 in the denominator, NaN where fewer than two values are there. `std` of a metric over `rows` is the spread a mean effect is read against.
 - `median` of an even count is the mean of the two middle values, as numpy's is (torch's is the lower of the two), and NaN where none is there. A steering dose set from the activations is the `median` of a `norm` ([steering](../patterns/steering.md#a-dose-set-from-the-activations)).
 - `norm` and `dot` reduce over `hidden_size` by default; a value without one names its axis in `over`.
@@ -123,11 +124,16 @@ What is left (a confidence interval, a ranking across points, a join across runs
 - Over another axis (`key` on an attention pattern, `features` after an `encode`), `top_k` gives `values` instead of `probs`.
 - As a step over logits, `top_k` also holds the decoded `tokens`; `clab table --csv` prints them whole.
 - Each id is spelled as the tokenizer's piece, as `pos_token` spells it, a SentencePiece word-start `▁` kept: the corpus Llama's 17972 is `▁Fed`.
-- A later step cannot name a `top_k` step's `ids`, `probs` or `tokens` (`'top3.probs' names no value produced before this step`). Save it and read the fields from `plan.results` ([output](output.md#in-python)).
+- A later step names a `top_k` step's members as it names a fit's: `top3.ids`, `top3.probs` (or `top3.values`) and `top3.tokens`. Each is laid out as `top3` is, and is saved and tabled under its own name. Added to `documents/readout.json` beside an `argmax` step `best`, `{"kind": "op", "op": "eq", "of": "top3.ids", "with": "best"}` is 1 at each row's first pick.
+- The value itself is several tensors, which no op takes. An op over it, an operand naming it and an op after a `top_k` in its entry are refused at compile, naming the members to use (`'top3' is a top_k's value, several tensors`). `top3.tokens` is text, which no op takes either (`'top3.tokens' is a top_k's tokens`). Its ids are `top3.ids`.
+- A `top_k` inside an entry has no members. Make it a step after the forward.
 - `top_k` over a list of axes ranks all their entries together, removes every listed axis and adds `k`.
 - A feature's max-activating examples are one such step: `{"op": "top_k", "of": "harvest.feats", "k": 10, "over": ["rows", "pos"]}` is each feature's ten largest latents over every (row, position) pair, laid out `[features, k]`. A `top_k` over `rows` of a `max` over `pos` instead ranks each row by its best position and loses which position that was.
-- Over a list, `ids` is one tensor per listed axis, keyed by axis name (`plan.results["top"]["ids"]["rows"]`, and `["pos"]`), beside `values`. A list of one axis (`"over": ["pos"]`) gives this form; a bare axis name gives one tensor.
+- Over a list, `ids` is one tensor per listed axis, beside `values`. A later step names each by its axis, `top.ids.rows` and `top.ids.pos`; in Python it is `plan.results["top"]["ids"]["rows"]`. An op over `top.ids` itself is refused (`'top.ids' is a top_k's ids over a list of axes`). A list of one axis (`"over": ["pos"]`) gives this form; a bare axis name gives one tensor.
 - An exact tie goes to the lower index along the first axis listed, then the next.
+- A `k` below 1 is refused at compile (`k 0: a top_k picks at least one entry`). A `k` past the entries it ranks is refused where compile or preflight knows their number (`k 5 is more than the 3 entries it ranks`); [FORMAT.md#transforms](../../FORMAT.md#transforms) lists which stage knows which.
+- Along a ragged axis (a pattern's `key`, a `pos` whose rows hold different numbers of positions) a pick past a row's own is -1, however large `k` is.
+- Along an axis neither stage knows the size of (a drawn gate's coordinates, a generation's `new`, a fit's `epochs`, a load's `k`), a `k` past it stops the op at the run with torch's error.
 - `clab table` of a `top_k` over `rows` prints a row per pick, with the picked row's columns and the picked position's token ([output](output.md#clab-table)).
 - A list of axes is refused inside an entry, since an entry's batches do not join an index per axis; one axis named alone is not.
 - `detokenize` turns a `generate` step's ids into text, stopped before each row's first EOS ([generate](generate.md)).

@@ -39,7 +39,7 @@ from clab.compile.uses import instance, named_values
 from clab.format import data
 from clab.format.sweeps import agreeing_point, coordinate, coordinate_text, lookup, projection, put
 from clab.plan import (Forward, Load, OpStep, Plan, Run, arguments, entries, gradient_of, made_by, points, projections,
-                        record_of, runnable, saved_value_axes, serving, walk)
+                        record_of, runnable, saved_value_axes, serving, top_k_members, walk)
 from clab.steps import fit, generate
 from clab.steps.batches import (argument_binding, bind_arguments, bind_schedule, input_batches, join_batches,
                                 layers_made_at, model_device, schedule_binding, scope_ids, stack_layers, stop_ids,
@@ -385,6 +385,11 @@ def op(engine: Engine, plan: Plan, name: str, step: OpStep, state: ChainMap, bat
                                            arguments(step).get("derangement", False))
         step.permutation = order.tolist() if rows is None else rows[order].tolist()
     put(state, name, projection(step.at, step.axes), value)
+    for member in top_k_members(step) if step.op == "top_k" else []:      # each by its own name, as a fit's are
+        part = value
+        for key in member.split("."):
+            part = part[key]
+        put(state, f"{name}.{member}", projection(step.at, step.axes), part)
 
 
 def load(engine: Engine, plan: Plan, name: str, step: Load, state: ChainMap, batch_size: int, findings: Findings,

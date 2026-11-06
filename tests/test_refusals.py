@@ -727,6 +727,171 @@ def test_a_permute_is_refused_by_name_where_it_cannot_mean_anything(change, mess
         edited("mean_ablation", change).compile()
 
 
+def ranked_whole(steps: dict, ops: list | None = None):
+    """readout.json with `steps` after its forward, and its head read with `ops` in place of none."""
+    def change(d):
+        if ops is not None:
+            d["steps"]["clean"]["interventions"]["logits"]["ops"] = ops
+            del d["steps"]["top3"], d["steps"]["p_answer"]
+        d["steps"].update(steps)
+        d["saves"] = list(steps) or ["clean.logits"]
+    return change
+
+
+TOP3 = r"'top3' is a top_k's value, several tensors \(its ids, their probs and their tokens\)"
+RANK = r"rank what it needs with an op over the value the top_k ranks"
+
+
+@pytest.mark.parametrize("change, message", [
+    (ranked_whole({"m": {"kind": "op", "op": "mean", "of": "top3"}}),
+     rf"^steps\.m\.of: {TOP3}, and 'mean' takes one: name the member it needs \('top3\.ids', 'top3\.probs'\), or "
+     rf"{RANK}, 'clean\.logits'$"),
+    (ranked_whole({"m": {"kind": "op", "op": "argmax", "of": "top3", "over": "k"}}), rf"^steps\.m\.of: {TOP3}, and 'argmax'"),
+    (ranked_whole({"best": {"kind": "op", "op": "argmax", "of": "clean.logits"},
+                   "m": {"kind": "op", "op": "eq", "of": "best", "with": "top3"}}),
+     rf"^steps\.m\.with: {TOP3}, and an operand takes one: name the member it needs \('top3\.ids', 'top3\.probs'\), "
+     rf"or {RANK}, 'clean\.logits'$"),
+    (ranked_whole({"t": {"kind": "op", "op": "top_k", "of": "clean.logits", "k": 2, "over": ["rows", "vocab_size"]},
+                   "m": {"kind": "op", "op": "mean", "of": "t", "over": ["k"]}}),
+     r"^steps\.m\.of: 't' is a top_k's value, several tensors \(its ids \(one tensor per axis it ranks\), their probs and "
+     r"their tokens\), and 'mean' takes one: name the member it needs \('t\.ids\.rows', 't\.ids\.vocab_size', "
+     r"'t\.probs'\), or "),
+    (ranked_whole({"m": {"kind": "op", "op": "max", "of": "clean.logits", "over": ["k"]}}, [{"op": "top_k", "k": 2}]),
+     r"^steps\.m\.of: 'clean\.logits' is a top_k's value, several tensors \(its ids, their probs\), and 'max' takes one: "
+     r"rank what it needs in that entry in place of the top_k, or make the top_k a step after the forward, whose "
+     r"members a later step names \(`<step>\.ids`\)$"),
+    (ranked_whole({}, [{"op": "top_k", "k": 2}, {"op": "mean", "over": ["pos"]}]),
+     r"^steps\.clean\.interventions\.logits\.ops\[1\]: 'mean' follows top_k, whose value is several tensors \(its ids, "
+     r"their probs\), and 'mean' takes one: rank what it needs in this entry in place of the top_k, or make the top_k a "
+     r"step after the forward and 'mean' a step over the member it needs \(`<step>\.ids`\)$"),
+    (ranked_whole({"t": {"kind": "op", "op": "top_k", "of": "clean.logits", "k": 2, "over": ["rows", "vocab_size"]},
+                   "m": {"kind": "op", "op": "eq", "of": "t.ids", "with": 0}}),
+     r"^steps\.m\.of: 't\.ids' is a top_k's ids over a list of axes, one tensor per axis it ranks, and 'eq' takes one: "
+     r"name the axis's \('t\.ids\.rows', 't\.ids\.vocab_size'\)$"),
+    (ranked_whole({"m": {"kind": "op", "op": "eq", "of": "top3.tokens", "with": 0}}),
+     r"^steps\.m\.of: 'top3\.tokens' is a top_k's tokens, its picks' token strings, which are text, and 'eq' takes a "
+     r"tensor: name their ids \('top3\.ids'\)$"),
+], ids=["mean", "argmax", "operand", "over-a-list", "an-entry's", "after-it-in-an-entry", "ids-over-a-list", "tokens"])
+def test_an_op_over_a_whole_top_k_value_is_refused_at_compile(change, message):
+    """A top_k's value is several tensors, which every op met at the run with a raw error: an op step over one, of
+    either form (`ids` one tensor, or one per axis over a list of them), an operand naming one, an op over an entry
+    whose last op is one, and an op after one in its entry are refused by name at compile, naming the members a later
+    step takes in its place; and so are its `ids` over a list of axes (one tensor per axis) and its `tokens` (text)."""
+    with pytest.raises(PlanError, match=message):
+        edited("readout", change).compile()
+
+
+def ranked_past(read: dict, steps: dict, ops: list | None = None, featurizers: dict | None = None):
+    """readout.json with its forward reading `read` (running `ops` in the entry), then `steps`."""
+    def change(d):
+        d["steps"] = {"clean": {"kind": "forward", "input": "prompts.input", "interventions": {
+            "r": {**read, **({"ops": ops} if ops else {})}}}, **steps}
+        d["saves"] = list(steps) or ["clean.r"]
+        d["featurizers"] = featurizers or {}
+    return change
+
+
+TOP = {"kind": "op", "op": "top_k", "of": "clean.r"}
+LAYER0 = {"component": "layer_output", "layers": 0}
+NARROW = {"site": {"component": "logits", "select": {"vocab_size": [1, 2, 3]}}, "pos": -1}
+PICKS = r", each of which it picks once: k is at most "
+
+
+@pytest.mark.parametrize("change, message", [
+    (ranked_past(NARROW, {"t": {**TOP, "k": 5}}),
+     rf"^steps\.t\.k: k 5 is more than the 3 entries it ranks, 3 along vocab_size \(those its select keeps\){PICKS}3$"),
+    (ranked_past(NARROW, {}, [{"op": "top_k", "k": 4}]),
+     r"^steps\.clean\.interventions\.r\.ops\[0\]\.k: k 4 is more than the 3 entries it ranks, 3 along vocab_size \(those"),
+    (ranked_past({"site": {"component": "layer_output", "layers": [0, 1]}, "pos": -1},
+                 {"t": {**TOP, "k": 3, "over": "layers"}}),
+     rf"^steps\.t\.k: k 3 is more than the 2 entries it ranks, 2 along layers \(the value's\){PICKS}2$"),
+    (ranked_past({"site": LAYER0, "pos": {"index": "-3:"}}, {"t": {**TOP, "k": 4, "over": "pos"}}),
+     rf"^steps\.t\.k: k 4 is more than the 3 entries it ranks, 3 along pos \(each row's\){PICKS}3$"),
+    (ranked_past({"site": LAYER0, "pos": -1}, {}, [{"op": "encode", "featurizer": "probe"},
+                                                    {"op": "top_k", "k": 5, "over": "classes"}],
+                 {"probe": {"kind": "linear", "classes": "prompts.cf_answer"}}),
+     rf"^steps\.clean\.interventions\.r\.ops\[1\]\.k: k 5 is more than the 4 entries it ranks, 4 along classes \(the "
+     rf"probe's\){PICKS}4$"),
+    (ranked_past(NARROW, {"t": {**TOP, "k": 0}}), r"^steps\.t\.k: k 0: a top_k picks at least one entry, so k is 1 or "
+                                                  r"more$"),
+    (ranked_past(NARROW, {}, [{"op": "top_k", "k": -1}]),
+     r"^steps\.clean\.interventions\.r\.ops\[0\]\.k: k -1: a top_k picks at least one entry, so k is 1 or more$"),
+    (ranked_past({"site": LAYER0, "pos": -1}, {"t": {**TOP, "k": 5, "over": ["rows"]}}),
+     rf"^steps\.t\.k: k 5 is more than the 4 entries it ranks, 4 along rows \(the dataset's\){PICKS}4$"),
+    (ranked_past({"site": LAYER0, "pos": -1}, {"t": {**TOP, "k": 5, "over": "features"}},
+                 [{"op": "encode", "featurizer": "rot"}], {"rot": {"kind": "subspace", "k": 4}}),
+     rf"^steps\.t\.k: k 5 is more than the 4 entries it ranks, 4 along features \(the subspace's coordinates\)"
+     rf"{PICKS}4$"),
+    (ranked_past({"site": LAYER0, "pos": -1}, {}, [{"op": "encode", "featurizer": "s", "select": {"features": [0, 1]}},
+                                                    {"op": "top_k", "k": 3, "over": "features"}],
+                 {"s": {"kind": "sae", "latents": 8}}),
+     rf"^steps\.clean\.interventions\.r\.ops\[1\]\.k: k 3 is more than the 2 entries it ranks, 2 along features "
+     rf"\(those its encode's select keeps\){PICKS}2$"),
+    (ranked_past({"site": {"component": "logits"}, "pos": -1},
+                 {"t": {**TOP, "k": 3}, "a": {"kind": "op", "op": "abs", "of": "t.probs"},
+                  "u": {"kind": "op", "op": "top_k", "of": "a", "k": 5, "over": "k"}}),
+     rf"^steps\.u\.k: k 5 is more than the 3 entries it ranks, 3 along k \(the picks of the top_k it ranks\){PICKS}3$"),
+], ids=["select", "select-in-an-entry", "layers", "static-width", "classes", "zero", "negative", "rows", "features",
+        "selected-features", "a-top_k's-k"])
+def test_a_top_k_past_a_static_axis_the_document_sizes_is_refused_at_compile(change, message):
+    """A `k` past the entries of an axis whose size the document fixes, a `select`'s indices, the layers it picks, a
+    static width, a probe's classes, failed at the run with torch's own error: refused at compile, naming the axis
+    and the most `k` can be: also the dataset's rows, a featurizer's coordinates (as many as an encode's `select`
+    keeps), an earlier `top_k`'s `k` through an op step over its member; and so is a `k` of 0 or below, which picks
+    nothing, on a step and in an entry."""
+    with pytest.raises(PlanError, match=message):
+        edited("readout", change).compile()
+
+
+@pytest.mark.parametrize("batch_size, refused", [(1, True), (2, False), (3, False)])
+def test_a_top_k_over_rows_in_a_fits_body_is_held_to_the_rows_its_fewest_row_run_holds(batch_size, refused):
+    """das.json's body runs over minibatches of its 2 training rows and once over both: a `top_k` over rows there
+    ranks each run's rows, so `k` 2 fits minibatches of 2 or more and is refused at compile, naming the bound, where
+    every minibatch holds one."""
+    def change(d):
+        d["steps"]["fit"]["batch_size"] = batch_size
+        d["steps"]["fit"]["steps"]["t"] = {"kind": "op", "op": "top_k", "of": "patched.logits", "k": 2, "over": "rows"}
+    plan = edited("das", change)
+    if not refused:
+        plan.compile()
+        return
+    with pytest.raises(PlanError, match=r"^steps\.fit\.steps\.t\.k: k 2 is more than the 1 entry it ranks, 1 along rows "
+                                        r"\(those the fewest-row run of the body holds, of 2 rows in minibatches of 1\), "
+                                        r"each of which it picks once: k is at most 1$"):
+        plan.compile()
+
+
+@pytest.mark.parametrize("change, message", [
+    (ranked_past({"site": {"component": "logits"}, "pos": -1}, {"t": {**TOP, "k": 40000}}),
+     rf"^t: k 40000 is more than the 32000 entries it ranks, 32000 along vocab_size \(the model's\){PICKS}32000$"),
+    (ranked_past({"site": LAYER0, "pos": -1}, {}, [{"op": "top_k", "k": 17, "over": "hidden_size"}]),
+     rf"^clean\.r: k 17 is more than the 16 entries it ranks, 16 along hidden_size \(the model's\){PICKS}16$"),
+    (ranked_past({"site": {"component": "layer_output", "layers": ":"}, "pos": -1},
+                 {"t": {**TOP, "k": 3, "over": "layers"}}),
+     rf"^t: k 3 is more than the 2 entries it ranks, 2 along layers \(the value's\){PICKS}2$"),
+    (ranked_past({"site": LAYER0, "pos": {"scope": {"text": " tomorrow"}}}, {"t": {**TOP, "k": 3, "over": "pos"}}),
+     rf"^t: k 3 is more than the 2 entries it ranks, 2 along pos \(each row's\){PICKS}2$"),
+    (ranked_past({"site": LAYER0, "pos": {"index": "-2:"}}, {"t": {**TOP, "k": 33, "over": ["pos", "hidden_size"]}}),
+     rf"^t: k 33 is more than the 32 entries it ranks, 2 along pos \(each row's\) by 16 along "
+     rf"hidden_size \(the model's\){PICKS}32$"),
+], ids=["vocab_size", "hidden_size-in-an-entry", "a-slice-of-layers", "a-scope's-width", "a-list-of-axes"])
+def test_a_top_k_past_a_static_axis_the_model_or_the_rows_size_is_refused_before_any_forward(engines, change,
+                                                                                            message):
+    """A `k` past the entries of an axis the model sizes (`vocab_size`, `hidden_size`, the layers a slice picks) or
+    the rows do (a scope whose rows confirm one width), alone or among a list of axes, is refused in preflight, before
+    any forward, where it failed at the run with torch's own error."""
+    text, forwards = refused(engines, edited("readout", change).compile())
+    assert re.match(message, text) and forwards == 0, text
+
+
+def test_a_top_k_past_the_models_size_at_one_point_of_a_sweep_is_refused_naming_the_point(engines):
+    """Swept over `k`, the point whose `k` is past the model's vocabulary is refused before any forward, naming it."""
+    plan = edited("readout", ranked_past({"site": {"component": "logits"}, "pos": -1},
+                                         {"t": {**TOP, "k": {"sweep": [3, 40000]}}})).compile()
+    text, forwards = refused(engines, plan)
+    assert re.match(r"^t at k=40000: k 40000 is more than the 32000 entries it ranks", text) and forwards == 0, text
+
+
 def test_a_top_k_over_a_list_of_axes_is_a_step_and_refused_inside_an_entry():
     """Its `ids` are an index per ranked axis of each pick, which an entry's batches do not join."""
     def change(d):

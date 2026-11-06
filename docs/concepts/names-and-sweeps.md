@@ -12,7 +12,7 @@ A document is a line of steps that name each other's values, and compile resolve
 
 ## A name is a thing, then a member
 
-Every reference splits at its first dot. The part before it is a *thing*: a step, a dataset or a featurizer. The part after it is a *member* of that thing: a step's entry (`counterfactual.v_cf`), a dataset's column (`pairs.cf_answer`), a featurizer's scalar (`mask.mask`), a fit's member (`fit.rot`). The thing alone decides what kind of value a reference is, so the three kinds share one namespace. A name has no dot, and no step may share a name with a dataset or a featurizer:
+Every reference splits at its first dot. The part before it is a *thing*: a step, a dataset or a featurizer. The part after it is a *member* of that thing: a step's entry (`counterfactual.v_cf`), a dataset's column (`pairs.cf_answer`), a featurizer's scalar (`mask.mask`), a fit's member (`fit.rot`), a `top_k` step's member (`top3.ids`, and over a list of axes `top.ids.rows`). The thing alone decides what kind of value a reference is, so the three kinds share one namespace. A name has no dot, and no step may share a name with a dataset or a featurizer:
 
 ```text
 clab: steps.pairs: 'pairs' is also a dataset or a featurizer

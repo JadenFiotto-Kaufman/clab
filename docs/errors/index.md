@@ -24,7 +24,7 @@ Each row quotes a message's first clause without its `<where>:`. `<x>` stands fo
 | `Field required` | a required key is missing (`model`, `steps`) | [FORMAT.md](../../FORMAT.md#root-keys) |
 | `Input should be …` | a value of none of the field's forms; a field of several forms prints one line per form, its path ending in the form (`input.str: Input should be a valid string`, then `input.list[…]: …`) | [FORMAT.md](../../FORMAT.md#root-keys) |
 | `unknown step kind '<k>'` | `kind` names no step kind | [FORMAT.md](../../FORMAT.md#step-kinds) |
-| `'<f>' is a derived field, which compile writes` | a field compile fills, set in a document: a step's `at` or `schedule`, `batch_size` on a forward or a generate, an entry's `positions`, `gathered` or `dims` | [FORMAT.md](../../FORMAT.md#derived-fields) |
+| `'<f>' is a derived field, which compile writes` | a field compile fills, set in a document: a step's `at` or `schedule`, `batch_size` on a forward or a generate, an entry's `positions`, `gathered`, `dims`, `width` or `space`, an op's `space` | [FORMAT.md](../../FORMAT.md#derived-fields) |
 | `'reads': a step's reads and writes are one 'interventions' value` | entries go in one `interventions` dict; an entry with an edit writes | [interventions.md](../usage/interventions.md) |
 | `a name has no dots` | a step named with a dot | [writing-a-document.md](../usage/writing-a-document.md) |
 | `'<n>' is also a dataset or a featurizer` | a step named like a dataset or a featurizer | [writing-a-document.md](../usage/writing-a-document.md) |
@@ -33,6 +33,7 @@ Each row quotes a message's first clause without its `<where>:`. `<x>` stands fo
 | `'<op>' needs '<arg>'` | a required argument left out | [FORMAT.md](../../FORMAT.md#ops) |
 | `<arg>: <v> is not <type>` | an argument of another type (`p: 'inf' is not float`) | [FORMAT.md](../../FORMAT.md#ops) |
 | `<arg>: <v> is not a named value or a number` | a value argument of another form | [FORMAT.md](../../FORMAT.md#ops) |
+| `'<arg>' is no argument a document gives: the run supplies it` | an op argument under a name the run supplies the op (`dims`, `layers`, `rows`, `positions`, `eos`, `engine`, `original`: `clab/ops/__init__.py` `SUPPLIED`), on an op step or an entry's op | [FORMAT.md](../../FORMAT.md#ops) |
 | `'clamp' needs 'min' or 'max', or both`; `'clamp' min <a> is greater than its max <b>` | `clamp`'s bounds | [FORMAT.md](../../FORMAT.md#edits) |
 | `against <v> is not a name` | `kl`'s or `js`'s `against` is not a named value | [ops.md](../usage/ops.md#metrics) |
 | `'norm' p <p> is not finite` | an infinite `p`; the largest absolute value is a `max` of `abs` | [ops.md](../usage/ops.md#reductions-and-over) |
@@ -151,6 +152,8 @@ Each row quotes a message's first clause without its `<where>:`. `<x>` stands fo
 | `'<n>' is a bundle, which a featurizer of its kind loads, with 'file_path'` | a `pca`'s value or a trained featurizer named in a `load` | [cached-harvest.md](../patterns/cached-harvest.md#what-the-load-checks) |
 | `'<n>' is in the coordinates of '<f>'` | a value inside a featurizer's encode; load the value it encodes, and encode it here | [cached-harvest.md](../patterns/cached-harvest.md#what-the-load-checks) |
 | `'<n>' is a generation's value or holds its positions` | a generation's ids, or a read at its decode calls | [cached-harvest.md](../patterns/cached-harvest.md#what-the-load-checks) |
+| `'<l>' loads '<x>.tokens', a top_k's tokens` | an op over a loaded `top_k` member that is text; save `<x>.ids` in the run that made it and load that | [ops.md](../usage/ops.md#transforms) |
+| `'<l>' loads '<x>.ids', a top_k's ids over a list of axes` | an op over a loaded `ids` of a `top_k` over a list of axes, one tensor per axis; save the axis's (`<x>.ids.rows`) and load that | [ops.md](../usage/ops.md#transforms) |
 | `a fit's body holds no load` | a `load` inside a fit; load before the fit | [cached-harvest.md](../patterns/cached-harvest.md#what-the-load-checks) |
 
 ## Positions
@@ -200,7 +203,7 @@ Each row quotes a message's first clause without its `<where>:`. `<x>` stands fo
 | `the <engine> engine does not serve <c>: nnterp has no family for this architecture` | a mixture on a checkpoint nnterp reads under its default family, which names none of a mixture's values | [sites.md](../usage/sites.md#a-mixture-of-experts) |
 | `'<edit>' would compute on expert_indices, the ids the model indexes its num_experts with, as numbers` | an edit other than `swap` at `expert_indices` (at compile) | [expert-ablation.md](../patterns/expert-ablation.md#the-knockout) |
 | `swap with <v>: expert_indices holds ids` | a constant that is no expert's id | [expert-ablation.md](../patterns/expert-ablation.md#the-knockout) |
-| `writes <v> into expert_indices at row <r>, token <t>` | a named value's entry that is no id, as the write lands; a hole (`writes a hole, -1`) is a row that stopped before the call it was read at, or a position past a row's own | [expert-ablation.md](../patterns/expert-ablation.md#the-knockout) |
+| `writes <v> into expert_indices at row <r>, token <t>` | a named value's entry that is no id, as the write lands; a hole (`writes a hole, -1`) is a -1 in the operand: a step's value that holds one, or a position past a row's own. A generation's read on a row that stopped before its call is refused before the forward instead (`operand '<x>' holds no value on row <r>`) | [expert-ablation.md](../patterns/expert-ablation.md#the-knockout) |
 | `the <engine> engine does not serve <c>: no self_attn module on this block` | a block without the component's module (the linear-attention blocks of a hybrid), refused layer by layer | [sites.md](../usage/sites.md) |
 | `the nnterp engine does not serve <c>: under tp <n> …` | a value the ranks hold in pieces under tensor parallelism: `it is computed inside <module>`, or `<module> is a vocab-parallel embedding` | [engines.md](../usage/engines.md#quantized-and-sharded-models) |
 | `grad's of '<x>' is read at <c> layer <l>, which the <engine> engine's forward reaches no later than this entry's` | `of` is made before, or at, the gradient's own site; name a later entry, such as one at the head | [interventions.md](../usage/interventions.md#a-gradient-at-a-site) |
@@ -226,6 +229,8 @@ Each row quotes a message's first clause without its `<where>:`. `<x>` stands fo
 | `operand '<x>' meets the value '<op>' acts on, which holds …` | the write's own scope holds different numbers of tokens by row | [operand-does-not-fit.md](operand-does-not-fit.md#-a-scoped-read-pairs-with-another-forwards-value-when-every-rows-scope-holds-the-same-number-of-tokens) |
 | `'<x>' holds <n> position(s) per row and the value '<op>' … holds <m>` | two static widths that differ | [operand-does-not-fit.md](operand-does-not-fit.md#-holds-n-positions-per-row-and-the-value--holds-m) |
 | `'<x>' has a pos axis, and this write lands beyond the prefill` | a per-position operand for a write over decode calls | [operand-does-not-fit.md](operand-does-not-fit.md#-has-a-pos-axis-and-this-write-lands-beyond-the-prefill-) |
+| `'<x>' is read at decode call <k>, and '<g>' makes calls 0 to <m-1> (max_new_tokens <m>)` | at compile: a write's operand read at a fixed decode call at or past its generation's `max_new_tokens`, which no row makes | [alignment-missing.md](alignment-missing.md#how-it-propagates) |
+| `operand '<x>' holds no value on row <r> (alignment_missing)`; `operand '<y>', which descends from '<x>', holds no value on row <r>` | in the run: a write whose operand is an earlier generation's read, or an op step's value made from one, on a row whose generation never made the call the read names | [alignment-missing.md](alignment-missing.md#how-it-propagates) |
 | `'<x>' is in the site's own layout; this bracket is in the coordinates of '<f>'` | an operand inside an `encode` bracket, not encoded | [operand-does-not-fit.md](operand-does-not-fit.md#coordinates) |
 | `'<x>' holds num_heads […], and this write's selection holds […]` | an operand's selected indices against the write's | [operand-does-not-fit.md](operand-does-not-fit.md#a-select-list-is-positional) |
 | `'<x>' holds layers […], and this op acts at layers […]` | an operand without a slice for every layer the op acts at | [operand-does-not-fit.md](operand-does-not-fit.md#layers) |
@@ -255,6 +260,12 @@ Each row quotes a message's first clause without its `<where>:`. `<x>` stands fo
 | `count counts along 'pos' unless 'over' names the axes it counts along` | `count` on a value without `pos` | [ops.md](../usage/ops.md#reductions-and-over) |
 | `it ranks the value's '<a>' axis, and the value is laid out […]` | `top_k` or `argmax` on a value without its default axis | [ops.md](../usage/ops.md#transforms) |
 | `over […]: a list of axes names each axis it ranks once` | `top_k` or `argmax` `over` an axis twice | [ops.md](../usage/ops.md#transforms) |
+| `'<x>' is a top_k's value, several tensors` | an op over a whole `top_k` value (an op step's, a load's, an entry's whose last op is `top_k`), or an operand naming one; name a member (`<x>.ids`, `<x>.probs`), or make an entry's `top_k` a step after the forward | [ops.md](../usage/ops.md#transforms) |
+| `'<op>' follows top_k, whose value is several tensors` | an op after a `top_k` in its entry; make the `top_k` a step after the forward and the op a step over its member | [ops.md](../usage/ops.md#transforms) |
+| `'<x>.ids' is a top_k's ids over a list of axes, one tensor per axis it ranks` | an op over the `ids` of a `top_k` over a list of axes; name the axis's, `<x>.ids.rows` | [ops.md](../usage/ops.md#transforms) |
+| `'<x>.tokens' is a top_k's tokens, its picks' token strings, which are text` | an op over a `top_k`'s `tokens`; name its ids, `<x>.ids` | [ops.md](../usage/ops.md#transforms) |
+| `k <k>: a top_k picks at least one entry` | a `top_k` whose `k` is 0 or below | [ops.md](../usage/ops.md#transforms) |
+| `k <k> is more than the <n> entries it ranks` | a `k` past the entries of an axis whose size is known: at compile where the document fixes it (a `select`, a static width, the dataset's rows, a probe's classes, a featurizer's coordinates, an earlier `top_k`'s `k`), in preflight where the model's sizes or the rows do | [ops.md](../usage/ops.md#transforms) |
 | `contains reads text, a detokenize's value (without tokens)` | `contains` on something other than detokenized text | [generation-experiments.md](../patterns/generation-experiments.md#did-it-say-the-answer-contains-over-the-text) |
 | `after keeps each row's text after an occurrence, and with tokens a row is its token strings` | `detokenize` with both `tokens` and `after` | [generation-experiments.md](../patterns/generation-experiments.md#score-what-follows-a-text-after) |
 | `permute is no op of an entry` | `permute` in an entry; it is an op step over a read | [ablation.md](../patterns/ablation.md#resample-by-permuting-the-rows) |
@@ -310,6 +321,8 @@ Each row quotes a message's first clause without its `<where>:`. `<x>` stands fo
 | `<file>: header 'select' is '{…}'; this document uses '<f>' at <c> layer <m>, whose selection keeps …` | a bundle used at another selection | [bundles.md](../usage/bundles.md#what-is-checked-and-when) |
 | `<file>: header has no 'select'` | a bundle made at the whole component, used at a selection | [bundles.md](../usage/bundles.md#what-is-checked-and-when) |
 | `<file>: header 'width' is '<w>'; this document uses '<f>' at <c>, whose width is <v>` | a bundle used at another width | [bundles.md](../usage/bundles.md#what-is-checked-and-when) |
+| `<file>: header records no '<field>', which a <kind> bundle records` | a hand-made clab header without its `width` or a field its kind's draw needs (a subspace's or a pca's `k`, an sae's `latents`, a lora's `rank` and `alpha`, a probe's `classes`) | [bundles.md](../usage/bundles.md#what-is-checked-and-when) |
+| `<file>: '<t>' is […], and its header lays a <kind> out at width <w>` | a bundle tensor whose shape is not a draw's from its header (a subspace's `basis` `[width, k]`, a lora's `B` `[rank, width]`, a gate's `theta` `[width]`) | [bundles.md](../usage/bundles.md#what-is-checked-and-when) |
 | `featurizer '<f>' is used at width <a> here and <b> elsewhere` | one featurizer used at two widths | [featurizers.md](../usage/featurizers.md) |
 | `featurizer '<f>' has <field> <n>, and it is used at width <w>` | a rank or `k` larger than the width allows | [featurizers.md](../usage/featurizers.md) |
 | `<file> has no clab header and is <w> wide` | a headerless file of another width | [featurizers.md](../usage/featurizers.md) |
@@ -406,6 +419,7 @@ Each row quotes a message's first clause without its `<where>:`. `<x>` stands fo
 | `the loaded <e> engine runs on <d> with {…}; device and options are given when an engine loads` | `clab.run` with a loaded engine and another device or options | [python-api.md](../reference/python-api.md) |
 | `the plan has not run, so it has no results; execute it first` | the run record asked for before the run | [python-api.md](../reference/python-api.md) |
 | `out of CUDA memory at batch size <n>` | a step ran out of CUDA memory; the run stops there and saves the steps that finished | [running.md](../usage/running.md#when-a-step-runs-out-of-memory) |
+| `row <r> of dataset '<d>' is not among the <n> rows this value holds` | in the run: a value made over some of its dataset's rows (a fit body's minibatch) read at a row it does not hold; no document reaches it, so reaching it is a defect in clab | [fit.md](../usage/fit.md#the-body) |
 | `the values this document loads hold <n> MiB of tensors (…), and a request carries at most 512 MiB inside its plan` | `load`s too large to send in a request, to an NDIF server or under `-o remote=local` | [cached-harvest.md](../patterns/cached-harvest.md#under-ndif) |
 | `'<n>' was not saved; add it to saves` | `clab table` or `clab show` of an unsaved name, or of a run whose `--out` a later run reused, replacing its manifest | [output.md](../usage/output.md), [bundles.md](../usage/bundles.md#the-two-document-workflow) |
 | `'<n>' has no result: the run stopped before its step` | a name whose step a stopped run never reached | [output.md](../usage/output.md) |

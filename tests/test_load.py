@@ -338,6 +338,44 @@ def refused(root: str, step: dict[str, Any], **more: Any) -> str:
     return str(e.value)
 
 
+def test_an_op_over_a_loaded_top_k_value_is_refused_at_compile(engines, root):
+    """A load of readout.json's `top3` brings its whole value, several tensors, which an op over it met at the run with
+    a raw error: refused by name at compile, as the run that saved it recorded the value."""
+    ran(engines, root, "readout", corpus("readout"))
+    doc = loading(corpus("readout"), {"top": {"kind": "load", "from": "out/readout", "value": "top3"},
+                                      "m": {"kind": "op", "op": "mean", "of": "top"}}, ["m"])
+    with pytest.raises(PlanError, match=r"^steps\.m\.of: 'top' is a top_k's value, several tensors \(its ids, "
+                                        r"their probs and their tokens\), and 'mean' takes one: save the member it needs "
+                                        r"in the run that made it \('top3\.ids', 'top3\.probs'\) and load that, or rank "
+                                        r"what it needs with an op over the value the top_k ranks$"):
+        written(root, "loaded_top", doc)
+
+
+@pytest.mark.parametrize("value, message", [
+    ("top3.tokens", r"^steps\.m\.of: 'top' loads 'top3\.tokens', a top_k's tokens, its picks' token strings, "
+                    r"which are text, and 'eq' takes a tensor: save their ids \('top3\.ids'\) in the run that made it "
+                    r"and load that$"),
+    ("tl.ids", r"^steps\.m\.of: 'top' loads 'tl\.ids', a top_k's ids over a list of axes, one tensor per axis it "
+               r"ranks, and 'eq' takes one: save the axis's \('tl\.ids\.rows', 'tl\.ids\.vocab_size'\) in the run "
+               r"that made it and load that$"),
+])
+def test_a_loaded_top_k_member_that_is_no_tensor_is_refused_at_compile(engines, root, value, message):
+    """A run that saves `top3.tokens` (text) and a list form's `tl.ids` (one tensor per axis) writes each, and a load of
+    either brings what no op takes, which met one at the run with a raw error: refused by name at compile, naming the
+    member to save in its place; a load of `top3.ids` or `tl.ids.rows`, one tensor, is no refusal."""
+    def change(d):
+        d["steps"]["tl"] = {"kind": "op", "op": "top_k", "of": "clean.logits", "k": 2, "over": ["rows", "vocab_size"]}
+        d["saves"] = ["top3.ids", "top3.tokens", "tl.ids", "tl.ids.rows"]
+    ran(engines, root, "members", corpus("readout", change))
+    def loads(saved: str) -> dict:
+        return loading(corpus("readout"), {"top": {"kind": "load", "from": "out/members", "value": saved},
+                                           "m": {"kind": "op", "op": "eq", "of": "top", "with": 0}}, ["m"])
+    for one in ("top3.ids", "tl.ids.rows"):
+        written(root, "loaded_member", loads(one))
+    with pytest.raises(PlanError, match=message):
+        written(root, "loaded_member", loads(value))
+
+
 def test_a_load_from_another_model_is_refused_naming_the_key(root):
     model = {**corpus("pca_harvest")["model"], "attn_implementation": "eager"}
     assert refused(root, LOAD, model=model) == (

@@ -352,6 +352,49 @@ def test_top_k_saves_its_tokens_as_text(filled, engines, tmp_path):
     assert row["value"]["tokens"] == top3["tokens"][0][0] and row["pos_token"] == "▁is"
 
 
+def test_a_later_step_names_a_top_k_steps_members(engines, tmp_path, capsys):
+    """`top3.ids`, `top3.probs` and `top3.tokens` are the step's own tensors and text, each a value laid out as `top3`
+    is with its labels: `eq` of `top3.ids` with an `argmax` of the logits is 1 at the first pick alone, `argmax` of the
+    ids over `k` is the index of the largest id, a `mean` of the probs is the mean of `top3`'s; a top_k over another
+    axis has `values` (a `mean` of them, to the bit), and over a list of axes `ids.<axis>` (`t.ids.rows`, an `eq` of it
+    too); each member saves under its own name, loads back, and `clab table` prints it as `top3`'s table labels it,
+    on both engines alike."""
+    def change(d):
+        d["steps"]["clean"]["interventions"]["h"] = {"site": {"component": "layer_output", "layers": 0}, "pos": -1}
+        d["steps"].update(
+            best={"kind": "op", "op": "argmax", "of": "clean.logits"},
+            first={"kind": "op", "op": "eq", "of": "top3.ids", "with": "best"},
+            largest={"kind": "op", "op": "argmax", "of": "top3.ids", "over": "k"},
+            p_top={"kind": "op", "op": "mean", "of": "top3.probs"},
+            t={"kind": "op", "op": "top_k", "of": "clean.h", "k": 3, "over": "hidden_size"},
+            v_top={"kind": "op", "op": "mean", "of": "t.values"},
+            tl={"kind": "op", "op": "top_k", "of": "clean.h", "k": 2, "over": ["rows", "hidden_size"]},
+            row0={"kind": "op", "op": "eq", "of": "tl.ids.rows", "with": 0})
+        d["saves"] = ["top3", "top3.ids", "top3.tokens", "first", "largest", "p_top", "t", "v_top", "tl", "tl.ids.rows",
+                      "row0"]
+    runs = on_each(engines, edited("readout", change).compile())
+    assert same(runs["nnterp"].results, runs["hooks"].results)
+    v = runs["nnterp"].results
+    ids = v["top3"]["ids"]
+    assert same(v["top3.ids"], ids) and v["top3.tokens"] == v["top3"]["tokens"]
+    assert torch.equal(v["first"], (torch.arange(3) == 0).float().expand(4, 1, 3))
+    assert torch.equal(v["largest"], ids.argmax(-1))
+    assert same(v["p_top"], v["top3"]["probs"].mean(dim=(0, 1)))
+    assert same(v["v_top"], v["t"]["values"].mean(dim=(0, 1)))
+    assert same(v["tl.ids.rows"], v["tl"]["ids"]["rows"]) and same(v["row0"], (v["tl"]["ids"]["rows"] == 0).float())
+    plan = runs["nnterp"]
+    plan.dump(str(tmp_path))
+    assert {"top3.ids.safetensors", "top3.tokens.json", "tl.ids.rows.safetensors"} <= set(os.listdir(tmp_path))
+    back = Plan.load(str(tmp_path))
+    assert same(back.results["top3.ids"], ids)
+    rows = back.table("top3.ids")
+    assert [r["value"] for r in rows] == ids[:, 0].tolist()
+    assert [{k: r[k] for k in ("row", "pos", "pos_token")} for r in rows] == \
+        [{k: r[k] for k in ("row", "pos", "pos_token")} for r in back.table("top3")]
+    assert main(["table", str(tmp_path), "top3.ids", "--csv"]) == 0
+    assert capsys.readouterr().out.splitlines()[1] == '0,10,▁is,"If today is Thursday, tomorrow is","[4598,18312,31926]"'
+
+
 def test_a_top_k_over_a_list_of_axes_saves_an_index_per_axis_and_loads_back(engines, tmp_path, capsys, monkeypatch):
     """A `top_k` over `["rows", "pos"]` is `ids`, an object of one tensor per ranked axis, beside `values`: its file
     holds `ids/pos`, `ids/rows` and `values`, the manifest records each one's shape and dtype, `Plan.load` gives

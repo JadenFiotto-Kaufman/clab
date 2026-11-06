@@ -344,7 +344,7 @@ def loading(corpus: str, name: str, featurizer: str, fields: dict) -> Plan:
 
 @pytest.mark.parametrize("name, featurizer, fields", [
     ("lora_apply", "lora", {}), ("lora_apply", "lora", {"rank": 4, "alpha": 8}), ("lora_apply", "lora", {"alpha": 8.0}),
-    ("das_apply", "rot", {"k": 8}), ("pca_control", "rot", {}),
+    ("das_apply", "rot", {"k": 8}), ("pca_control", "rot", {}), ("sae_feature_ablation", "dictionary", {"latents": 32}),
 ])
 def test_a_loading_document_may_state_its_declaration_fields(corpus, name, featurizer, fields):
     assert loading(corpus, name, featurizer, fields).compiled
@@ -354,7 +354,7 @@ def test_a_loading_document_may_state_its_declaration_fields(corpus, name, featu
     ("lora_apply", "lora", {"rank": 2}, r"header 'rank' is '4'; this document expects '2'"),
     ("lora_apply", "lora", {"alpha": 16}, r"header 'alpha' is '8'; this document expects '16'"),
     ("das_apply", "rot", {"k": 4}, r"header 'k' is '8'; this document expects '4'"),
-    ("sae_feature_ablation", "dictionary", {"latents": 32}, r"header 'latents' is None; this document expects '32'"),
+    ("sae_feature_ablation", "dictionary", {"latents": 64}, r"header 'latents' is '32'; this document expects '64'"),
 ])
 def test_a_stated_field_the_header_disagrees_with_is_refused_naming_it(corpus, name, featurizer, fields, message):
     with pytest.raises(PlanError, match=message):

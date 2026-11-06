@@ -13,6 +13,7 @@ A row is `alignment_missing` when a read or write names a position the row does 
 - **A read there is not refused.** The run finishes, the row is recorded as missing, and every value computed from it on that row is NaN.
 - **A write beyond the prefill is not refused either.** The row is not written, its `positions` say `alignment_missing`, and nothing else in the run says so.
 - **A write in the prefill whose positions hold no token of a row is refused** ([position-not-in-row.md](position-not-in-row.md#the-writes-positions-hold-no-token-of-this-row)).
+- **A later write whose operand is missing on a row it lands on is refused**, naming the row and the call ([below](#how-it-propagates)).
 
 ## Symptom
 
@@ -55,6 +56,10 @@ A frame and index of static widths that can never meet are refused at compile, b
 
 - **The entry's value** is NaN at every entry of a missing row; ids (`argmax`, `top_k`'s `ids`) are -1 there and `top_k` gives no token text.
 - **Metrics, edits, elementwise transforms and comparisons** of a hole are NaN. A comparison of ids is float32, NaN where either side is -1, so an agreement of two `argmax` steps is NaN where either has no id, never a 0 or 1 a `mean` takes. A write never lands on a row it did not reach.
+- **A write whose operand is missing on a row it lands on is refused**, where it would write NaN. The operand is a generation's read at a call the row never made (`{"frame": 3, "index": 0}`), or an op step's value made from one as `of`, `with` or a `factor`.
+- **The run refuses it on that row**, naming the row and the call: `operand 'g.v' holds no value on row 1 (alignment_missing)`. A forward's write is refused before its batch's forward, and a write at a decode call once the batch's generation says which rows made the call.
+- **Compile refuses it where no row makes the call**, a decode call at or past the generation's `max_new_tokens`: `'g.v' is read at decode call 3, and 'g' makes calls 0 to 2 (max_new_tokens 3)`.
+- **In a fit's body a generation records no positions**, so a write there with such an operand still writes NaN. The fit's evals, which run as root steps, refuse it.
 - **Reductions skip holes**, an id's -1 as a NaN. A `mean` over rows averages the rows that were reached: a `mean` of `documents/generated_answer.json`'s `p_answer` is the mean of the 2 rows of 4 that said their word. An accuracy computed this way is the accuracy on the rows that got there, with nothing in the number to say so.
 - **A `sum` or `min` over `pos` of a row with no value is NaN, and its `count` 0.** So `count` over `rows` of a scored read is the number of rows it scored.
 - **Tables** give a missing row one line with `alignment_missing` true and no value; when several names are tabled together, the row carries the flag. A read that no row reached tables to one flagged line per row too, and `clab show` prints its positions as `— on all 4 rows`. Its saved shape is `[4,0,32000]` in a generation and `[4,1,32000]`, all NaN, in the prefill. Positions past a row's own on a ragged read are a different hole: they are left out of the table, with no flag.
