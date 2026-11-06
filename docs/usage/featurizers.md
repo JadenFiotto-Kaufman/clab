@@ -187,11 +187,26 @@ Refused by name:
 Run without a refusal:
 
 - a wrong `centered`, which shifts every latent;
-- a TopK file stated as `relu`, which keeps every positive latent. It changes exactly the tokens that have more than `k` positive pre-activations, so count the tokens whose L0 exceeds the release's `k`; under `topk` there are none. On a TopK dictionary clab trained on GPT-2's layer 6 (`openai-community/gpt2` at `607a30d783dfa663caf39e06633721c8d4cfcd7e`, 2048 latents, `k` 16), every held-out token after BOS was above 16 under `relu`, at 26 to 305 latents. Its reconstruction error moved only from 0.40 to 0.41 of each vector's norm, so the reconstruction does not show the mistake;
+- a TopK file stated as `relu`, which keeps every positive latent ([below](#a-topk-file-stated-as-relu));
 - a wrong layer written in `site`;
 - a `site` written as the name of the entries' site.
 
-The `site` check compares your use with your claim; it cannot check the claim. Write the release's layer inline, `{"component": ..., "layers": <int>}`. `documents/sae_published_topk.json` names its site by the entries' site, `"site": "target"`, which moves with `target`'s `layers`; the layer written inline, as `sae_published_jumprelu.json` writes it, does not. Compare the mean L0 over every token after BOS with the release's, and for a TopK release count the tokens above its `k`, before trusting the numbers ([sae.md](../patterns/sae.md#check-its-l0)).
+The `site` check compares your use with your claim; it cannot check the claim. Write the release's layer inline, `{"component": ..., "layers": <int>}`. `documents/sae_published_topk.json` names its site by the entries' site, `"site": "target"`, which moves with `target`'s `layers`; the layer written inline, as `sae_published_jumprelu.json` writes it, does not. Compare the mean L0 over every token after the first with the release's, and for a TopK release count the tokens above its `k`, before trusting the numbers ([sae.md](../patterns/sae.md#check-its-l0)).
+
+### A TopK file stated as `relu`
+
+- **Only a published file can be stated so.** A clab bundle records its `activation`, and `relu` on a `topk` bundle is refused: `header 'activation' is 'topk'; this document expects 'relu'`.
+- **The check is the share of tokens with more than `k` active latents.** Stated `relu`, a TopK file changes exactly the tokens with more than `k` positive pre-activations, whose L0 then exceeds `k`. Under the right `activation` that share is exactly 0. The steps are in [sae.md](../patterns/sae.md#check-its-l0).
+- **On the fixture**, `documents/sae_published_topk.json` with its latents read at every token after the first (`{"index": "1:"}`), the share is 0 under `topk` (L0 4) and 1.0 under `relu` without `k` (L0 13 to 22).
+- **On a trained dictionary the mean L0 shows it too.** `documents/sae_train.json` on GPT-2 (`openai-community/gpt2` at `607a30d783dfa663caf39e06633721c8d4cfcd7e`) trains one with these changes: layer 6, `"latents": 2048, "activation": "topk", "k": 16`, the objective `dictionary.reconstruction` alone, the 49 rows of `natural_domains_arithmetic/data/weekdays`, `batch_size` 7, `lr` 0.001 and 60 epochs.
+- **Re-save it without its header**, as a release publishes it, and load that file:
+
+  ```python
+  from safetensors.torch import load_file, save_file
+  save_file(load_file("out/sae_train/fit.dictionary.safetensors"), "published.safetensors")
+  ```
+
+- **Read through `sae_published_topk.json`'s steps** at layer 6 over `weekdays_full/data` at `{"index": "1:"}`, its L0 is 16 on every token under `topk` and 148 to 308 under `relu`. The share above `k` is 0 and 1.0.
 
 ## What a featurizer cannot do
 
