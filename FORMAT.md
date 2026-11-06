@@ -599,7 +599,7 @@ number), and one in other coordinates is refused by name, whatever its width. `d
 coordinates back as a delta, so `[encode x, decode x]` is the identity to the bit, an op that changes no
 coordinate changes nothing, and a sparse autoencoder's error term survives; a `select`ed coordinate is
 scattered back and the rest gain a change of exactly zero (encoding the result again gives them back to float
-rounding, about 1e-9, not to the bit). Brackets nest: `[encode a, encode b, <edits>, decode b, decode a]`
+rounding, not to the bit). Brackets nest: `[encode a, encode b, <edits>, decode b, decode a]`
 edits `b`'s coordinates of `a`'s, `b` as wide as `a`'s coordinates. An entry that writes back with an `encode`
 still open, a `decode` with no `encode` open, one of another featurizer than the open one, and an `encode` or
 `apply` of a featurizer inside its own `encode`, are refused by name. `apply` is the featurizer's own version
@@ -700,7 +700,7 @@ stays missing: NaN.
 | `normalize` | — | keeps the layout | Each vector divided by its norm, of the entries that are there (`present`); a vector whose norm is zero is left as it is, as `renormalize` leaves one. |
 | `project_out` | `direction: Value` | keeps the layout | Each vector less its component along `direction`, which is normalised first (its length does not matter), over the entries both have (`present`); a zero `direction` has no component to remove, and leaves each vector as it is. |
 | `decode` | `featurizer: Featurizer` | the layout its `encode` had | Closes the entry's most recent `encode` not yet closed, which is of `featurizer`: the value from before that `encode`, the change of its coordinates written back as a delta (`replace`), so an op between them that changes no coordinate changes nothing and a sparse autoencoder's error term survives. The pair runs as one, the ops between on the coordinates (`batches.apply_bound_ops`). |
-| `apply` | `featurizer: Featurizer`, `with: Value = null` | keeps the layout | `featurizer`'s own version of the value, in its layout: a subspace's projection, a dictionary's reconstruction without its error term, a gate's masked value, an adapter's adapted value, an affine map's `h + h W + b`. `with` is an adapter's input where that is read at another site of the same forward (a lora's), or the value a gate interpolates toward, `h·m + with·(1−m)` (an operand as `swap`'s is, exact where a unit is on and where it is off); a kind whose `apply` takes none refuses it. |
+| `apply` | `featurizer: Featurizer`, `with: Value = null` | keeps the layout | `featurizer`'s own version of the value, in its layout: a subspace's projection, a dictionary's reconstruction without its error term, a gate's masked value, an adapter's adapted value, an affine map's `h + h W + b`, a pca's projection through its mean, `mean + (h - mean) B Bᵀ`, a constant's vector in place of the value. `with` is an adapter's input where that is read at another site of the same forward (a lora's), or the value a gate interpolates toward, `h·m + with·(1−m)` (an operand as `swap`'s is, exact where a unit is on and where it is off); a kind whose `apply` takes none refuses it. |
 | `noise` | `scale: Value`, `seed: int = 0` | keeps the layout | `of + scale * noise`, the noise standard normal and drawn per example. The noise at a row's position is one draw of the value's other axes from a CPU generator seeded by `seed`, the row's place in its dataset and the token's position alone (in a step over a value that holds no positions, its index along `pos`). It is then moved to the value's device. So batch size, sweep point and forward call never change it, and no two rows or positions share one. A write across layers draws the same bits at each of them, as one entry per layer with one seed does. A document draws the same bits on any device. A value with no rows is one draw from `seed`. |
 | `clamp` | `min: float or null = null`, `max: float or null = null` | keeps the layout | Each element clamped to `[min, max]`; at least one of them given. |
 
@@ -807,7 +807,8 @@ its coordinates of a value `h` (the last axis becomes the kind's axis: `features
 nothing changes nothing to the bit, and a sparse autoencoder's error term is kept exactly; and `apply` gives
 its version of `h` in `h`'s own layout (a subspace's projection, a dictionary's reconstruction, a gate's
 masked value or, given `with`, its interpolation toward that value, an adapter's adapted value, an affine map's
-`h + h W + b`). A fit's objective may name a featurizer's scalar as `<featurizer>.<scalar>` (a gate's
+`h + h W + b`, a pca's projection through its mean, `mean + (h - mean) B Bᵀ`, a constant's vector in place of the
+value). A fit's objective may name a featurizer's scalar as `<featurizer>.<scalar>` (a gate's
 `mask` is the mean of its soft mask; an sae's `reconstruction` and `l1` are over the coordinates the body read of
 it in that run of the body, its `encode`s no `decode` closes, which the instance keeps while a fit trains it). Its
 math runs on the value's device and dtype, with autocast off: a model served in bfloat16 under autocast leaves a

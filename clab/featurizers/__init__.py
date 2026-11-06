@@ -15,7 +15,8 @@ its coordinates of a value `h` (the last axis becomes the kind's axis: `features
 nothing changes nothing to the bit, and a sparse autoencoder's error term is kept exactly; and `apply` gives
 its version of `h` in `h`'s own layout (a subspace's projection, a dictionary's reconstruction, a gate's
 masked value or, given `with`, its interpolation toward that value, an adapter's adapted value, an affine map's
-`h + h W + b`). A fit's objective may name a featurizer's scalar as `<featurizer>.<scalar>` (a gate's
+`h + h W + b`, a pca's projection through its mean, `mean + (h - mean) B Bᵀ`, a constant's vector in place of the
+value). A fit's objective may name a featurizer's scalar as `<featurizer>.<scalar>` (a gate's
 `mask` is the mean of its soft mask; an sae's `reconstruction` and `l1` are over the coordinates the body read of
 it in that run of the body, its `encode`s no `decode` closes, which the instance keeps while a fit trains it). Its
 math runs on the value's device and dtype, with autocast off: a model served in bfloat16 under autocast leaves a

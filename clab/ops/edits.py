@@ -42,7 +42,8 @@ def apply(of: Tensor, featurizer: Featurizer, with_: Value | None = None, dims: 
           layers: int | list[int] | None = None) -> Tensor:
     """`featurizer`'s own version of the value, in its layout: a subspace's projection, a dictionary's
     reconstruction without its error term, a gate's masked value, an adapter's adapted value, an affine map's
-    `h + h W + b`. `with` is an adapter's input where that is read at another site of the same forward (a
+    `h + h W + b`, a pca's projection through its mean, `mean + (h - mean) B Bᵀ`, a constant's vector in place of
+    the value. `with` is an adapter's input where that is read at another site of the same forward (a
     lora's), or the value a gate interpolates toward, `h·m + with·(1−m)` (an operand as `swap`'s is, exact where a
     unit is on and where it is off); a kind whose `apply` takes none refuses it."""
     taken = registry.signature(featurizer.method("apply")).parameters
