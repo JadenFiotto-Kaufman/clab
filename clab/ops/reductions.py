@@ -123,8 +123,8 @@ def counted(dims: list[str], args: dict, kind: str | None) -> list[str]:
     for axis in over:
         if axis not in dims:
             default = " unless 'over' names the axes it counts along" if args.get("over") is None else ""
-            raise ValueError(f"count counts along {axis!r}{default}, and the value is laid out {dims}; 'over' names "
-                             f"axes the value has (\"over\": {json.dumps(dims[-1:])})")
+            fix = f"; 'over' names axes the value has (\"over\": {json.dumps(dims[-1:])})" if dims else ""
+            raise ValueError(f"count counts along {axis!r}{default}, and the value is laid out {dims}{fix}")
     if not over:
         raise ValueError(f"a reduction of a value laid out {dims} removes no axis of it: 'over' names none")
     return [a for a in dims if a not in over and a in EXAMPLE_AXES]
@@ -152,8 +152,9 @@ FEATURES = ["hidden_size"]
 def featured(dims: list[str], args: dict, kind: str | None) -> list[str]:
     """Removes the axes `over` names, by default `hidden_size`, which a value without one names in `over`."""
     if args.get("over") is None and FEATURES[0] not in dims:
+        fix = f"; name them in 'over' (\"over\": {json.dumps(dims[-1:])})" if dims else ""
         raise ValueError(f"it reduces over {FEATURES[0]} unless 'over' names the axes, and the value is laid out "
-                         f"{dims}; name them in 'over' (\"over\": {json.dumps(dims[-1:])})")
+                         f"{dims}{fix}")
     return reduced(dims, {**args, "over": FEATURES if args.get("over") is None else args["over"]})
 
 
@@ -195,8 +196,9 @@ def distributed(dims: list[str], args: dict, kind: str | None) -> list[str]:
     """Removes the axes `over` names, by default `vocab_size` where the value has it, else `num_experts`; a value with
     neither names them in `over`."""
     if args.get("over") is None and not set(OUTCOMES) & set(dims):
+        fix = f"; name them in 'over' (\"over\": {json.dumps(dims[-1:])})" if dims else ""
         raise ValueError(f"it takes the softmax over {' or '.join(OUTCOMES)} unless 'over' names the axes, and the "
-                         f"value is laid out {dims}; name them in 'over' (\"over\": {json.dumps(dims[-1:])})")
+                         f"value is laid out {dims}{fix}")
     over = args.get("over")
     return reduced(dims, {**args, "over": [next(a for a in OUTCOMES if a in dims)] if over is None else over})
 
