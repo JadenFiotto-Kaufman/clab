@@ -15,6 +15,7 @@ from clab import featurizers, ops
 from clab.compile import positions
 from clab.compile.answers import answer_ids, refkey, texts_of
 from clab.compile.positions import reads_head, scope_texts
+from clab.compile.preflight import at_point
 from clab.compile.state import Findings
 from clab.format import address, data, registry, selectors
 from clab.format.sweeps import lookup, put
@@ -334,7 +335,7 @@ def schedule_binding(engine: Engine, plan: Plan, name: str, step: Forward,
                 unreached = {o: found for o, v in operands.items() if "live" not in v and o not in plan.featurizers
                              and (found := unreached_rows(plan, o, step.at)) is not None}
                 if unreached:
-                    bound.update(write=f"{name}.{key}", unreached=unreached)
+                    bound.update(write=at_point(plan, f"{name}.{key}", step.at), unreached=unreached)
                 if axis := address.COMPONENTS[cast(Site, record.site).component].get("ids"):
                     bound["fields"]["ids"] = {"entry": f"{name}.{key}", "axis": axis, "size": engine.sizes()[axis]}
                 if site_record.get("online"):

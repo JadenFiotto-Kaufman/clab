@@ -884,6 +884,14 @@ def test_a_top_k_past_a_static_axis_the_model_or_the_rows_size_is_refused_before
     assert re.match(message, text) and forwards == 0, text
 
 
+def test_a_top_k_past_the_models_size_at_one_point_of_a_sweep_is_refused_naming_the_point(engines):
+    """Swept over `k`, the point whose `k` is past the model's vocabulary is refused before any forward, naming it."""
+    plan = edited("readout", ranked_past({"site": {"component": "logits"}, "pos": -1},
+                                         {"t": {**TOP, "k": {"sweep": [3, 40000]}}})).compile()
+    text, forwards = refused(engines, plan)
+    assert re.match(r"^t at k=40000: k 40000 is more than the 32000 entries it ranks", text) and forwards == 0, text
+
+
 def test_a_top_k_over_a_list_of_axes_is_a_step_and_refused_inside_an_entry():
     """Its `ids` are an index per ranked axis of each pick, which an entry's batches do not join."""
     def change(d):

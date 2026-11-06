@@ -621,13 +621,13 @@ def test_a_write_at_a_call_a_row_never_reaches_skips_that_row(engines):
         assert (v["swapped"][1:, 2] != v["clean"][1:, 2]).any()
 
 
-def reached(max_new_tokens: int = 3, eos: int | None = None, writer: str = "forward", writer_eos: int | None = None,
+def reached(max_new_tokens: Any = 3, eos: int | None = None, writer: str = "forward", writer_eos: int | None = None,
             operand: str = "g.v", extra: dict | None = None):
     """The F3 review's document on tiny GPT-2, over weekdays/train: a generation over the counterfactual prompts reads
     layer 2's output at `{"frame": 3, "index": 0}`, and a later forward swaps `operand` in at the base prompts' last
     token (or, `writer` "generate", a generation over them at decode call 2, stopping on `writer_eos`). Tiny GPT-2
     says 394 first on rows 1 and 3, so under `eos` 394 those rows stop after the prefill and the others run on;
-    `extra` adds steps after the generation."""
+    `extra` adds steps after the generation, and `max_new_tokens` may be a sweep."""
     def change(d):
         g = {"kind": "generate", "input": "pairs.counterfactual_inputs[0]", "max_new_tokens": max_new_tokens,
              "do_sample": False, "interventions": {"v": {"site": "target", "pos": {"frame": 3, "index": 0}}}}
@@ -699,6 +699,14 @@ def test_a_write_whose_operand_is_read_at_a_call_past_max_new_tokens_is_refused_
                                         r"max_new_tokens past 3$"):
         reached(writer=writer)
     assert reached(4, writer=writer).compiled
+
+
+def test_a_refusal_at_one_point_of_a_sweep_names_the_point(engines):
+    """Swept over the generation's `max_new_tokens`, rows 1 and 3 stop on 394 at every point, and the write's refusal
+    names the point it was made at, `at max_new_tokens=4`, as the run names an out-of-memory refusal's."""
+    built = reached({"sweep": [4, 5]}, eos=394)
+    with pytest.raises(ValueError, match=r"^patched\.patch at max_new_tokens=4: operand 'g\.v' holds no value on row 1 "):
+        engines("nnterp", built.model).execute(built, batch_size=BATCH_SIZE)
 
 
 def test_a_write_takes_a_generation_read_on_every_row_that_reached_its_call_to_the_bit(engines):
