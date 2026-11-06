@@ -90,10 +90,10 @@ The manifest's `results.<name>.dtype` records each value's ([values and layout](
 {"op": "decode", "featurizer": "dictionary"}
 ```
 
-A latent that is already zero at a row's position changes nothing there; save the plain `encode` read beside the ablation to see which those were. A pick outside the featurizer's coordinates is refused before any forward:
+A latent that is already zero at a row's position changes nothing there; save the plain `encode` read beside the ablation to see which those were. A pick outside the featurizer's coordinates is refused before any forward, at the point that makes it: with `{"sweep": [0, 1, 2, 40]}` above,
 
 ```text
-clab: zeroed.ablate: select features 40 outside the 32 features of 'dictionary'
+clab: zeroed.ablate at features=40: select features 40 outside the 32 features of 'dictionary'
 ```
 
 ## Brackets
