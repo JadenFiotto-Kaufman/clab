@@ -1059,8 +1059,9 @@ def test_a_body_writes_window_on_another_input_is_refused_as_the_roots_is(engine
         the_write["ops"] = [o for o in the_write["ops"] if o["op"] != "apply"]
     said = (r"run\.w: operand 'counterfactual\.v' was read on pairs\.counterfactual_inputs\[0\], row 0 of which is 9 "
             r"tokens; pairs\.input has 11, so pairs\.counterfactual_inputs\[0\]'s position 5 \(','\) pairs with "
-            r"pairs\.input's position 5 \('urs'\); use a scope to name the token in "
-            r"each row$")
+            r"pairs\.input's position 5 \('urs'\), and a position pairs across prompts of different lengths only "
+            r"where every token between it and the end it is counted from is the same on both; use a scope to name "
+            r"the token in each row$")
     for kind in ("nnterp", "hooks"):
         for change, where in ((outside, "^"), (lambda d: None, r"^fit\.")):
             plan = written(t1(), windowed, change)

@@ -191,10 +191,10 @@ name are refused. An operand may name an earlier entry of the same forward (`pat
 at this entry's site or at one the forward reaches before it, at each layer this entry is made at: it is that
 entry's value in this batch, at its positions, and so an entry whose ops all write (none after its last
 edit), in the coordinates the operand meets (`space`). An operand read on another input at the write's own
-positions, with no scope, pairs its i-th position with the write's i-th, which on rows whose prompts differ
-in length is checked conservatively before any forward: each pair sits at one distance from the start within
-the tokens both prompts begin with alike, or from the end within those they end with alike (the first token
-past either counted in); any other is refused, and a scope names the token in each row. What an operand's
+positions, with no scope, pairs its i-th position with the write's i-th. On rows whose prompts differ in
+length that is checked before any forward: a position pairs across prompts of different lengths only where
+every token between it and the end it is counted from is the same on both, whatever the two tokens it pairs.
+Any other is refused, and a scope names the token in each row. What an operand's
 layout and labels must be is Ops' one rule. A
 bundle at the root is a dict of entries pulled into a step by name, a template whose names resolve in the
 step that pulls it in: an operand naming one of the bundle's own entries bare (`"with": "premix"`) means that

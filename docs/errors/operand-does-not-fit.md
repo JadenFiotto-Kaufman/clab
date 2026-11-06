@@ -144,11 +144,11 @@ Inside a `generate` step an entry of the same step is no operand (`… is an ent
 ## Two inputs of different lengths
 
 ```text
-patched.patch: operand 'counterfactual.v_cf' was read on pairs.counterfactual_inputs[0], row 0 of which is 9 tokens; pairs.input has 11, so pairs.counterfactual_inputs[0]'s position 5 (',') pairs with pairs.input's position 5 ('urs'); use a scope to name the token in each row
+patched.patch: operand 'counterfactual.v_cf' was read on pairs.counterfactual_inputs[0], row 0 of which is 9 tokens; pairs.input has 11, so pairs.counterfactual_inputs[0]'s position 5 (',') pairs with pairs.input's position 5 ('urs'), and a position pairs across prompts of different lengths only where every token between it and the end it is counted from is the same on both; use a scope to name the token in each row
 patched.look_there at num_heads=0: operand 'counterfactual.their_pattern' was read on pairs.counterfactual_inputs[0], row 0 of which is 9 tokens; pairs.input has 11 there, so their key axes do not line up
 ```
 
-A read and a write at the same unscoped `pos` on two inputs pair position i with position i. The first message is `pos: 5` on both; it names each input's position, counted along its row, and the token there. On a row whose two prompts tokenize to different lengths, every pair must lie within the tokens both prompts begin with alike, counted from the start, or end with alike, counted from the end (`clab/compile/interventions.py` `check_window`). The fix is a scope on each side that names the token in its own row, as `documents/entity_patch.json` does:
+A read and a write at the same unscoped `pos` on two inputs pair position i with position i. The first message is `pos: 5` on both; it names each input's position, counted along its row, and the token there. On a row whose two prompts tokenize to different lengths, a position pairs across prompts of different lengths only where every token between it and the end it is counted from is the same on both, whatever the two tokens it pairs (`clab/compile/interventions.py` `check_window`). On `weekdays/train`'s first row, `-5` pairs `day` with `▁Saturday` and runs, and `5` and `-6` are refused ([positions.md](../usage/positions.md#static-width-or-ragged)). The fix is a scope on each side that names the token in its own row, as `documents/entity_patch.json` does:
 
 ```json
 {"v_cf": {"site": "target", "pos": {"scope": {"column": "pairs.counterfactual_inputs_variables[0].entity"}, "index": -1}}}

@@ -408,9 +408,10 @@ def check_operands(engine: Engine, plan: Plan, where: str, o: Op, step: Forward 
 def check_window(engine: Engine, plan: Plan, where: str, value: str, producer: str, consumer: str, findings: Findings,
                  at: dict) -> None:
     """The same unscoped positions read on one input and written on another pair position i with position i. On
-    a row whose two prompts differ in length that is checked conservatively: each pair must sit at one distance
-    from the start within the tokens both prompts begin with alike, or from the end within those they end with
-    alike (the first token past either counted in); any other pair may be two different tokens and is refused."""
+    a row whose two prompts differ in length, a position pairs across them only where every token between it and
+    the end it is counted from is the same on both: every token before it, at one distance from the start, or
+    every token after it, at one distance from the end. The two tokens it pairs may differ. Any other pair is
+    refused: past the first token that differs, one prompt's positions may be shifted against the other's."""
     ours, theirs = (read_positions(plan.steps, n, at) for n in (where, value))
     if ours is None or theirs is None:
         return                  # beyond the prefill, where positions are calls
@@ -425,5 +426,7 @@ def check_window(engine: Engine, plan: Plan, where: str, value: str, producer: s
             if not (p == q <= start or len(x) - p == len(y) - q <= end + 1):
                 raise ValueError(f"{where}: operand {value!r} was read on {producer}, row {row} of which is "
                                  f"{len(x)} tokens; {consumer} has {len(y)}, so {producer}'s position {p} "
-                                 f"({texts[x[p]]!r}) pairs with {consumer}'s position {q} ({texts[y[q]]!r}); use a "
-                                 "scope to name the token in each row")
+                                 f"({texts[x[p]]!r}) pairs with {consumer}'s position {q} ({texts[y[q]]!r}), and a "
+                                 "position pairs across prompts of different lengths only where every token between "
+                                 "it and the end it is counted from is the same on both; use a scope to name the "
+                                 "token in each row")

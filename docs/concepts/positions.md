@@ -62,7 +62,8 @@ What a record names in the prefill depends on the prompt alone, so preflight res
 - a row whose prompt lacks the scope's text, but for an `until` scope, which takes the whole frame there;
 - a row with fewer occurrences than `occurrence` picks, with the same exception;
 - a row too short for a static index;
-- a scope another forward's value pairs with, where its rows hold different numbers of positions, naming each count's rows.
+- a scope another forward's value pairs with, where its rows hold different numbers of positions, naming each count's rows;
+- an unscoped position read on one input and written on another, on a row where the two differ in length: a position pairs across prompts of different lengths only where every token between it and the end it is counted from is the same on both, whatever the two tokens it pairs (`clab/compile/interventions.py` `check_window`).
 
 The document cannot be what was meant.
 

@@ -108,7 +108,7 @@ Most of these show up in what the run recorded ([output.md](../usage/output.md))
 
 ## A window between rows of equal length
 
-A read and a write at the same unscoped `pos` on two inputs pair index with index. On rows of different lengths preflight refuses a pair past the tokens both prompts share at their start or their end ([operand-does-not-fit.md](operand-does-not-fit.md#two-inputs-of-different-lengths)). On rows that tokenize to the same length every pair runs, whatever tokens share an index. Both entries at `{"index": "4:7"}` on these two 11-token rows swap ` Monday , so` onto the three pieces of ` Thursday`:
+A read and a write at the same unscoped `pos` on two inputs pair index with index. On rows of different lengths a position pairs across prompts of different lengths only where every token between it and the end it is counted from is the same on both, whatever the two tokens it pairs; preflight refuses any other ([operand-does-not-fit.md](operand-does-not-fit.md#two-inputs-of-different-lengths)). On rows that tokenize to the same length every pair runs, whatever tokens share an index. Both entries at `{"index": "4:7"}` on these two 11-token rows swap ` Monday , so` onto the three pieces of ` Thursday`:
 
 ```text
 pairs.b: ['<s>', '▁If', '▁today', '▁is', '▁Monday', ',', '▁so', '▁then', '▁tom', 'orrow', '▁is']

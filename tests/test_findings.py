@@ -415,12 +415,37 @@ def test_s5_positions_past_where_two_prompts_differ_in_length_are_refused(engine
     for index in ("1:15", 4):
         refused_before_any_forward(engines, window(index), r"patched\.w: operand 'abc\.v' was read on d\.abc, row 0 "
                                    r"of which is \d+ tokens; d\.input has \d+, so d\.abc's position \d+ \('.*'\) pairs with "
-                                   r"d\.input's position \d+ \('.*'\); "
-                                   r"use a scope to name the token in each row$")
+                                   r"d\.input's position \d+ \('.*'\), and a position pairs across prompts of "
+                                   r"different lengths only where every token between it and the end it is counted "
+                                   r"from is the same on both; use a scope to name the token in each row$")
     filled = run(engines, window("-4:-1"))
     assert placed(filled)["patched.w"] != placed(filled)["abc.v"]      # the same tokens, from the end
     run(engines, window("1:4"))
     run(engines, window(4, read=-1))
+
+
+def test_sk2_a_position_pairs_where_every_token_between_it_and_its_end_is_the_same(engines):
+    """skills wave: the docs said a pair lies within the tokens both prompts share, which reads as the two paired
+    tokens matching. The check pairs a position where every token between it and the end it is counted from is the
+    same on both, whatever the two tokens: ` Tower` with ` Bridge` at -6, and the first tokens past `<s> The` at 2;
+    one further is refused, and so is ` in` with ` in` at -2 where the last tokens differ."""
+    landmarks = {"rows": [{"input": "The Eiffel Tower is in the city of",
+                            "abc": "The Golden Gate Bridge is in the city of"}]}
+    ends = {"rows": [{"input": "The Eiffel Tower is in Paris", "abc": "The Golden Gate Bridge is in Rome"}]}
+
+    def at(rows: dict, pos: int) -> Plan:
+        return plan(data={"d": rows}, steps={
+            "abc": {"kind": "forward", "input": "d.abc", "interventions": {"v": {"site": LAYER0, "pos": pos}}},
+            "patched": forward({"w": {"site": LAYER0, "pos": pos, "ops": [{"op": "swap", "with": "abc.v"}]},
+                                "logits": {"site": HEAD, "pos": -1}})}, saves=["patched.logits"]).compile()
+    for rows, pos, pair in ((landmarks, -7, r"3 \(' ?Gate'\) pairs with d\.input's position 4 \('el'\)"),
+                            (landmarks, 3, r"3 \(' ?Gate'\) pairs with d\.input's position 3 \('iff'\)"),
+                            (ends, -2, r"6 \(' ?in'\) pairs with d\.input's position 7 \(' ?in'\)")):
+        refused_before_any_forward(engines, at(rows, pos), r"d\.abc's position " + pair + r", and a position pairs "
+                                   r"across prompts of different lengths only where every token between it and the "
+                                   r"end it is counted from is the same on both; use a scope")
+    for rows, pos in ((landmarks, -6), (landmarks, 2), (ends, -1)):
+        run(engines, at(rows, pos))
 
 
 def test_s8_a_metric_refuses_an_operand_of_another_pos_width():
