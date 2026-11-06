@@ -15,8 +15,9 @@ from clab.compile.state import Compiling
 from clab.compile.uses import tensor_refusal
 from clab.format import address, data, registry, selectors
 from clab.format.sweeps import agreeing_point, points
-from clab.plan import (Featurizer, Intervention, Labelled, Load, Op, OpStep, Plan, arguments, fail, horizon, kind_of,
-                       member_of, produced, record_of, tensor_of, top_k_members, top_k_of, trained_featurizers)
+from clab.plan import (Featurizer, Intervention, Labelled, Load, Op, OpStep, Plan, Site, arguments, fail,
+                       featurizer_uses, horizon, kind_of, member_of, produced, record_of, tensor_of, top_k_members,
+                       top_k_of, trained_featurizers)
 
 
 def narrowed_readout_refusal(what: str) -> str:
@@ -243,6 +244,28 @@ def value_record(cx: Compiling, ref: str, path: str, at: dict[str, int],
         fail(path, f"{ref!r} names no value produced before this step; known: {', '.join(sorted(known)) or 'none'}")
     cx.used.add(ref)
     return record_of(cx.steps, ref, at, cx.featurizers)
+
+
+def first_use_hint(cx: Compiling, written: str, theirs: Labelled, ours: Labelled, at: dict[str, int]) -> str:
+    """The fix to add to a refusal of operand `written` (laid out `theirs`) on a value laid out `ours`, where the
+    operand is a featurizer's tensor, or made of one by op steps, that lies on the last axis of the site the
+    featurizer is first used at (`plan.tensor_record`) and the value has no such axis; else nothing."""
+    name, here = written, at
+    while (tensor := tensor_of(cx.steps, cx.featurizers, name)) is None:
+        thing, _, member = name.partition(".")
+        step = agreeing_point(cx.steps[thing], here) if thing in cx.steps else None
+        if step is None or step.kind != "op" or member:
+            return ""
+        name, here = step.of, step.at
+    featurizer = tensor[0] if tensor[0] in cx.featurizers else tensor[0].partition(".")[2]
+    _, _, read, _, _, around = next(u for u in featurizer_uses(cx.steps, cx.featurizers) if u[0] == featurizer)
+    component = cast(Site, read.site).component
+    last = address.dims(component)[-1]
+    if around or last not in (theirs.dims or []) or last in (ours.dims or []):
+        return ""
+    return (f"; {written!r} lies on {last}, the last axis of {component}, where a step first uses {tensor[0]!r}, "
+            f"whose tensors take that site's axes: use {tensor[0]!r} first at a site laid out as this value is, or "
+            "give each site a featurizer of its own")
 
 
 def several(top: Op | OpStep) -> str:
@@ -522,8 +545,14 @@ def mismatch(ours: Labelled, theirs: Labelled, name: str, key: str, written: str
             why = "an operand broadcasts over rows and positions only"
         else:
             why = "an operand holds the same ones"
-        fix = f"select {axis} {own if own is not None else 'every one'} at the read" if write \
-            else f"select one {axis} list at both reads"
+        # A site narrows an axis a component lays out; another's indices (a probe's classes, a featurizer's
+        # coordinates) a select step kept, and so are those of a value with no read, which no site changes.
+        sited = ours.read is not None and theirs.read is not None and \
+            any(axis in address.selectable(c) for c in address.COMPONENTS)
+        fix = (f"select {axis} {own if own is not None else 'every one'} at the read" if write
+               else f"select one {axis} list at both reads") if sited else \
+            (f"select the same {axis} of both, or reduce each over {axis} first (a sum of one entry is that entry), "
+             "so that they meet without it")
         return (f"{written!r} holds {f'every {axis}' if held is None else f'{axis} {held}'}, and {whose} holds "
                 f"{'every one' if own is None else own}; {why}: {fix}")
     return None

@@ -10,8 +10,8 @@ from typing import TYPE_CHECKING, cast
 from clab import ops
 from clab.compile import positions
 from clab.compile.answers import check_text_ref, vocabulary
-from clab.compile.arguments import (featurizer_kind, k_past, known_counts, layout, mismatch, narrowed_readout_refusal,
-                                    references, resolver, several, space_of)
+from clab.compile.arguments import (featurizer_kind, first_use_hint, k_past, known_counts, layout, mismatch,
+                                    narrowed_readout_refusal, references, resolver, several, space_of)
 from clab.compile.positions import check_calls_known
 from clab.compile.state import Compiling, Findings
 from clab.format import address, data, registry, selectors
@@ -260,7 +260,7 @@ def compile_entry(cx: Compiling, path: str, spec: Intervention, plan: Plan, step
                            adapts(plan, o), lambda ref: spec if ref == where else record_of(cx.steps, ref, at,
                                                                                              cx.featurizers))
             if why:
-                fail(f"{here}.{key}", why)
+                fail(f"{here}.{key}", why + first_use_hint(cx, written, theirs, ours, at))
         if i in closes:
             dims, space = before[closes[i]["at"]], outside[closes[i]["at"]]
         elif o.op == "encode":

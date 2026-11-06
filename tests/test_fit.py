@@ -612,10 +612,41 @@ def test_a_constant_drawn_from_a_featurizers_tensor_writes_it(engines):
      r"^steps\.w\.interventions\.x\.ops\[0\]: inside an entry the value is its site's selection, which the site's "
      r"own select narrows"),
     (lambda d: d["saves"].append("fit.probe.U"),
-     r"^saves\[\d\]: 'fit\.probe\.U' names no tensor of 'fit\.probe'")])
+     r"^saves\[\d\]: 'fit\.probe\.U' names no tensor of 'fit\.probe'"),
+    (lambda d: d["steps"].update(a={"kind": "op", "op": "select", "of": "fit.probe.W", "select": {"classes": 1}},
+                                 b={"kind": "op", "op": "select", "of": "fit.probe.W", "select": {"classes": 0}},
+                                 d={"kind": "op", "op": "sub", "of": "a", "with": "b"}),
+     r"^steps\.d\.with: 'b' holds classes \[0\], and the value it acts on holds \[1\]; an operand broadcasts over rows "
+     r"and positions only: select the same classes of both, or reduce each over classes first \(a sum of one entry is "
+     r"that entry\), so that they meet without it$")])
 def test_a_tensor_or_a_select_that_cannot_be_named_is_refused_at_compile(change, message):
     with pytest.raises(PlanError, match=message):
         probe(change)
+
+
+def test_a_tensor_meeting_a_value_without_its_first_sites_axis_is_refused_naming_that_site():
+    """A subspace used first at the queries and then at the premix, both 4 wide on this model, lays its basis out on
+    the queries' `qk_head_dim`: a column of it projected out at the premix, laid out on `head_dim`, is refused naming
+    the site the tensor takes its axis from, and the fix."""
+    queries, premix = {"component": "attention_queries", "layers": 0}, {"component": "attention_premix", "layers": 0}
+
+    def two_sites(d):
+        d["featurizers"]["p"] = {"kind": "subspace", "k": 2}
+        d["steps"].update(
+            rq={"kind": "forward", "input": "days.input", "interventions": {"h": {"site": queries, "pos": -1}}},
+            sq={"kind": "op", "op": "encode", "featurizer": "p", "of": "rq.h"},
+            rz={"kind": "forward", "input": "days.input", "interventions": {"h": {"site": premix, "pos": -1}}},
+            sz={"kind": "op", "op": "encode", "featurizer": "p", "of": "rz.h"},
+            column={"kind": "op", "op": "select", "of": "p.basis", "select": {"features": 0}},
+            d={"kind": "op", "op": "sum", "of": "column", "over": ["features"]},
+            out={"kind": "forward", "input": "days.input", "interventions": {"h": {"site": premix, "pos": -1, "ops": [
+                {"op": "project_out", "direction": "d"}]}}})
+    with pytest.raises(PlanError, match=r"^steps\.out\.interventions\.h\.ops\[0\]\.direction: 'd' is laid out "
+                                        r"\['qk_head_dim'\]; .*; 'd' lies on qk_head_dim, the last axis of "
+                                        r"attention_queries, where a step first uses 'p', whose tensors take that site's "
+                                        r"axes: use 'p' first at a site laid out as this value is, or give each site a "
+                                        r"featurizer of its own$"):
+        probe(two_sites)
 
 
 def test_an_affines_map_names_one_axis_twice_and_is_refused_where_its_bias_is_a_value():
