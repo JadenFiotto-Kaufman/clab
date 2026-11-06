@@ -96,7 +96,7 @@ Each row quotes a message's first clause without its `<where>:`. `<x>` stands fo
 | `'split' is which split of a file or a hub dataset` | `split` on inline rows | [data.md](../usage/data.md#where-rows-come-from) |
 | `take <n>: a dataset keeps at least one row`; `skip <n>: a dataset drops 0 rows or more from the start` | `take` below 1, or a negative `skip` | [data.md](../usage/data.md#narrowing-and-renaming-rows) |
 | `template: a chat renders to text, which clab tokenizes; it takes no 'tokenize'` | `tokenize` in a `template` | [data.md](../usage/data.md#chat-inputs) |
-| `no file data/<path>.json under the corpus root` | data paths resolve under the nearest directory above the document that holds `data/` | [running.md](../usage/running.md#the-corpus-root) |
+| `no file data/<path>.json under the corpus root` | data paths resolve under the nearest directory holding `data/`, from the document's own directory up | [running.md](../usage/running.md#the-corpus-root) |
 | `the dataset has no rows` | an empty file, or an empty `split` of it | [data.md](../usage/data.md) |
 | `skip <n>, and the dataset has <m> rows` | a `skip` that leaves no row | [data.md](../usage/data.md#narrowing-and-renaming-rows) |
 | `take <n>, and the dataset has <m> rows` | a `take` past the rows left | [data.md](../usage/data.md#narrowing-and-renaming-rows) |
@@ -316,7 +316,7 @@ Each row quotes a message's first clause without its `<where>:`. `<x>` stands fo
 | `<file>: W_enc is […]; it is [width, latents]`; `<file>: W_dec is […]; with W_enc […] it is […]` | a published SAE's tensor shapes | [featurizers.md](../usage/featurizers.md#loading-a-published-sparse-autoencoder) |
 | `<file> has <n> latents; this document says <m>`; `<file> has <n> latents; 'topk' keeps k = <k> of them` | `latents` or `k` against the file | [featurizers.md](../usage/featurizers.md#loading-a-published-sparse-autoencoder) |
 | `<file> holds no threshold; a 'jumprelu' sae needs one`; `<file> holds a JumpReLU threshold; its activation is 'jumprelu', not '<a>'` | `activation` against the file's threshold | [featurizers.md](../usage/featurizers.md#loading-a-published-sparse-autoencoder) |
-| `<file> does not exist under the corpus root` | a `file_path` with no file; from `clab show` or `clab table`, a relative path read from outside the run's corpus root | [bundles.md](../usage/bundles.md#reading-back-a-run-that-loads-a-bundle) |
+| `<file> does not exist under the corpus root` | a `file_path` with no file; a bundle beside a document with no `data/` above it, whose root is the directory above; from `clab show` or `clab table`, a relative path read from outside the run's corpus root | [bundles.md](../usage/bundles.md#reading-back-a-run-that-loads-a-bundle) |
 | `<file> is not a safetensors file` | a `file_path` in another format; convert it first | [bundles.md](../usage/bundles.md#file_path) |
 | `<file> holds one bundle per point of a sweep (…)` | a swept training run's file | [bundles.md](../usage/bundles.md#swept-training-runs) |
 | `<file> carries clab header keys (…) but its format is …` | a file with some of clab's header keys and another format | [bundles.md](../usage/bundles.md#what-is-checked-and-when) |

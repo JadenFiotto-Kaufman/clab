@@ -47,7 +47,7 @@ The `data` block names a document's datasets. Each dataset is a list of rows, ea
 
 A dataset has exactly one source; giving two is refused.
 
-- **`path`** reads `data/<path>.json` under the corpus root, the nearest directory above the document that holds `data/` ([running.md](running.md#the-corpus-root)). The file is a JSON list of row objects.
+- **`path`** reads `data/<path>.json` under the corpus root, the nearest directory holding `data/`, from the document's own directory up ([running.md](running.md#the-corpus-root)). The file is a JSON list of row objects.
 - **`rows`** are written inline. They travel inside the plan and the manifest, so a run's table reads them back from anywhere.
 - **`hf`** is a hub dataset, `<owner>/<name>`, with a required `revision` (a commit, as `model` pins one), its subset `config` where it has several, and `split`:
 

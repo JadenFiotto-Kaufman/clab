@@ -46,7 +46,9 @@ The loading document declares the featurizer with `file_path` and uses it by its
 
 ## `file_path`
 
-`file_path` is relative to the corpus root: the nearest directory above the document that holds a `data/` folder ([running.md](running.md#the-corpus-root)). An absolute path is read as written. It cannot be a sweep.
+`file_path` is relative to the corpus root: the nearest directory holding a `data/` folder, from the document's own directory up, else the directory above the document's own ([running.md](running.md#the-corpus-root)). An absolute path is read as written. It cannot be a sweep.
+
+- **A document with no `data/` above it does not find a bundle beside it.** The root is then the directory above the document's, so `run/basis.safetensors` beside it is refused from every working directory. Give its directory a `data/` folder, empty where its rows are inline.
 
 A field the bundle's header records may be left out of the loading document, and the header's value is used: `das_apply.json` could drop `k` and `parametrization`, and `lora_apply.json` gives neither `rank` nor `alpha`. A field the document does give must match. The header's `document` key, the name of the document that wrote it, is not checked.
 
