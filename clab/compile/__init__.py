@@ -250,9 +250,13 @@ def path_tuple(path: str) -> tuple:
     return tuple(out)
 
 
-def labels_under(cx: Compiling, *paths: tuple) -> set[str]:
-    """The labels of the sweeps standing under any of the document `paths`."""
-    return {label for path, label in cx.sweeps.items() if any(path[:len(p)] == p for p in paths)}
+def labels_under(cx: Compiling, *paths: tuple, outside: tuple[tuple, ...] = ()) -> set[str]:
+    """The labels of the sweeps standing under any of the document `paths` and under none of `outside`, sweep by
+    sweep: one label is one axis wherever it recurs, so a label that also stands under `outside` counts where it
+    stands elsewhere (a write's edit and a read op after it on one sweep)."""
+    def under(path: tuple, of: tuple[tuple, ...]) -> bool:
+        return any(path[:len(p)] == p for p in of)
+    return {label for path, label in cx.sweeps.items() if under(path, paths) and not under(path, outside)}
 
 
 def in_axis_order(cx: Compiling, labels: set[str]) -> list[str]:
@@ -436,11 +440,12 @@ def compile_forward(cx: Compiling, path: str, name: str, spec: Forward | Generat
     for p, k, e in given:
         where, record = path_tuple(p), records[k]
         last = len(record.ops) - len(gathers(record))
-        after = labels_under(cx, *(where + ("ops", i) for i in range(last, len(record.ops))))
+        after = tuple(where + ("ops", i) for i in range(last, len(record.ops)))
         site = labels_under(cx, ("sites", e.site)) if isinstance(e.site, str) else set()
-        pre[f"{name}.{k}"] = (labels_under(cx, where) - after) | site | operand_axes(cx, record.ops[:last], at, pre)
+        pre[f"{name}.{k}"] = labels_under(cx, where, outside=after) | site | \
+            operand_axes(cx, record.ops[:last], at, pre)
     here = path_tuple(path)
-    forward_axes = labels_under(cx, here) - labels_under(cx, here + ("interventions",))
+    forward_axes = labels_under(cx, here, outside=(here + ("interventions",),))
     for p, k, e in given:
         if writes(records[k]):
             forward_axes |= pre[f"{name}.{k}"]

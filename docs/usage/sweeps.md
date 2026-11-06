@@ -57,6 +57,16 @@ clab: steps.patched.interventions.patch.pos: a sweep's values are numbers, strin
 
 A sweep's label names its axis. Sweeps that share a label pair their points (they *zip*). Sweeps with different labels make a grid (they *cross*). One sweep reached from two places is one axis. With no `label`, the label is the field's own key, so two `layers` sweeps zip by default.
 
+One label is one axis wherever it recurs in a step: two ops of one entry, two fields of one op, two entries, or an entry and the step's options. Where any of its sweeps changes the run, each point runs its own forward and every value of the step carries the axis. So one entry may project a swept direction out and take the cosine with the same sweep after the edit:
+
+```json
+"abl": {"site": "every", "pos": {"index": ":"}, "ops": [
+  {"op": "project_out", "direction": {"sweep": ["contrast", "random"], "label": "fill"}},
+  {"op": "cosine", "with": {"sweep": ["contrast", "random"], "label": "fill"}}]}
+```
+
+Each point projects out its own direction, and the entry's cosine and every read beside it equal the same ops written as two entries ([running.md](running.md#when-two-runs-give-the-same-numbers)).
+
 This document reads the counterfactual at layer `src` and writes it into layer `dst`, over every pair of layers:
 
 ```json
@@ -103,6 +113,7 @@ The same rule decides every pair of sweeps:
 | two `layers` sweeps over `[0, 1]`, no `label` | `layers`, `layers` | 2, zipped: layer L with layer L |
 | the same sweeps with `"label": "src"` and `"label": "dst"` | `src`, `dst` | 4, crossed |
 | one swept site used by two steps, or one swept bundle pulled into two steps | one | each step has the same 2 points |
+| one label in two ops of one entry, two fields of one op, two entries, or an entry and the step's options | one | 2, zipped; a forward per point where any of them changes the run |
 | `max_new_tokens` and `min_new_tokens` both over `[2, 6]`, no `label` | two field names | 4, crossed, including `max_new_tokens=2,min_new_tokens=6` |
 | the same with `"label": "n"` on both | `n` | 2, zipped: `n=2`, `n=6` |
 | a `load` of a value the run that saved it swept over `layers`, `[0, 1]` | `layers`, which the load declares where the document does not ([cached-harvest.md](../patterns/cached-harvest.md#what-the-load-checks)) | 2, zipped with a `layers` sweep here over the same values |
@@ -120,7 +131,7 @@ A label is letters, digits and underscores, because a coordinate is written `<la
 
 - A forward or generation depends on the step's options and its writes alone ([FORMAT.md#sweeps](../../FORMAT.md#sweeps)).
 - Points that differ only in what they read share one forward, which visits every site any of them reads.
-- Each point that changes a write, an operand or an option runs its own forward.
+- Each point that changes a write, an operand or an option runs its own forward. A label that a write holds is the forward's, though a read, or an op after the write's last edit, holds it too.
 - Each point's `schedule` in the manifest names the forward that served it. `clab show` prints one cost row per forward, with the points it served (`all 4 points`).
 - A value is made once per distinct point on the axes it depends on (its `axes`). A read that does not depend on a step's sweep is one value, not identical copies.
 
