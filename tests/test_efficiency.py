@@ -251,7 +251,7 @@ def counting(engine) -> Iterator[list[Any]]:
 
 def counted(engine, plan: Plan) -> tuple[Plan, list[Any]]:
     """`plan` run on `engine`, and each watched module that ran. It runs once first, uncounted, so that a meta shell
-    (ndif under `remote="local"`, which loads its weights at its first forward) has the modules a hook watches."""
+    (ndif under `remote="local"`, which loads its weights when its first run starts) has the modules a hook watches."""
     engine.execute(plan, batch_size=BATCH_SIZE)
     with counting(engine) as ran:
         filled = engine.execute(plan, batch_size=BATCH_SIZE)

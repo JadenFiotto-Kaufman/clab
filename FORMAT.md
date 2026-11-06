@@ -1067,7 +1067,8 @@ the plan (pure data) and the batch size; everything that needs the model, prefli
 server, and the results and the run record come home. The server holds the weights and shards the model as its
 deployment does, so on a server a quantized `dtype` is refused by name, and the engine takes no `tp`. The server's
 address and API key are nnsight's own (`nnsight.CONFIG`, or its environment variables). `remote="local"` runs
-nnsight's in-process simulation of that trip, which dispatches the shell here, on `device`, at its first trace. Its
+nnsight's in-process simulation of that trip. The shell then loads its weights here, on `device`, before the first
+step of a run that calls the model (`NnterpEngine.ready`, which `execute` calls before the session opens). Its
 forwards stop where the schedule says, under either `remote`, as the nnterp engine's do (on a server, as the clab
 installed there says), since the nnsight clab requires leaves no frame of a stopped forward behind. A `load`'s value
 travels in the request, inside the plan, as a bundle's tensors do, under either `remote`, so `remote="local"` runs
@@ -1077,7 +1078,7 @@ tensors is refused before anything is sent.
 ### `vllm`
 
 - `device: str = "cuda:0"`: "cuda:0", the first of the GPUs vLLM runs the model on (CUDA_VISIBLE_DEVICES names them), where the run keeps its values; no other
-- `tp: int = 1`: how many GPUs vLLM shards the model over (its tensor_parallel_size); measured at 1 only
+- `tp: int = 1`: how many GPUs vLLM shards the model over (its tensor_parallel_size)
 - `memory: float = 0.9`: the fraction of each GPU's memory vLLM reserves for the weights and its cache (its gpu_memory_utilization); the run's own values live outside it
 - `max_len: int | None = null`: the longest sequence, prompt and new tokens, the engine serves (its max_model_len); null for the checkpoint's
 - `invariant: bool = true`: true runs vLLM's batch-invariant kernels, so that a run reproduces to the bit; false its fastest, whose last bits move between runs
@@ -1113,8 +1114,8 @@ What vLLM makes different, each refused by name before anything runs, or recorde
 - A forward runs whole (`stops`): nothing ends a request's forward inside the worker.
 - `readout` runs the model's final norm, head and logits processor in the worker (`project_on_vocab`), in a trace of
   its own: the model's own, as the nnterp engine's is. Under `--readout at-reads` it meets the stream alone where
-  the forward's final norm fuses it with the last residual add, another kernel, so the two agree to the last bits
-  (2e-5 in the logits on SmolLM2 in float32), as `at-reads` promises, not to the bit.
+  the forward's final norm fuses it with the last residual add, another kernel, so the two agree to the last bits,
+  as `at-reads` promises, not to the bit.
 - vLLM's default kernels are not run-to-run stable: two identical request sets differ in the last bits (in bfloat16
   by whole ulps). The engine runs vLLM's batch-invariant kernels (`VLLM_BATCH_INVARIANT`) unless `invariant` is
   false, so that the model's values reproduce to the bit and a null is exact (an entry's own ops after its last edit
