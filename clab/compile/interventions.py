@@ -422,6 +422,6 @@ def check_window(engine: Engine, plan: Plan, where: str, value: str, producer: s
         for i, (p, q) in enumerate(zip(theirs[row], ours[row])):
             if not (p == q <= start or len(x) - p == len(y) - q <= end + 1):
                 raise ValueError(f"{where}: operand {value!r} was read on {producer}, row {row} of which is "
-                                 f"{len(x)} tokens; {consumer} has {len(y)}, so position {i} pairs "
-                                 f"{texts[x[p]]!r} with {texts[y[q]]!r}; use a scope to name the token "
-                                 "in each row")
+                                 f"{len(x)} tokens; {consumer} has {len(y)}, so {producer}'s position {p} "
+                                 f"({texts[x[p]]!r}) pairs with {consumer}'s position {q} ({texts[y[q]]!r}); use a "
+                                 "scope to name the token in each row")

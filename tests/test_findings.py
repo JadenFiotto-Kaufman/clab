@@ -414,7 +414,8 @@ def test_s5_positions_past_where_two_prompts_differ_in_length_are_refused(engine
     which pair what they say. (`window_patch` and `multi_position_patch` stay bit-equal: test_documents.)"""
     for index in ("1:15", 4):
         refused_before_any_forward(engines, window(index), r"patched\.w: operand 'abc\.v' was read on d\.abc, row 0 "
-                                   r"of which is \d+ tokens; d\.input has \d+, so position \d+ pairs '.*' with '.*'; "
+                                   r"of which is \d+ tokens; d\.input has \d+, so d\.abc's position \d+ \('.*'\) pairs with "
+                                   r"d\.input's position \d+ \('.*'\); "
                                    r"use a scope to name the token in each row$")
     filled = run(engines, window("-4:-1"))
     assert placed(filled)["patched.w"] != placed(filled)["abc.v"]      # the same tokens, from the end
