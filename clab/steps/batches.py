@@ -891,7 +891,7 @@ def live_operand(got: dict, operand: dict) -> Tensor:
     """A write's operand that names a read of its own forward: that read's value, which the engine made before
     it reached the write."""
     if operand["live"] not in got:
-        raise ValueError(f"operand {operand['live']!r} is a read of this forward the engine had not made when it "
+        raise RuntimeError(f"operand {operand['live']!r} is a read of this forward the engine had not made when it "
                          "reached the write; it reads it at a later site")
     return got[operand["live"]]
 

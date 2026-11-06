@@ -52,7 +52,7 @@ def apply(of: Tensor, featurizer: Featurizer, with_: Value | None = None, dims: 
 
 def uncoded(dims: list[str], args: dict, kind: str | None) -> list[str]:
     """the layout its `encode` had"""
-    raise ValueError("'decode' closes an encode of its entry, whose layout it returns to; nothing else lays it out")
+    raise RuntimeError("'decode' closes an encode of its entry, whose layout it returns to; nothing else lays it out")
 
 
 @op("edits", layout=uncoded)
@@ -61,7 +61,7 @@ def decode(of: Tensor, featurizer: Featurizer) -> Tensor:
     that `encode`, the change of its coordinates written back as a delta (`replace`), so an op between them
     that changes no coordinate changes nothing and a sparse autoencoder's error term survives. The pair runs as
     one, the ops between on the coordinates (`batches.apply_bound_ops`)."""
-    raise ValueError("'decode' runs as the close of its encode, with the ops between, never alone")
+    raise RuntimeError("'decode' runs as the close of its encode, with the ops between, never alone")
 
 
 def present(x: Tensor) -> Tensor:

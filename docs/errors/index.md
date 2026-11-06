@@ -212,6 +212,8 @@ Each row quotes a message's first clause without its `<where>:`. `<x>` stands fo
 | `grad's of '<x>' is read at <c> layer <l>, which the <engine> engine's forward reaches no later than this entry's` | `of` is made before, or at, the gradient's own site; name a later entry, such as one at the head | [interventions.md](../usage/interventions.md#a-gradient-at-a-site) |
 | `the nnterp engine takes no gradient under tp <n>` | `grad` under tensor parallelism; run it at tp 1 | [engines.md](../usage/engines.md#quantized-and-sharded-models) |
 | `the checkpoint's chat template calls strftime_now, which writes today's date into the prompt` | a chat template that reads the clock; pin the date in `data.<d>.template`, `{"date_string": …}` | [data.md](../usage/data.md#chat-inputs) |
+| `nnterp's support() does not name <name>, so nothing says whether it serves <component>` | a component added to `address.COMPONENTS` under a name nnterp's `support()` does not list; every document is refused | [extending.md](../developing/extending.md#adding-a-component) |
+
 
 ## Entries, ops and operands
 
@@ -435,6 +437,8 @@ Each row quotes a message's first clause without its `<where>:`. `<x>` stands fo
 | `'<n>' is a top_k over rows, whose rows are its picks, and a top_k over rows tables alone` | a `top_k` over `rows` beside another name | [output.md](../usage/output.md#clab-table) |
 | `'<n>' is a trained featurizer's bundle, which has no rows to table` | a bundle in `clab table`; read it from `plan.results` | [output.md](../usage/output.md#clab-table) |
 | `'<n>' has no rows to table: it is …` | a value with no rows axis | [output.md](../usage/output.md#clab-table) |
+| `the plan holds none of its rows` | `preflight` or a step called from Python on a plan whose rows are not loaded; `clab.run` and an engine's `execute` load them first | [compile-and-run.md](../developing/compile-and-run.md#the-run) |
+
 
 ## Errors that are not clab's
 
