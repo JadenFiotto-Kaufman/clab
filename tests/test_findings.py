@@ -1058,8 +1058,9 @@ def test_m1_two_sweeps_of_one_label_zip_and_the_refusal_names_label():
 
 
 def test_m2_a_metric_over_two_reads_without_a_static_width_says_to_read_at_a_static_index():
-    with pytest.raises(PlanError, match=r"steps\.kl\.against: 'f\.logits' holds a different number of positions on each "
-                                        r"row, which pair with no other value's; read both at a static index"):
+    with pytest.raises(PlanError, match=r"steps\.kl\.against: 'f\.logits' has no width compile can fix \(an open "
+                                        r"index, an `until` scope, several occurrences\), so it pairs with no other "
+                                        r"forward's value; read both at a static index"):
         plan(data={"d": DAYS}, steps={
             "f": forward({"lens": {"site": {"component": "layer_output", "layers": -1}, "pos": {"index": ":"},
                                    "ops": [{"op": "readout"}]}, "logits": {"site": HEAD, "pos": {"index": ":"}}}),
@@ -1082,8 +1083,9 @@ def test_m3_one_latent_is_read_with_encodes_select_and_the_featurizer_op_is_gone
 def test_m4_an_operand_without_a_static_width_into_such_a_write_says_what_differs():
     """trial-01, trial-02: the two layouts print the same, so the message says the difference is where the
     positions come from."""
-    with pytest.raises(PlanError, match=r"with: 'abc\.v' holds a different number of positions on each row, which "
-                                        r"pair with no other value's; read both at a static index"):
+    with pytest.raises(PlanError, match=r"with: 'abc\.v' has no width compile can fix \(an open index, an `until` "
+                                        r"scope, several occurrences\), so it pairs with no other forward's value; "
+                                        r"read both at a static index"):
         plan(data={"d": PAIR}, steps={
             "abc": {"kind": "forward", "input": "d.abc", "interventions": {"v": {"site": LAYER0, "pos": {"index": ":"}}}},
             "patched": forward({"w": {"site": LAYER0, "pos": {"index": ":"},

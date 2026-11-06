@@ -229,8 +229,9 @@ def mismatch(ours: Labelled, theirs: Labelled, name: str, key: str, written: str
                 continue
             read = reads(side.read) if side.read is not None else None
             if read is None or not positions.pending_width(positions.parse(read.pos)):
-                return (f"{ragged} holds a different number of positions on each row, which pair with no other "
-                        "value's; read both at a static index without a scope ('index': -1, or '-3:'), at one "
+                return (f"{ragged} has no width compile can fix (an open index, an `until` scope, several "
+                        "occurrences), so it pairs with no other forward's value; read both at a static index without a "
+                        "scope ('index': -1, or '-3:'), at one "
                         "occurrence of a scope in the prefill, not until, whose rows give its width, or over decode "
                         "calls at a frame of a static number of them with an index of static width ({'frame': '1:4', "
                         "'index': ':3'})")
