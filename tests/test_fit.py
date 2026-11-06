@@ -1552,20 +1552,22 @@ def gated_op(d) -> dict:
 
 @pytest.mark.parametrize("change, message", [
     (lambda d: d["featurizers"]["heads"].update(over=["num_heads", "layers"]),
-     r"featurizers\.heads\.over: \['num_heads', 'layers'\]: a gate's units are laid out on its axes in the "
-     r"selection's order, and fit\.run\.gated's is \['layers', 'rows', 'pos', 'num_heads', 'head_dim'\]: write over "
-     r"as \['layers', 'num_heads'\]"),
+     r"featurizers\.heads\.over at heads\.mask=2e-05: \['num_heads', 'layers'\]: a gate's units are laid out on "
+     r"its axes in the selection's order, and fit\.run\.gated's is \['layers', 'rows', 'pos', 'num_heads', "
+     r"'head_dim'\]: write over as \['layers', 'num_heads'\]"),
     (lambda d: d["featurizers"]["heads"].update(over=["hidden_size"]),
-     r"featurizers\.heads\.over: \['hidden_size'\]: fit\.run\.gated's selection at attention_premix is laid out "
-     r"\['layers', 'rows', 'pos', 'num_heads', 'head_dim'\], which has no 'hidden_size'"),
+     r"featurizers\.heads\.over at heads\.mask=2e-05: \['hidden_size'\]: fit\.run\.gated's selection at "
+     r"attention_premix is laid out \['layers', 'rows', 'pos', 'num_heads', 'head_dim'\], which has no "
+     r"'hidden_size'"),
     (lambda d: d["sites"]["premix"].update(layers=1),
-     r"featurizers\.heads\.over: \['layers', 'num_heads'\]: fit\.run\.gated is at attention_premix layer 1, one "
-     r"layer, whose selection \['rows', 'pos', 'num_heads', 'head_dim'\] has no layers axis; leave layers out of over"),
+     r"featurizers\.heads\.over at heads\.mask=2e-05: \['layers', 'num_heads'\]: fit\.run\.gated is at "
+     r"attention_premix layer 1, one layer, whose selection \['rows', 'pos', 'num_heads', 'head_dim'\] has no "
+     r"layers axis; leave layers out of over"),
     (lambda d: gated_op(d).update(ops=[{"op": "encode", "featurizer": "fit.heads"},
                                        {"op": "swap", "with": 0.0}, {"op": "decode", "featurizer": "fit.heads"}]),
-     r"featurizers\.heads\.over: \['layers', 'num_heads'\]: fit\.run\.gated encodes 'heads', and a gate over axes "
-     r"serves apply alone: .* an interchange through it is \{'op': 'apply', 'featurizer': 'fit\.heads', 'with': "
-     r"<the other value>\}"),
+     r"featurizers\.heads\.over at heads\.mask=2e-05: \['layers', 'num_heads'\]: fit\.run\.gated encodes "
+     r"'heads', and a gate over axes serves apply alone: .* an interchange through it is \{'op': 'apply', "
+     r"'featurizer': 'fit\.heads', 'with': <the other value>\}"),
     (lambda d: d["featurizers"].update(rot={"kind": "subspace", "k": 2}) or gated_op(d).update(ops=[
         {"op": "encode", "featurizer": "rot"}, {"op": "apply", "featurizer": "fit.heads"},
         {"op": "decode", "featurizer": "rot"}]),

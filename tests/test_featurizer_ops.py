@@ -562,11 +562,28 @@ def test_a_featurizer_sweep_that_names_one_featurizer_twice_is_refused_at_compil
         d["steps"]["fit"]["steps"]["v_cf"]["featurizer"] = swept
         for i in (0, 2):
             d["steps"]["fit"]["steps"]["patched"]["interventions"]["patch"]["ops"][i]["featurizer"] = swept
-    with pytest.raises(PlanError, match=r"^steps\.fit\.steps\.v_cf\.featurizer: label 'r' sweeps 'fit\.rot' twice "
-                                        r"\('rot' and 'fit\.rot' in the body of fit 'fit' are one featurizer, the one it "
-                                        r"trains\); a sweep's points are its values, each keyed by its value: list each "
-                                        r"point once$"):
+    with pytest.raises(PlanError, match=r"^steps\.fit\.steps\.v_cf\.featurizer: label 'r' sweeps 'fit\.rot' "
+                                        r"twice \('rot' and 'fit\.rot' in the body of fit 'fit' are one featurizer, "
+                                        r"the one it trains\); a sweep's points are its values, each keyed by its "
+                                        r"value: list each point once$"):
         edited("das", body).compile()
+
+
+def test_a_bundle_header_a_featurizer_sweep_point_contradicts_is_refused_at_compile_naming_the_point():
+    """sae_published_jumprelu at layer 1, swept over its published dictionary (stated at layer 1) and the clab
+    fixture, whose header says layer 0: refused when the document compiles, naming the point."""
+    def at_layer_1(d):
+        published = {**d["featurizers"]["dictionary"], "site": {"component": "layer_output", "layers": 1}}
+        fixture = {"kind": "sae", "file_path": "documents/artifacts/sae.safetensors"}
+        d["featurizers"] = {"jump": published, "plain": fixture}
+        d["sites"]["target"]["layers"] = 1
+        swept = {"sweep": ["jump", "plain"], "label": "sae"}
+        d["steps"]["base"]["interventions"]["latents"]["ops"][0]["featurizer"] = swept
+        d["steps"]["spliced"]["interventions"]["reconstruct"]["ops"][0]["featurizer"] = swept
+    with pytest.raises(PlanError, match=r'^featurizers\.plain\.file_path at sae="plain": documents/artifacts/'
+                                        r"sae\.safetensors: header 'layer' is '0'; this document uses 'plain' at "
+                                        r"layer_output layer 1 \(base\.latents\)$"):
+        edited("sae_published_jumprelu", at_layer_1).compile()
 
 
 def probe_fit(featurizer: Any, train: Any = None) -> dict:

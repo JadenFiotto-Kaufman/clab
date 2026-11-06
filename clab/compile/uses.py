@@ -74,22 +74,25 @@ def check_bundle_sites(plan: Plan) -> None:
     made at the whole component); every site its featurizer is used at is that component, each layer it picks is
     one of those, and its selection keeps those indices (`select_mismatch`). A layer counted from the last, a site
     that picks several, and a `select` the document alone does not resolve (counted from the end, a slice open at
-    its end) are the model's to resolve, and preflight checks each layer and the selection."""
+    its end) are the model's to resolve, and preflight checks each layer and the selection. A use at a point of a
+    sweep is refused naming the point."""
+    from clab.compile.preflight import naming_point      # the stage whose refusals name their point
     for name, records in uses(plan).items():
         for where, read, at, _, _ in records:
-            site, f = cast(Site, read.site), agreeing_point(plan.featurizers[name], at)
-            if f.header is None:
-                continue
-            known = site.layers is None or isinstance(site.layers, int) and site.layers >= 0
-            for key, ok in (("component", f.header.get("component") == site.component),
-                            ("layer", not known or site.layers in bundles.recorded(f.header.get("layer")))):
-                if not ok:
-                    fail(f"featurizers.{name}.file_path", f"{(f.model_extra or {})['file_path']}: header {key!r} is "
-                         f"{f.header.get(key)!r}; this document uses {name!r} at {site.component} layer "
-                         f"{site.layers} ({where})")
-            why = select_mismatch(name, f, read) if all(read.kept.values()) else None
-            if why:
-                fail(f"featurizers.{name}.file_path", f"{why} ({where})")
+            with naming_point(plan, at):
+                site, f = cast(Site, read.site), agreeing_point(plan.featurizers[name], at)
+                if f.header is None:
+                    continue
+                known = site.layers is None or isinstance(site.layers, int) and site.layers >= 0
+                for key, ok in (("component", f.header.get("component") == site.component),
+                                ("layer", not known or site.layers in bundles.recorded(f.header.get("layer")))):
+                    if not ok:
+                        fail(f"featurizers.{name}.file_path", f"{(f.model_extra or {})['file_path']}: header "
+                             f"{key!r} is {f.header.get(key)!r}; this document uses {name!r} at {site.component} "
+                             f"layer {site.layers} ({where})")
+                why = select_mismatch(name, f, read) if all(read.kept.values()) else None
+                if why:
+                    fail(f"featurizers.{name}.file_path", f"{why} ({where})")
 
 
 def select_mismatch(name: str, f: Featurizer, read: Intervention) -> str | None:
@@ -172,35 +175,38 @@ def check_gate_axes(plan: Plan) -> None:
     """A featurizer over axes (a gate's units, an affine's maps) is used by `apply` alone, on its site's own layout
     (inside no `encode`, whose coordinates are no axes of the site's), whose selection has each axis it names, in
     the selection's order, `layers` only where the site picks several. A refusal names the featurizer's `over` and
-    the use. A loaded one's tensors are checked against its header before (`check_bundle_shapes`)."""
+    the use, and its point where the use is at one of a sweep. A loaded one's tensors are checked against its header
+    before (`check_bundle_shapes`)."""
+    from clab.compile.preflight import naming_point      # the stage whose refusals name their point
     for name, records in uses(plan).items():
         for where, read, at, o, around in records:
-            over = over_of(agreeing_point(plan.featurizers[name], at))
-            if over is None:
-                continue
-            path, site = f"featurizers.{name}.over", cast(Site, read.site)
-            # What the gate meets at a use made before any encode: inside an entry its site's selection, a `layers`
-            # axis first where the site picks several; as a step, its `of`'s layout.
-            laid = list(read.dims or []) if isinstance(o, OpStep) else address.dims(site.component, site.layers)
-            if o.op != "apply":
-                fail(path, f"{over}: {where} encodes {name!r}, and a gate over axes serves apply alone: its units "
-                     "are not the last axis, which an encode makes its coordinates; an interchange through it is "
-                     f"{{'op': 'apply', 'featurizer': {arguments(o)['featurizer']!r}, 'with': <the other value>}}")
-            if around:
-                fail(path, f"{over}: {where} applies {name!r} inside the encode of "
-                     f"{arguments(around[-1])['featurizer']!r}, whose coordinates are no axes of its site's "
-                     "selection; apply it outside the encode")
-            for axis in over:
-                if axis == "layers" and axis not in laid:
-                    fail(path, f"{over}: {where} is at {site.component} layer {site.layers!r}, one layer, whose "
-                         f"selection {laid} has no layers axis; leave layers out of over, or pick the layers as a "
-                         "list or a slice")
-                if axis not in laid:
-                    fail(path, f"{over}: {where}'s selection at {site.component} is laid out {laid}, which has no "
-                         f"{axis!r}")
-            if [a for a in laid if a in over] != over:
-                fail(path, f"{over}: a gate's units are laid out on its axes in the selection's order, and "
-                     f"{where}'s is {laid}: write over as {[a for a in laid if a in over]}")
+            with naming_point(plan, at):
+                over = over_of(agreeing_point(plan.featurizers[name], at))
+                if over is None:
+                    continue
+                path, site = f"featurizers.{name}.over", cast(Site, read.site)
+                # What the gate meets at a use made before any encode: inside an entry its site's selection, a `layers`
+                # axis first where the site picks several; as a step, its `of`'s layout.
+                laid = list(read.dims or []) if isinstance(o, OpStep) else address.dims(site.component, site.layers)
+                if o.op != "apply":
+                    fail(path, f"{over}: {where} encodes {name!r}, and a gate over axes serves apply alone: its units "
+                         "are not the last axis, which an encode makes its coordinates; an interchange through it is "
+                         f"{{'op': 'apply', 'featurizer': {arguments(o)['featurizer']!r}, 'with': <the other value>}}")
+                if around:
+                    fail(path, f"{over}: {where} applies {name!r} inside the encode of "
+                         f"{arguments(around[-1])['featurizer']!r}, whose coordinates are no axes of its site's "
+                         "selection; apply it outside the encode")
+                for axis in over:
+                    if axis == "layers" and axis not in laid:
+                        fail(path, f"{over}: {where} is at {site.component} layer {site.layers!r}, one layer, whose "
+                             f"selection {laid} has no layers axis; leave layers out of over, or pick the layers as a "
+                             "list or a slice")
+                    if axis not in laid:
+                        fail(path, f"{over}: {where}'s selection at {site.component} is laid out {laid}, which has no "
+                             f"{axis!r}")
+                if [a for a in laid if a in over] != over:
+                    fail(path, f"{over}: a gate's units are laid out on its axes in the selection's order, and "
+                         f"{where}'s is {laid}: write over as {[a for a in laid if a in over]}")
 
 
 def units(where: str, name: str, f: Featurizer, read: Intervention, over: list[str], sizes: dict[str, int]
