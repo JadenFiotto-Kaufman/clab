@@ -163,8 +163,8 @@ QUANTIZED = {"nf4": "bfloat16", "fp4": "bfloat16", "int8": "float16", "fp8": "bf
 
 
 # The loader keys a model block may not hold, and why: another spelling of a key the block owns (`key`, `revision`,
-# `dtype`, a quantization in `dtype`), or a run option (where the model runs and how it is sharded), which no engine
-# takes from the block. Compile refuses a document's by name, and an engine one in a block it is given; a plan read
+# `dtype`, a quantization in `dtype`, transformers' and vLLM's), or a run option (where the model runs, how it is
+# sharded, and the vLLM engine arguments its options set), which no engine takes from the block. Compile refuses a document's by name, and an engine one in a block it is given; a plan read
 # back from a run (`Plan.load`) is a record, which neither judges.
 OWNED = {"device": "where the model runs is a run option: --device",
          "device_map": "where the model runs is a run option: --device",
@@ -173,13 +173,17 @@ OWNED = {"device": "where the model runs is a run option: --device",
          "quantization_config": "a quantization is spelled in `dtype` (`nf4`, `fp4`, `int8`, `fp8`)",
          "load_in_4bit": "a quantization is spelled in `dtype` (`nf4`, `fp4`, `int8`, `fp8`)",
          "load_in_8bit": "a quantization is spelled in `dtype` (`nf4`, `fp4`, `int8`, `fp8`)",
+         "quantization": "a quantization is spelled in `dtype` (`nf4`, `fp4`, `int8`, `fp8`)",
          "_commit_hash": "the revision is spelled `revision`",
          "pretrained_model_name_or_path": "the checkpoint is spelled `key`",
          "repo_id": "the checkpoint is spelled `key`",
          "tp_plan": "tensor parallelism is a run option: -o tp=N",
          "tp_size": "tensor parallelism is a run option: -o tp=N",
          "distributed_config": "tensor parallelism is a run option: -o tp=N",
-         "device_mesh": "tensor parallelism is a run option: -o tp=N"}
+         "device_mesh": "tensor parallelism is a run option: -o tp=N",
+         "tensor_parallel_size": "tensor parallelism is a run option: -o tp=N",
+         "gpu_memory_utilization": "the memory vLLM reserves is a run option: -o memory=F",
+         "max_model_len": "the longest sequence vLLM serves is a run option: -o max_len=N"}
 
 
 class Model(Record):
@@ -189,7 +193,8 @@ class Model(Record):
     transformers' block-wise 8-bit floats, on a GPU of compute capability 8.9 or later. A quantized model computes in
     `bfloat16` (`int8` in `float16`), which is the dtype its values have. A key that respells one of the three
     (`torch_dtype`, `quantization_config`, `_commit_hash`, ...) or names a run option (`device`, `device_map`:
-    `--device`; `tp_plan`, ...: `-o tp=N`) is refused by name at compile (`plan.OWNED`). Every other
+    `--device`; `tp_plan`, `tensor_parallel_size`, ...: `-o tp=N`; vLLM's `gpu_memory_utilization` and
+    `max_model_len`: `-o memory`, `-o max_len`) is refused by name at compile (`plan.OWNED`). Every other
     key goes to the engine's loader untouched (`attn_implementation`, ...), which refuses what it cannot honor as
     the engine loads, as the load refuses a checkpoint or revision the offline cache lacks. The attention interior
     needs `attn_implementation: "eager"`."""

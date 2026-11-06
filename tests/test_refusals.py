@@ -509,18 +509,24 @@ SHARDING = "tensor parallelism is a run option: -o tp=N"
                                       ("dispatch", "the engine places its model itself"),
                                       ("torch_dtype", "the dtype is spelled `dtype`"),
                                       ("quantization_config", QUANTIZATION), ("load_in_4bit", QUANTIZATION),
-                                      ("load_in_8bit", QUANTIZATION),
+                                      ("load_in_8bit", QUANTIZATION), ("quantization", QUANTIZATION),
                                       ("_commit_hash", "the revision is spelled `revision`"),
                                       ("pretrained_model_name_or_path", "the checkpoint is spelled `key`"),
                                       ("repo_id", "the checkpoint is spelled `key`"),
                                       ("tp_plan", SHARDING), ("tp_size", SHARDING), ("distributed_config", SHARDING),
-                                      ("device_mesh", SHARDING)])
+                                      ("device_mesh", SHARDING), ("tensor_parallel_size", SHARDING),
+                                      ("gpu_memory_utilization", "the memory vLLM reserves is a run option: "
+                                                                 "-o memory=F"),
+                                      ("max_model_len", "the longest sequence vLLM serves is a run option: "
+                                                        "-o max_len=N")])
 def test_a_model_key_no_engine_takes_is_refused_at_compile(key, why):
     """A loader key that respells one the model block owns (`key`, `revision`, `dtype` and a quantization in it), or
     names a run option, is refused by name at compile with the key or option to write, so `clab compile` refuses it
     before any engine; the document reads, as a run's plan read back does (test_cli.py pins that). Each reached the
     engine before: `_commit_hash` (which transformers drops) and `device_mesh` loaded and ran, `tp_size` was refused
-    as a cache miss, and the other new ones by the loader as an argument it did not expect or got twice."""
+    as a cache miss, and the other new ones by the loader as an argument it did not expect or got twice. The vLLM
+    engine passed the last four to vLLM's engine arguments, where `quantization` got past its refusal of a quantized
+    `dtype` and the other three set what `-o tp`, `-o memory` and `-o max_len` set."""
     plan = edited("patching", lambda d: d["model"].update({key: "cpu"}))
     with pytest.raises(PlanError, match=f"^model: '{key}': {why}$"):
         plan.compile()
