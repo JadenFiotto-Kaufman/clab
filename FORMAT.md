@@ -460,7 +460,8 @@ as drawn (an untrained lora or affine is the identity exactly, a null control), 
 `[0]`.
 
 The body is a scope of its own that sees every value produced before the fit; a trained featurizer's name
-there is `<fit>.<featurizer>`, the one being trained, which compile writes for its bare name. A value made
+there is `<fit>.<featurizer>`, the one being trained, which compile writes for its bare name, and whose tensors
+the body may not name: they are values once the fit ends. A value made
 before the fit with a row per example of
 one of the body's datasets (a harvest) comes into every run of the body at that run's rows, taken by their
 ids as the body's datasets are, and as it was made: on its device, in its dtype, with no gradient of its own;
@@ -471,10 +472,11 @@ statistic of the dataset is a step before the fit. An eval that reads a harvest'
 refused, since no step made the harvest over the other's rows: evaluate on other data in steps after the fit,
 through `<fit>.<featurizer>`. So is an objective none of whose terms depends on what the fit trains, which has
 no gradient to step on. Nothing leaves the body except through the fit's members: `<fit>.<featurizer>` the
-trained featurizer (saved as its bundle), `<fit>.<eval>.<op>` and `<fit>.<eval>.<step>.<entry>` a value of the
-eval named `<eval>`, and `<fit>.history.<term>`, `[epochs]`, one entry per epoch run. A sweep over any of the
-fit's values (an objective weight, the learning rate) makes the fit, its members and their users a list of
-points.
+trained featurizer (saved as its bundle), `<fit>.<featurizer>.<tensor>` one of its tensors as the fit left it, a
+value laid out as its kind lays it (see Featurizer kinds), `<fit>.<eval>.<op>` and `<fit>.<eval>.<step>.<entry>` a
+value of the eval named `<eval>`, and `<fit>.history.<term>`, `[epochs]`, one entry per epoch run. A sweep over
+any of the fit's values (an objective weight, the learning rate) makes the fit, its members and their users a
+list of points.
 
 ### `fit` blocks
 
@@ -815,9 +817,13 @@ nothing changes nothing to the bit, and a sparse autoencoder's error term is kep
 its version of `h` in `h`'s own layout (a subspace's projection, a dictionary's reconstruction, a gate's
 masked value or, given `with`, its interpolation toward that value, an adapter's adapted value, an affine map's
 `h + h W + b`, a pca's projection through its mean, `mean + (h - mean) B Bᵀ`, a constant's vector in place of the
-value). A fit's objective may name a featurizer's scalar as `<featurizer>.<scalar>` (a gate's
-`mask` is the mean of its soft mask; an sae's `reconstruction` and `l1` are over the coordinates the body read of
-it in that run of the body, its `encode`s no `decode` closes, which the instance keeps while a fit trains it). Its
+value). Its tensors, those its bundle holds, are values by name: `<featurizer>.<tensor>` the instance drawn or
+loaded, `<fit>.<featurizer>.<tensor>` the one a fit trained, as the fit left it (`probe.W`, `fit.probe.W`), each laid
+out as its kind lays it (`laid`) at the first site a step before the one naming it uses the featurizer at, a copy
+on the model's device in the featurizer's dtype, with no gradient. A fit's objective may name a featurizer's scalar
+as `<featurizer>.<scalar>` (a gate's `mask` is the mean of its soft mask; an sae's `reconstruction` and `l1` are
+over the coordinates the body read of it in that run of the body, its `encode`s no `decode` closes, which the
+instance keeps while a fit trains it). Its
 math runs on the value's device and dtype, with autocast off: a model served in bfloat16 under autocast leaves a
 float32 featurizer's float32 math alone.
 
@@ -837,9 +843,9 @@ header's `format` is `clab/...`; one that carries clab's header keys under anoth
 file is a published one, its kind's to read or refuse: an `sae` reads one (SAELens, Gemma Scope).
 
 Each kind is one class, in a module of its own, registered under its name in lower case. It declares as class
-attributes what its bundle holds (`saves`), what a fit trains (`trains`), the axis its coordinates are on
-(`axis`), the fields its bundle's header records (`header`), the fields one drawn without a `file_path` needs
-(`drawn`), what a header field left unstated is where the kind rather than its signature decides it (`unstated`:
+attributes what its bundle holds (`saves`), the axes each of its tensors lies on (`laid`), what a fit trains
+(`trains`), the axis its coordinates are on (`axis`), the fields its bundle's header records (`header`), the fields
+one drawn without a `file_path` needs (`drawn`), what a header field left unstated is where the kind rather than its signature decides it (`unstated`:
 an sae's `activation` and `centered`), the scalars a fit's objective may name (`scalars`; those of them over what
 the body's encodes of it saw, `over_encodes`, which compile refuses on a body with no open encode of it) and the
 fields that count directions of the value, so are at most its width (`counts`), whether its `apply`'s `with` is
@@ -1148,15 +1154,16 @@ Names are one flat namespace per scope: no dots, and no step also a dataset or a
 
 A reference is "thing, then member", split at the first dot: `counterfactual.v_cf` is step
 `counterfactual`'s entry `v_cf`; `mean` is an op step's value; `pairs.cf_answer` is a dataset's column; `rot`
-is a declared featurizer and `mask.mask` its scalar; `fit.rot` is a fit's member; `top3.ids` is a `top_k` step's
-member (`ids`, `probs` or `values`, `tokens`, and over a list of axes `top.ids.rows`, each laid out as the step's
-value). Values are produced in
-document order and referenced only after they exist. A fit's body is a scope of its own: it sees every
-value produced before the fit, and nothing leaves it except through `<fit>.<member>`. A bundle of entries
-is a template, so the names inside it resolve where a step pulls it in. Under a sweep, a name means the
-producer's point that agrees with the consumer's coordinates on the producer's axes. Every value with a
-rows axis knows the dataset its rows are aligned to (a forward's input; an op's `of`, operands and
-columns), and an op takes one dataset's rows.
+is a declared featurizer, `mask.mask` its scalar and `rot.basis` its tensor, as drawn or loaded; `fit.rot` is a
+fit's member, the trained featurizer, and `fit.rot.basis` its tensor, as the fit left it; `top3.ids` is a `top_k`
+step's member (`ids`, `probs` or `values`, `tokens`, and over a list of axes `top.ids.rows`, each laid out as the
+step's value). Values are produced in document order and referenced only after they exist, a featurizer's
+tensors after a step that uses the featurizer at a site, whose last axis they lie on. A fit's body is a scope of
+its own: it sees every value produced before the fit, and nothing leaves it except through `<fit>.<member>`. A
+bundle of entries is a template, so the names inside it resolve where a step pulls it in. Under a sweep, a name
+means the producer's point that agrees with the consumer's coordinates on the producer's axes. Every value with
+a rows axis knows the dataset its rows are aligned to (a forward's input; an op's `of`, operands and columns),
+and an op takes one dataset's rows.
 
 ## Sweeps
 

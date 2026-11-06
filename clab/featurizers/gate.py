@@ -28,6 +28,7 @@ class Gate(Kind):
     end of the mask. Its `apply` is elementwise, so a missing element of the value stays missing and the rest are
     gated (a head gate at `attention_probabilities` on rows of different lengths)."""
     saves = trains = ("theta",)
+    laid = {"theta": ("width",)}
     header = ("over",)
     scalars = ("mask",)
     elementwise = True

@@ -24,19 +24,21 @@ from clab.plan import (
     Plan,
     Site,
     arguments,
-    bracketed,
     declared,
-    entries,
     entry_of,
     fail,
+    featurizer_uses,
     held_rows,
     kind_of,
     made_by,
+    over_of,
     produced,
+    producer,
+    projections,
     record_of,
     runnable,
     scope,
-    visited,
+    tensor_of,
     walk,
 )
 
@@ -48,23 +50,10 @@ def uses(plan: Plan) -> dict[str, list[tuple[str, Intervention, dict, Op | OpSte
     """Every `encode` and `apply` of a declared featurizer, by featurizer: the entry's dotted name, the read it is
     of (the entry's own record; an op step's the read its `of` names, whose site and coordinates its featurizer is
     used at), its step's point, the op, and the encodes still open around it (outermost first), whose coordinates
-    it is applied to."""
+    it is applied to (`plan.featurizer_uses`, in the order the steps are written)."""
     by_featurizer: dict[str, list] = {}
-    for name, step in walk(plan.steps):
-        ref = arguments(step).get("featurizer") if step.kind == "op" else None
-        if ref is not None:                 # a body's step sees the body's steps beside the root's
-            fit = name.rpartition(".")[0]
-            steps = {**plan.steps, **agreeing_point(plan.steps[fit], step.at).steps} if fit else plan.steps
-            read = record_of(steps, cast(str, step.read), step.at)
-            assert isinstance(read, Intervention), f"{name}: an encode or apply step is over a read"
-            by_featurizer.setdefault(declared(plan, ref), []).append((name, read, step.at, step,
-                                                                      [Op(op="encode", **s) for s in read.space]))
-        for key, entry in entries(step).items():
-            for node, around in visited(bracketed(entry.ops)):
-                ref = arguments(node["op"]).get("featurizer")
-                if ref is not None:
-                    by_featurizer.setdefault(declared(plan, ref), []).append((f"{name}.{key}", entry, step.at,
-                                                                              node["op"], [a["op"] for a in around]))
+    for name, *use in featurizer_uses(plan.steps, plan.featurizers):
+        by_featurizer.setdefault(name, []).append(tuple(use))
     return by_featurizer
 
 
@@ -108,14 +97,6 @@ def select_mismatch(name: str, f: Featurizer, read: Intervention) -> str | None:
     keeps = f"whose selection keeps {', '.join(f'{a} {v}' for a, v in used.items())}" if used else \
         "which selects nothing"
     return f"{file}: {said}; this document uses {name!r} at {site.component} layer {site.layers!r}, {keeps}"
-
-
-def over_of(f: Featurizer) -> list[str] | None:
-    """The axes a featurizer is over (a gate's units, an affine's maps): its `over`, or, where a loading document
-    leaves it out, its bundle's header's; None for a gate on the last axis of its site's selection, an affine with
-    one map, and any other featurizer."""
-    given = (f.model_extra or {}).get("over")
-    return given if given is not None or f.header is None or "over" not in f.header else json.loads(f.header["over"])
 
 
 def check_bundle_shapes(plan: Plan) -> None:
@@ -352,9 +333,38 @@ def check_input_site(plan: Plan, where: str, at: dict, f: Featurizer, o: Op | Op
                          f"(with), and this use's with {given!r} is {site.component} layer {made}")
 
 
+def tensor_refusal(steps: dict, featurizers: dict, ref: str, at: dict[str, int], before: bool) -> str | None:
+    """Why `ref`, which names a featurizer's tensor (`plan.tensor_of`; `featurizers` the plan's), is no value among
+    `steps`: its kind holds no such tensor (`Kind.held`, which the refusal lists), no step among `steps` (those
+    before the one naming it, where `before`) encodes or applies the featurizer at a site, whose last axis its tensors
+    lie on, or it lays two of its axes out under one name (an affine's `W`, `[hidden_size, hidden_size]`; a
+    subspace's basis inside another's coordinates), which no op tells apart. None where it is a value, at the point
+    `at`, and for any other name."""
+    named = tensor_of(steps, featurizers, ref)
+    if named is None:
+        return None
+    featurizer, tensor = named
+    name = featurizer if featurizer in featurizers else featurizer.partition(".")[2]
+    f = points(featurizers[name])[0]
+    held = KINDS[f.kind].held(f.bundle)
+    if tensor not in held:
+        return (f"{ref!r} names no tensor of {featurizer!r}, {article(f.kind)} {f.kind}, whose tensors are "
+                f"{', '.join(held)}")
+    if all(u[0] != name for u in featurizer_uses(steps, featurizers)):
+        return (f"{ref!r} is a tensor of {featurizer!r}, laid out on the last axis of the site it is used at, and no "
+                f"step {'before this one ' if before else ''}encodes or applies {featurizer!r} at a site; name its "
+                "tensors after a step that does")
+    dims = record_of(steps, ref, at, featurizers).dims or []
+    if len(set(dims)) < len(dims):
+        return (f"{ref!r} is laid out {dims}, two of its axes under one name, which no op tells apart; a fit's trained "
+                f"featurizer saves whole, as the bundle that holds {tensor!r} (`<fit>.{name}`)")
+    return None
+
+
 def check_named_values(plan: Plan) -> None:
     """A featurizer's field that names a value (`named_values`: a constant's `init`) names one that a step makes before
-    every use of the featurizer and before the fit that trains it, so that the run has it where it makes the instance;
+    every use of the featurizer and before the fit that trains it (a tensor of one of the plan's featurizers, which no
+    step makes, is there before the first), so that the run has it where it makes the instance;
     on no sweep axis, since the featurizer is one per point of its own fields; and one vector as each use meets the
     value: laid out `[<that value's last axis>]`, with no rows, `layers` or other axis, in the use's coordinates. That
     it keeps on that axis what the use keeps, and so is as wide, is preflight's (`check_named_widths`), once the
@@ -365,18 +375,26 @@ def check_named_values(plan: Plan) -> None:
         for f in points(spec):
             for field, ref in named_values(f).items():
                 path, kind = f"featurizers.{name}.{field}", f.kind
-                if ref not in known:
+                tensor = tensor_of(plan.steps, plan.featurizers, ref)
+                if tensor is not None and (why := tensor_refusal(plan.steps, plan.featurizers, ref,
+                                                                 points(producer(plan, ref))[0].at, False)):
+                    fail(path, why)
+                if ref not in known and tensor is None:
                     fail(path, f"{ref!r} names no value a step makes; known: {', '.join(known) or 'none'}")
+                drawn = tensor[0] if tensor is not None and tensor[0] in plan.featurizers else None
+                if drawn is not None and any(named_values(p) for p in points(plan.featurizers[drawn])):
+                    fail(path, f"{ref!r} is a tensor of {drawn!r}, which is itself drawn from a value, so the run "
+                         f"would make neither first; draw {name!r} from a step's value")
                 made = made_by(plan, ref)
                 fits = [n for n, step in plan.steps.items() if points(step)[0].kind == "fit"
                         and name in points(step)[0].train]
                 firsts = [where.partition(".")[0] for where, *_ in used.get(name, [])] + fits
                 first = min(firsts, key=order.index, default=None)
-                if first is not None and order.index(first) <= order.index(made):
+                if first is not None and made in order and order.index(first) <= order.index(made):
                     when = "which uses it too" if first == made else f"after step {first!r}, which uses it"
                     fail(path, f"{ref!r} is made by step {made!r}, {when}, and {name!r} is drawn from it: make the "
                          "value in a step before the featurizer's first use")
-                record = record_of(plan.steps, ref, points(runnable(plan.steps)[made])[0].at)
+                record = record_of(plan.steps, ref, projections(plan, ref)[0][1].at, plan.featurizers)
                 if record.axes:
                     fail(path, f"{ref!r} depends on the sweep axes {record.axes}, and {article(kind)} {kind} is drawn "
                          f"once per point of its own fields: {field} names a value on no sweep axis")
@@ -411,7 +429,7 @@ def check_named_widths(engine: Engine, plan: Plan) -> None:
     for name, spec in plan.featurizers.items():
         for f in points(spec):
             for field, ref in named_values(f).items():
-                record = record_of(plan.steps, ref, points(runnable(plan.steps)[made_by(plan, ref)])[0].at)
+                record = record_of(plan.steps, ref, projections(plan, ref)[0][1].at, plan.featurizers)
                 last = (record.dims or [""])[-1]
                 held = record.kept.get(last)
                 for where, read, _, _, around in [] if last == "" else used.get(name, []):

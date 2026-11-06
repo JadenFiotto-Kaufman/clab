@@ -208,7 +208,8 @@ def resolve_operands(plan: Plan, record: Intervention, layer: int | None, names:
             elif value in plan.featurizers:
                 listed[key] = {"name": value, "at": agreeing_point(plan.featurizers[value], at).at}
             else:
-                listed[key] = {"name": value, "at": projection(at, record_of(plan.steps, value, at).axes)}
+                listed[key] = {"name": value, "at": projection(at, record_of(plan.steps, value, at,
+                                                                             plan.featurizers).axes)}
         out.append(listed)
     return out
 

@@ -14,6 +14,7 @@ class Subspace(Kind):
     untrained subspace is a uniformly random one and each seed draws a different one. Its bundle holds the
     `[width, k]` basis."""
     saves, trains, header, drawn, counts = ("basis",), ("theta",), ("k", "parametrization"), ("k",), ("k",)
+    laid = {"basis": ("width", "features")}
 
     def __init__(self, width: int, k: int | None = None, parametrization: Literal["cayley"] = "cayley",
                  seed: int | None = None, file_path: str | None = None,

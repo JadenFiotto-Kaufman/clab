@@ -16,9 +16,13 @@ nothing changes nothing to the bit, and a sparse autoencoder's error term is kep
 its version of `h` in `h`'s own layout (a subspace's projection, a dictionary's reconstruction, a gate's
 masked value or, given `with`, its interpolation toward that value, an adapter's adapted value, an affine map's
 `h + h W + b`, a pca's projection through its mean, `mean + (h - mean) B Bᵀ`, a constant's vector in place of the
-value). A fit's objective may name a featurizer's scalar as `<featurizer>.<scalar>` (a gate's
-`mask` is the mean of its soft mask; an sae's `reconstruction` and `l1` are over the coordinates the body read of
-it in that run of the body, its `encode`s no `decode` closes, which the instance keeps while a fit trains it). Its
+value). Its tensors, those its bundle holds, are values by name: `<featurizer>.<tensor>` the instance drawn or
+loaded, `<fit>.<featurizer>.<tensor>` the one a fit trained, as the fit left it (`probe.W`, `fit.probe.W`), each laid
+out as its kind lays it (`laid`) at the first site a step before the one naming it uses the featurizer at, a copy
+on the model's device in the featurizer's dtype, with no gradient. A fit's objective may name a featurizer's scalar
+as `<featurizer>.<scalar>` (a gate's `mask` is the mean of its soft mask; an sae's `reconstruction` and `l1` are
+over the coordinates the body read of it in that run of the body, its `encode`s no `decode` closes, which the
+instance keeps while a fit trains it). Its
 math runs on the value's device and dtype, with autocast off: a model served in bfloat16 under autocast leaves a
 float32 featurizer's float32 math alone.
 
@@ -38,9 +42,9 @@ header's `format` is `clab/...`; one that carries clab's header keys under anoth
 file is a published one, its kind's to read or refuse: an `sae` reads one (SAELens, Gemma Scope).
 
 Each kind is one class, in a module of its own, registered under its name in lower case. It declares as class
-attributes what its bundle holds (`saves`), what a fit trains (`trains`), the axis its coordinates are on
-(`axis`), the fields its bundle's header records (`header`), the fields one drawn without a `file_path` needs
-(`drawn`), what a header field left unstated is where the kind rather than its signature decides it (`unstated`:
+attributes what its bundle holds (`saves`), the axes each of its tensors lies on (`laid`), what a fit trains
+(`trains`), the axis its coordinates are on (`axis`), the fields its bundle's header records (`header`), the fields
+one drawn without a `file_path` needs (`drawn`), what a header field left unstated is where the kind rather than its signature decides it (`unstated`:
 an sae's `activation` and `centered`), the scalars a fit's objective may name (`scalars`; those of them over what
 the body's encodes of it saw, `over_encodes`, which compile refuses on a body with no open encode of it) and the
 fields that count directions of the value, so are at most its width (`counts`), whether its `apply`'s `with` is
@@ -95,6 +99,11 @@ class Kind:
     tensor it holds that meets a value `h` is moved to `h`'s device and dtype where it is used (`t.to(h)`),
     so the tensors themselves stay where they were made."""
     saves: ClassVar[tuple[str, ...]] = ()
+    # The axes each tensor an instance holds lies on, by the tensor's name: those `saves` names, and any a loaded file
+    # may hold beside them (a published JumpReLU's `threshold`). `width` is the last axis of the site the featurizer is
+    # used at, the kind's `axis` its coordinates, and any other name an axis of its own (a lora's `rank`). Over axes
+    # (`over`), a stacked kind's tensors gain those axes first, and a gate's units lie on them in place of `width`.
+    laid: ClassVar[dict[str, tuple[str, ...]]] = {}
     trains: ClassVar[tuple[str, ...]] = ()
     axis: ClassVar[str] = "features"
     header: ClassVar[tuple[str, ...]] = ()
@@ -156,6 +165,12 @@ class Kind:
         reads none refuses."""
         raise ValueError(f"{fields['file_path']} has no clab header; {article(cls.kind)} {cls.kind} bundle is one "
                          "clab wrote")
+
+    @classmethod
+    def held(cls, bundle: dict[str, Tensor] | None) -> list[str]:
+        """The tensors an instance holds, which a document names as values: those its bundle saves, and those a loaded
+        file holds beside them (a published JumpReLU's `threshold`)."""
+        return [*cls.saves, *(t for t in cls.laid if t not in cls.saves and bundle is not None and t in bundle)]
 
     # -- what the run calls ----------------------------------------------------------------------------------
 
@@ -224,6 +239,11 @@ class Kind:
     def tensors(self) -> dict[str, Tensor]:
         """The tensors its bundle holds."""
         return {name: getattr(self, name).detach() for name in self.saves}
+
+    def value(self, tensor: str) -> Tensor:
+        """Its tensor `tensor` (one it holds: `held`) as a value: a copy, with no gradient, where the tensor is and in
+        its dtype, so that no later change of the instance reaches it."""
+        return getattr(self, tensor).detach().clone()
 
 
 def check(kind: str, fields: dict[str, Any]) -> None:

@@ -18,6 +18,7 @@ class Affine(Kind):
     `layers` and no other axis, since a map is a matrix over the last axis. A tuned lens's translators are one
     affine over layers."""
     saves = trains = ("W", "b")
+    laid = {"W": ("width", "width"), "b": ("width",)}
     header = ("over",)
     stacked = True
 

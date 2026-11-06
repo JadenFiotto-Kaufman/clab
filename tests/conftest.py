@@ -16,7 +16,7 @@ from safetensors.torch import save_file  # noqa: E402
 from clab import Plan  # noqa: E402
 from clab.featurizers import FORMAT  # noqa: E402
 from clab.format.sweeps import coordinate_text, points  # noqa: E402
-from clab.plan import Model, entries, record_of, runnable  # noqa: E402
+from clab.plan import Model, entries, producer, record_of, runnable  # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DOCUMENTS = os.path.join(ROOT, "documents")
@@ -118,8 +118,8 @@ def _read(path: str) -> Any:
 
 
 def dims(plan: Plan, name: str) -> list[str]:
-    """The axes of the value `name`, as its record says (at its step's first point)."""
-    return record_of(plan.steps, name, points(plan.steps[name.partition(".")[0]])[0].at).dims or []
+    """The axes of the value `name`, as its record says (at its step's first point, or its featurizer's)."""
+    return record_of(plan.steps, name, points(producer(plan, name))[0].at, plan.featurizers).dims or []
 
 
 def placed(plan: Plan) -> dict[str, Any]:

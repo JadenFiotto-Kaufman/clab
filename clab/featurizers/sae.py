@@ -40,6 +40,7 @@ class Sae(Kind):
     body read its coordinates of in that run of the body: `reconstruction`, the mean of ‖h − (z @ W_dec +
     b_dec)‖², and `l1`, the mean |z|."""
     saves = trains = ("W_enc", "b_enc", "W_dec", "b_dec")
+    laid = {name: tuple("features" if a == "latents" else a for a in axes) for name, axes in PUBLISHED.items()}
     header, drawn = ("latents", "activation", "k", "centered"), ("latents",)
     unstated = {"activation": "relu", "centered": True}
     scalars = over_encodes = ("reconstruction", "l1")

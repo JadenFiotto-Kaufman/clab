@@ -33,7 +33,8 @@ from clab.compile.arguments import (featurizer_kind, kept_labels, layout, mismat
 from clab.compile.interventions import bundles_of, compile_entry, entries_with_paths
 from clab.compile.schedule import share_forwards
 from clab.compile.state import Compiling
-from clab.compile.uses import check_bundle_shapes, check_bundle_sites, check_gate_axes, check_named_values
+from clab.compile.uses import (check_bundle_shapes, check_bundle_sites, check_gate_axes, check_named_values,
+                               tensor_refusal)
 from clab.featurizers import KINDS, article, bundles, labels
 from clab.format import data, registry
 from clab.format.sweeps import agreeing_point, coordinate_spelling, find_sweeps
@@ -67,6 +68,7 @@ from clab.plan import (
     produced,
     record_of,
     runnable,
+    tensor_of,
     trained_featurizers,
     writes,
 )
@@ -93,7 +95,12 @@ def compile(plan: Plan) -> Plan:
     for i, name in enumerate(plan.saves):
         if name in plan.saves[:i]:
             fail(f"saves[{i}]", f"{name!r} is saved twice")
-        if name not in saveable:
+        if tensor_of(cx.steps, cx.featurizers, name) is not None:      # a featurizer's tensor, laid out at its uses
+            thing = name.partition(".")[0]
+            first = points(cx.featurizers[thing] if thing in cx.featurizers else cx.steps[thing])[0]
+            if why := tensor_refusal(cx.steps, cx.featurizers, name, first.at, False):
+                fail(f"saves[{i}]", why)
+        elif name not in saveable:
             fail(f"saves[{i}]", f"{name!r} names no step's value; a save is a step or a step's member: "
                  f"{', '.join(saveable)}")
         if name in ("manifest", "tokens"):
@@ -266,7 +273,7 @@ def named_axes(cx: Compiling, ref: str, at: dict[str, int]) -> set[str]:
     thing = ref.partition(".")[0]
     if thing in cx.featurizers or thing not in cx.steps:
         return set(cx.axes_of.get(thing, []))
-    return set(record_of(cx.steps, ref, at).axes)
+    return set(record_of(cx.steps, ref, at, cx.featurizers).axes)
 
 
 def operand_axes(cx: Compiling, listed: list, at: dict[str, int], live: dict[str, set[str]]) -> set[str]:
@@ -348,15 +355,16 @@ def compile_step(cx: Compiling, path: str, name: str, spec: Entry, plan: Plan, a
 
     A reference is "thing, then member", split at the first dot: `counterfactual.v_cf` is step
     `counterfactual`'s entry `v_cf`; `mean` is an op step's value; `pairs.cf_answer` is a dataset's column; `rot`
-    is a declared featurizer and `mask.mask` its scalar; `fit.rot` is a fit's member; `top3.ids` is a `top_k` step's
-    member (`ids`, `probs` or `values`, `tokens`, and over a list of axes `top.ids.rows`, each laid out as the step's
-    value). Values are produced in
-    document order and referenced only after they exist. A fit's body is a scope of its own: it sees every
-    value produced before the fit, and nothing leaves it except through `<fit>.<member>`. A bundle of entries
-    is a template, so the names inside it resolve where a step pulls it in. Under a sweep, a name means the
-    producer's point that agrees with the consumer's coordinates on the producer's axes. Every value with a
-    rows axis knows the dataset its rows are aligned to (a forward's input; an op's `of`, operands and
-    columns), and an op takes one dataset's rows.
+    is a declared featurizer, `mask.mask` its scalar and `rot.basis` its tensor, as drawn or loaded; `fit.rot` is a
+    fit's member, the trained featurizer, and `fit.rot.basis` its tensor, as the fit left it; `top3.ids` is a `top_k`
+    step's member (`ids`, `probs` or `values`, `tokens`, and over a list of axes `top.ids.rows`, each laid out as the
+    step's value). Values are produced in document order and referenced only after they exist, a featurizer's
+    tensors after a step that uses the featurizer at a site, whose last axis they lie on. A fit's body is a scope of
+    its own: it sees every value produced before the fit, and nothing leaves it except through `<fit>.<member>`. A
+    bundle of entries is a template, so the names inside it resolve where a step pulls it in. Under a sweep, a name
+    means the producer's point that agrees with the consumer's coordinates on the producer's axes. Every value with
+    a rows axis knows the dataset its rows are aligned to (a forward's input; an op's `of`, operands and columns),
+    and an op takes one dataset's rows.
     """
     assert not isinstance(spec, list), "a point holds one step under each name"
     derived = set(type(spec).model_fields) - set(documented(type(spec)))     # compile writes them over what was set
@@ -525,7 +533,7 @@ def compile_op(cx: Compiling, path: str, name: str, spec: OpStep, plan: Plan, at
              "is, which a pca's bundle records: pca the read itself, whose vectors are the same")
     source = of             # a permute's rows are other rows' values at the site of the read it permutes
     while spec.op == "readout" and source.read is None and isinstance(source, OpStep):
-        source = record_of(cx.steps, source.of, at)
+        source = record_of(cx.steps, source.of, at, cx.featurizers)
     if spec.op == "readout" and source.read is not None:        # the one stream check, an entry's readout's too
         site = cast(Site, entry_of(cx.steps, source.read, at)[1].site)
         if why := ops.transforms.unstreamed(site.component):
@@ -562,6 +570,15 @@ def compile_load(cx: Compiling, path: str, name: str, spec: Load, plan: Plan, at
     (`plan.loaded_value`)."""
     src, d = saved_value_record(cx, path, spec.from_, spec.value)
     ran, here = src["plan"], f"{path}.value"
+    thing, _, member = spec.value.partition(".")
+    fit = points(ran.steps[thing])[0] if thing in ran.steps else None
+    if fit is None:             # a featurizer's, which a load does not carry: the featurizer does
+        fail(here, f"{spec.value!r} is a tensor of {spec.from_}'s featurizer {thing!r}, as drawn or loaded there: "
+             "declare the featurizer here as that document does, and name its tensor")
+    if fit.kind == "fit" and member.partition(".")[0] in fit.train and "." in member:
+        trained = f"{thing}.{member.partition('.')[0]}"
+        fail(here, f"{spec.value!r} is a tensor of {trained!r}, which {spec.from_}'s fit trained: save {trained!r} "
+             "there, load its bundle with 'file_path', and name its tensor here")
     theirs, ours = ran.model.model_dump(), plan.model.model_dump()
     differ = [k for k in dict.fromkeys([*theirs, *ours]) if theirs.get(k) != ours.get(k)]
     if differ:
@@ -745,8 +762,12 @@ def compile_fit(cx: Compiling, path: str, name: str, spec: Fit, plan: Plan, at: 
                      "grad inside a fit's body is not served: the fit differentiates its objective for the "
                      "featurizers it trains; take the gradient in a forward before or after the fit")
         s = rename_spec(s, own, {})
-        body[n] = within.steps[n] = compile_step(within, f"{path}.steps.{n}", n, s, view, at)
         refs = referenced_names(cx, s.model_dump(exclude_defaults=True))
+        for r in refs:          # what it trains is a value once the fit ends, not while the body trains it
+            if (tensor := tensor_of(within.steps, cx.featurizers, r)) is not None and tensor[0] in own.values():
+                fail(f"{path}.steps.{n}", f"{r!r} is a tensor of {tensor[0]!r}, which this fit trains: it is a value "
+                     "once the fit ends, as the fit left it; name it in a step after the fit")
+        body[n] = within.steps[n] = compile_step(within, f"{path}.steps.{n}", n, s, view, at)
         for r in refs:
             thing = r.partition(".")[0]
             if thing in cx.steps and thing not in body and "rows" in (record_of(cx.steps, r, at).dims or []):

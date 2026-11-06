@@ -285,3 +285,16 @@ def test_a_top_k_over_rows_and_keys_labels_each_pick_as_the_patterns_own_table_d
         mine = own[t["row"], t["pos"], t["key"]]
         assert (t["pos_token"], t["key_token"], t["value"]) == (mine["pos_token"], mine["key_token"],
                                                                mine["value"][t["num_heads"]])
+
+
+def test_a_value_with_no_rows_tables_a_row_per_entry_its_selected_axis_by_the_index_it_kept(engines):
+    """A probe's direction, `[hidden_size]`, tables one row per entry under its axis's name; a `select` of the probe's
+    `W` labels its `classes` by the class it kept, as a read's select labels the indices it kept."""
+    from test_fit import direction, probe
+    plan = probe(direction)
+    filled = engines("nnterp", plan.model).execute(plan, batch_size=BATCH_SIZE)
+    rows = filled.table("direction")
+    assert [list(r) for r in rows] == [["hidden_size", "value"]] * 16
+    assert [r["hidden_size"] for r in rows] == list(range(16))
+    assert [r["value"] for r in rows] == filled.results["direction"].tolist()
+    assert [(r["hidden_size"], r["classes"]) for r in filled.table("weekend")] == [(i, 1) for i in range(16)]
