@@ -28,8 +28,8 @@ from typing import Any, Callable, cast
 from clab import featurizers, ops
 from clab.compile.answers import check_column_ref
 from clab.compile.arguments import (featurizer_kind, kept_labels, layout, mismatch, narrowed_readout_refusal,
-                                    k_past, known_counts, references, resolver, select_counts, select_kept, space_of,
-                                    value_record, whole_top_k)
+                                    k_past, known_counts, references, resolver, select_counts, select_kept,
+                                    selected_layers, space_of, value_record, whole_top_k)
 from clab.compile.interventions import bundles_of, compile_entry, entries_with_paths
 from clab.compile.schedule import share_forwards
 from clab.compile.state import Compiling
@@ -557,8 +557,12 @@ def compile_op(cx: Compiling, path: str, name: str, spec: OpStep, plan: Plan, at
     space = of.space + space_of([spec]) if spec.op == "encode" else of.space if dims[-1:] == of.dims[-1:] else []
     layers, kept, width = kept_labels(of, dims)
     if spec.op == "select":
+        if "layers" in args["select"] and of.read is not None:
+            fail(path, f"select 'layers': a select step narrows a value's other axes, and its layers are "
+                 f"{ops.transforms.SITE_LAYERS} to narrow")
         try:
-            kept |= select_kept(path, of, args, None, *select_counts(cx, of, spec.of, at))
+            layers, kept = selected_layers(of, kept | select_kept(path, of, args, None, *select_counts(cx, of, spec.of,
+                                                                                                       at)))
         except ValueError as e:
             raise PlanError(str(e)) from None
     dataset = of.dataset if of.dataset is not None else \

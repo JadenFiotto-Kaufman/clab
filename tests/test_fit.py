@@ -678,6 +678,18 @@ def test_a_select_is_checked_and_resolved_at_the_stage_that_knows_the_axis(engin
         engines("nnterp", late.model).execute(late, batch_size=BATCH_SIZE)
 
 
+def test_a_select_takes_the_layers_of_a_tensor_over_layers_and_refuses_a_reads(engines):
+    """A featurizer's tensor over layers has no site, so a select takes its `layers`, labelled with the model layers it
+    kept; a read's layers are its site's to pick, and a select of them is refused with that fix."""
+    plan = edited("tuned_lens", selecting("fit.lens.b", {"layers": -1}, ("fit.lens",))).compile()
+    values = engines("nnterp", plan.model).execute(plan, batch_size=BATCH_SIZE)
+    assert cast(OpStep, values.steps["last"]).layers == [3]
+    assert same(values.results["last"], values.results["fit.lens"]["b"][3:])
+    with pytest.raises(PlanError, match=r"^steps\.last: select 'layers': a select step narrows a value's other axes, and "
+                                        r"its layers are a site's \(layers\) to narrow$"):
+        edited("tuned_lens", selecting("lfw.ll", {"layers": 0})).compile()
+
+
 def test_a_load_of_a_featurizers_tensor_is_refused_naming_the_bundle_to_load(engines, tmp_path):
     """A saved tensor of a trained featurizer is no value a load brings: its bundle is, loaded with `file_path`."""
     corpus = corpus_copy(tmp_path)

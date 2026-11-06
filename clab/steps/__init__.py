@@ -32,7 +32,7 @@ from torch import Tensor
 
 from clab import ops
 from clab.compile import dataset_rows
-from clab.compile.arguments import select_kept
+from clab.compile.arguments import select_kept, selected_layers
 from clab.compile.preflight import at_point, preflight
 from clab.compile.schedule import READOUTS, values_read_by
 from clab.compile.state import Findings
@@ -388,8 +388,9 @@ def op(engine: Engine, plan: Plan, name: str, step: OpStep, state: ChainMap, bat
     binding = argument_binding(plan, step.op, arguments(step), step.at, dims=dims, layers=acts)
     if step.op == "select":     # its picks among the value's own entries, which the run alone holds along some axes
         met = record.model_copy(update={"kept": {a: v for a, v in record.kept.items() if v != []}})
-        step.kept |= select_kept(at_point(plan, name, step.at), met, arguments(step), None,
-                                 {a: (of.shape[dims.index(a)], "the value's") for a in arguments(step)["select"]})
+        step.layers, step.kept = selected_layers(record, step.kept | select_kept(
+            at_point(plan, name, step.at), met, arguments(step), None,
+            {a: (of.shape[dims.index(a)], "the value's") for a in arguments(step)["select"]}))
     value = ops.call(step.op, of, bind_arguments(plan, binding, state, scope_ids(state), findings, of, vocabulary,
                                                  dims=dims),
                      engine=engine, dims=dims, layers=acts,
