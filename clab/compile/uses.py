@@ -138,7 +138,7 @@ def check_bundle_shapes(plan: Plan) -> None:
             needed = ["width", *(k for k in kind.header if k in (*kind.drawn, *kind.counts, "classes"))]
             if (lacking := next((k for k in needed if k not in f.header), None)) is not None:
                 fail(f"featurizers.{name}.file_path", f"{file}: header records no {lacking!r}, which "
-                     f"{'an' if f.kind[0] in 'aeiou' else 'a'} {f.kind} bundle records")
+                     f"{article(f.kind)} {f.kind} bundle records")
             width = f.header["width"]
             fields = {k: bundles.value(f.header[k]) for k in kind.header if k in f.header and k != "classes"}
             fields.update({k: 0 for k in kind.drawn if k not in kind.header})     # a constant's init: any number
@@ -156,17 +156,16 @@ def check_bundle_shapes(plan: Plan) -> None:
                 shape, laid_out = list(f.bundle[tensor].shape), list(getattr(drawn, tensor).shape)
                 if shape == laid_out:
                     continue
-                a = "an" if f.kind[0] in "aeiou" else "a"
                 if over is not None:
                     said = ", ".join(f"{key} {f.header.get(key)}" for key in keys.values()) + \
                         (f", width {width}" if kind.stacked else "")
-                    fail(f"featurizers.{name}.file_path", f"{file}: {tensor!r} is {shape}, and its header lays {a} "
-                         f"{f.kind} over {over} out on {said}: {tensor!r} is {laid_out}, one "
+                    fail(f"featurizers.{name}.file_path", f"{file}: {tensor!r} is {shape}, and its header lays "
+                         f"{article(f.kind)} {f.kind} over {over} out on {said}: {tensor!r} is {laid_out}, one "
                          f"{'map' if kind.stacked else 'unit'} per index it keeps on each axis")
                 said = ", ".join([f"width {width}"] + [f"{k} {f.header[k]}" for k in kind.header
                                                         if k in f.header and k != "over"])
-                fail(f"featurizers.{name}.file_path", f"{file}: {tensor!r} is {shape}, and its header lays {a} "
-                     f"{f.kind} out at {said}: {tensor!r} is {laid_out}")
+                fail(f"featurizers.{name}.file_path", f"{file}: {tensor!r} is {shape}, and its header lays "
+                     f"{article(f.kind)} {f.kind} out at {said}: {tensor!r} is {laid_out}")
 
 
 def check_gate_axes(plan: Plan) -> None:
