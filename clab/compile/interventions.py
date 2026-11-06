@@ -123,8 +123,9 @@ def compile_entry(cx: Compiling, path: str, spec: Intervention, plan: Plan, step
     differentiates = [i for i, o in enumerate(spec.ops) if o.op == "grad"]
     if differentiates and step.kind == "generate":
         fail(f"{path}.ops[{differentiates[0]}]", "grad is taken in a forward, not a generate, whose calls feed it "
-             "the tokens it chose, which no gradient passes through: take it in a forward over the prompt with the "
-             "generated text appended (a list input)")
+             "the tokens it chose, which no gradient passes through: save the generation's detokenize step, write its "
+             "texts into a column beside the prompt with a leading space, and take grad in a forward over a list "
+             "input of the two")
     for i in [i for i in differentiates if i > 0]:
         edit = next((o.op for o in spec.ops[:i] if edits(o)), None)
         fail(f"{path}.ops[{i}]", f"grad follows {edit!r}, an edit, and an entry that takes a gradient writes "

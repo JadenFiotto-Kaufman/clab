@@ -144,7 +144,8 @@ def permute(of: Tensor, seed: int | None, dims: list[str], derangement: bool = F
     ragged one is refused there, though it may still be reduced. The step's record holds π (`permutation`: the
     dataset row whose value each row holds, as the run drew it). In a fit's body each training minibatch draws π
     over its own rows from the seed alone, so every minibatch of one size pairs its rows the same way. The record
-    holds the π of the body's last run, the one that scores every training row, which no training step used."""
+    holds the π of the body's last run, the one that scores every training row, which no training step used. Without `derangement`, a seed that draws the identity over a training
+    minibatch's rows is refused at compile."""
     n = len(rows) if rows is not None else of.shape[dims.index("rows")]
     return of.index_select(dims.index("rows"), permutation(seed, n, derangement).to(of.device))
 

@@ -11,6 +11,7 @@ import json
 import os
 import re
 import shutil
+import weakref
 from typing import cast
 
 import pytest
@@ -185,6 +186,24 @@ def test_a_fit_steps_once_per_minibatch_in_an_order_its_seed_and_epoch_shuffle(e
     close(history, snapshot("das.batch_size_1.json", history))
     other = engine.execute(with_history(lambda d: change(d, seed=1)), batch_size=BATCH_SIZE).results
     assert not torch.equal(other["fit.history.ce"], values["fit.history.ce"])
+
+
+def test_each_run_of_a_fits_body_is_freed_before_the_next_runs(engines, monkeypatch):
+    """das with `batch_size: 1` runs its body three times an epoch, two minibatches and the scored pass; no run
+    starts while an earlier run's namespace is alive, so a scored pass never holds two copies of the training
+    rows' values."""
+    import clab.steps.fit as fit
+    run_body, namespaces, alive = fit.run_body, [], []
+
+    def counted(*args):
+        alive.append(sum(ref() is not None for ref in namespaces))
+        body = run_body(*args)
+        namespaces.append(weakref.ref(body))
+        return body
+    monkeypatch.setattr(fit, "run_body", counted)
+    plan = with_history(lambda d: d["steps"]["fit"].update(batch_size=1))
+    engines("hooks", plan.model).execute(plan, batch_size=BATCH_SIZE)
+    assert len(alive) == 10 * 3 and not any(alive)
 
 
 def test_a_fits_evals_run_in_batches_of_its_batch_size_whatever_the_runs(engines):

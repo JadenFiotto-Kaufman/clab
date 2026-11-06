@@ -281,15 +281,31 @@ def test_a_prefill_index_that_picks_none_of_a_rows_tokens_is_missing_there_and_a
         assert not calls
 
 
+def test_a_prefill_read_that_reaches_no_row_holds_no_position(engines):
+    """`{"index": "11:"}` picks none of the tokens of rows of 11 and 4: the read is `[rows, 0, ...]`, as a
+    generation's that no row reaches is, its record's `width` 0, its table one `alignment_missing` line per row.
+    A pattern's keys counted from each query hold no position either, at batch size 1 as at 2."""
+    rows, nowhere = DAYS[:2], {"index": "11:"}
+    filled = both(engines, doc(TINY, rows, {"f": forward({"h": {"site": LAYER0, "pos": nowhere}})}, ["f.h"]))
+    assert placed(filled)["f.h"] == ["alignment_missing"] * 2
+    assert filled.results["f.h"].shape == (2, 0, 16) and points(filled.steps["f"])[0].interventions["h"].width == 0
+    assert filled.table("f.h") == [{"row": r, "alignment_missing": True, "input": row["input"]}
+                                   for r, row in enumerate(rows)]
+    previous = {"site": {**PATTERN, "select": {"key": {"offset": [-1, -2]}}}, "pos": nowhere}
+    for size in (1, 2):
+        pattern = run(engines, doc(EAGER, rows, {"f": forward({"p": previous})}, ["f.p"]), batch_size=size)
+        assert pattern.results["f.p"].shape == (2, 0, 4, 2)
+
+
 def test_a_before_scope_a_generations_prefill_head_does_not_hold_is_missing(engines):
     """A generation's prefill computes the head at its last position only: a `before` scope on the prompt's last
     word reads the position before it, which call 0 does not hold, so it reaches no row, the marker (it once
-    crashed, the marker taken as a list of its characters), and the read's value is NaN all the way."""
+    crashed, the marker taken as a list of its characters), and the read holds no position."""
     step = {"kind": "generate", "input": "d.input", "max_new_tokens": 2, "do_sample": False,
             "interventions": {"l": {"site": LOGITS, "pos": {"scope": {"text": "is", "occurrence": -1, "before": True}}}}}
     filled = both(engines, doc(TINY, DAYS[:1], {"g": step}, ["g.l"]))
     assert placed(filled)["g.l"] == ["alignment_missing"]
-    assert filled.results["g.l"].shape == (1, 1, 32000) and filled.results["g.l"].isnan().all()
+    assert filled.results["g.l"].shape == (1, 0, 32000)
 
 
 def test_a_refusal_counts_tokens_as_positions(engines):
