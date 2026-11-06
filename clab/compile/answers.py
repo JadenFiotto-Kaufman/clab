@@ -36,8 +36,8 @@ def check_text_ref(cx: Compiling, value: object, path: str, dataset: str | None)
         try:
             Column(**value)
         except ValidationError as e:
-            fail(path, "; ".join(err["msg"] if not err["loc"] else f"{err['loc'][0]}: {err['msg']}"
-                                 for err in e.errors()))
+            said = [(err["loc"], err["msg"].removeprefix("Value error, ")) for err in e.errors()]
+            fail(path, "; ".join(f"{loc[0]}: {msg}" if loc else msg for loc, msg in said))
     ref = data.column_of(value)
     if ref is None:
         fail(path, f"{value!r} is not a column: '<dataset>.<column>' or {{'column': '<dataset>.<column>', "
@@ -272,7 +272,9 @@ def how_to_align(tokenizer: PreTrainedTokenizerBase, value: str | list[str], str
     token at the read's first position (`held_tokens`: the tokens the positions hold, or predict under `before`, where
     known) is whitespace only, which the answer has no token for; or the input says the answer's own text there in
     other tokens than the column's text makes alone (` signs` one token, `signs` two): the answer is written as the
-    input says it."""
+    input says it. Where the input's text there makes the answer's own tokens alone (`42` and ` 42` are both `▁`,
+    `4`, `2` on a SentencePiece tokenizer), the answer's whitespace-only token 0 the read misses is named instead,
+    and the scope is written without strip."""
     texts = vocabulary(tokenizer)
     first = value[0] if isinstance(value, list) else value
     written = drop_trailing_whitespace(tokenizer, tokenizer(first, add_special_tokens=False)["input_ids"], strip)
@@ -286,10 +288,20 @@ def how_to_align(tokenizer: PreTrainedTokenizerBase, value: str | list[str], str
                 f"{texts[held_tokens[0]]!r}, whitespace only, which the answer has no token for: write the answer "
                 "with its space")
     joined = "".join(texts[i] for i in held_tokens)
-    if data.compared(joined, True, lower) == data.compared(first, True, lower):
+    if data.compared(joined, True, lower) != data.compared(first, True, lower):
+        return ""
+    alone = drop_trailing_whitespace(tokenizer, tokenizer(joined, add_special_tokens=False)["input_ids"], strip)
+    if alone != written:
         return (f"; the input says it as {joined!r}, {len(held_tokens)} token{'s' * (len(held_tokens) != 1)} "
                 f"({[texts[i] for i in held_tokens]}), where {first!r} alone is {[texts[i] for i in written]}: "
                 f"write the answer as the input says it, {joined!r}")
+    if k > len(positions) and not texts[written[0]].strip():
+        if first[:1].isspace():
+            return (f"; its token 0, {texts[written[0]]!r}, is whitespace only, which an answer keeps and a scope "
+                    "under strip does not cover: scope the column without strip")
+        return (f"; its token 0, {texts[written[0]]!r}, is whitespace only, which {first!r} gains when tokenized "
+                "alone and the read does not cover: write the answer with the space the input has before it, and scope the "
+                "column without strip")
     return ""
 
 

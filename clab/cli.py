@@ -230,11 +230,11 @@ def main(argv: list[str] | None = None) -> int:
     run.add_argument("--out", help="output directory (default out/<document name>)")
     run.add_argument("--batch-size", type=int, default=8)
     run.add_argument("--padding", default="dataset", metavar="|".join(PADDINGS),
-                     help="how each batch is padded: dataset (the default, exact), batch or sorted (fewer tokens fed, "
-                          "numbers moved in the last bits)")
+                     help="how each batch is padded: dataset (the default, which the others are compared against), "
+                          "batch or sorted (fewer tokens fed, numbers moved in the last bits)")
     run.add_argument("--readout", default="full", metavar="|".join(READOUTS),
-                     help="how a forward computes logits: full (the default, exact) or at-reads (the head at the "
-                          "positions read alone, numbers moved in the last bits)")
+                     help="how a forward computes logits: full (the default, which at-reads is compared against) or "
+                          "at-reads (the head at the positions read alone, numbers moved in the last bits)")
     run.add_argument("--device", help="where the engine places the model (default the engine's own: cpu, or cuda:0 for vllm)")
     run.add_argument("-o", dest="options", action="append", default=[], metavar="KEY=VALUE",
                      help="an option of the engine's (`clab describe engines`), the value read as JSON, else as text")

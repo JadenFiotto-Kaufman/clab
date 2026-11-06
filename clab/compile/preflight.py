@@ -4,7 +4,8 @@ decides, what the run needs found, and what it cannot run refused by name."""
 from __future__ import annotations
 
 import inspect
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, cast
 
 from clab import featurizers, ops
@@ -24,6 +25,7 @@ from clab.plan import (
     Generate,
     Labelled,
     Plan,
+    PlanError,
     Site,
     adapts,
     arguments,
@@ -55,26 +57,26 @@ def preflight(engine: Engine, plan: Plan) -> Findings:
     featurizer's `width` at the sites it is used at (`uses.write_widths`). Fills `plan.run.tokens` with each input's
     tokens, and returns what the run needs beside the records (`state.Findings`).
 
-    Refuses by name (`<step>.<entry>`): a component the engine does not serve; a layer or a `select` outside the
-    model's sizes (on `key`, outside the input's shortest row), or a `select` that keeps none of them; a `swap` of a
-    component of ids with a number that is no id under the model's size (`address.COMPONENTS`' `ids`); a position
-    that does not fit some row's scope, or whose scope is not in a row a write or a read of static width needs; a
-    token column that is not one token on some row; an operand that breaks Ops' one rule once the model's sizes
-    and the rows' positions are known (`arguments.mismatch`: a layer the op acts at that the operand does not hold,
-    heads in another order, one head for several, another width, a whole scope from another forward whose rows hold
-    different numbers of tokens, each count's rows named); a write to a component with a `key` axis (the
-    attention pattern, the scores) whose operand was read on another input that does not tokenize to the same
-    length on every row, which would misalign the keys, and a window of several positions that reaches past the
-    tokens two such inputs share (`check_operands`, `check_window`);
-    a `pca` over no more vectors than its `k`; a featurizer used at two widths (at a site, the site's; inside an
-    `encode`, that one's coordinates'), at a width its bundle's header does not say (or, with no header, whose
-    tensors are not as wide), with a field that counts more directions than that width (`counts`), at another
-    layer than the one it says it was trained at, reading its input elsewhere than its bundle was made reading it
-    (`check_input_site`), or encoded with a `select` outside its features or keeping none of them; a featurizer drawn
-    from a value (a constant's `init`) that keeps other indices of its axis than a use does (`check_named_widths`);
-    and a trained featurizer used at no site. A write whose operand its own forward reads at a site the engine reaches no earlier
-    than the write's is refused where the schedule is written. A refusal inside a fit's body names the fit, and one
-    in an eval its eval step (`<fit>.<eval>.<step>`).
+    Refuses by name (`<step>.<entry>`, and ` at <label>=<value>` at a point of a sweep): a component the engine does
+    not serve; a layer or a `select` outside the model's sizes (on `key`, outside the input's shortest row), or a
+    `select` that keeps none of them; a `swap` of a component of ids with a number that is no id under the model's
+    size (`address.COMPONENTS`' `ids`); a position that does not fit some row's scope, or whose scope is not in a row
+    a write or a read of static width needs; a token column that is not one token on some row; an operand that breaks
+    Ops' one rule once the model's sizes and the rows' positions are known (`arguments.mismatch`: a layer the op acts
+    at that the operand does not hold, heads in another order, one head for several, another width, a whole scope from
+    another forward whose rows hold different numbers of tokens, each count's rows named); a write to a component with
+    a `key` axis (the attention pattern, the scores) whose operand was read on another input that does not tokenize to
+    the same length on every row, which would misalign the keys, and a window of several positions that reaches past
+    the tokens two such inputs share (`check_operands`, `check_window`); a `pca` over no more vectors than its `k`; a
+    featurizer used at two widths (at a site, the site's; inside an `encode`, that one's coordinates'), at a width its
+    bundle's header does not say (or, with no header, whose tensors are not as wide), with a field that counts more
+    directions than that width (`counts`), at another layer than the one it says it was trained at, reading its input
+    elsewhere than its bundle was made reading it (`check_input_site`), or encoded with a `select` outside its
+    features or keeping none of them; a featurizer drawn from a value (a constant's `init`) that keeps other indices
+    of its axis than a use does (`check_named_widths`); and a trained featurizer used at no site. A write whose
+    operand its own forward reads at a site the engine reaches no earlier than the write's is refused where the
+    schedule is written. A refusal inside a fit's body names the fit, and one in an eval its eval step
+    (`<fit>.<eval>.<step>`).
     """
     refuse_unserved(engine, plan)
     rows = {n: held_rows(plan, n) for n in plan.data}
@@ -98,117 +100,136 @@ def prepare(engine: Engine, plan: Plan, steps: dict, classes: dict[str, list], f
     alike: dict[tuple, list] = {}           # each distinct prefill resolution, which records alike share
     for name, entry in runnable(steps).items():
         for step in points(entry):
-            if step.kind == "fit":
-                try:
-                    prepare(engine, body_view(plan, name, step.at), step.steps, classes, findings)
-                except ValueError as e:
-                    raise ValueError(f"{name}.{e}") from None
-                continue
-            if step.kind == "op":
-                args, of = arguments(step), record_of(plan.steps, step.of, step.at)
-                assert step.dims is not None and of.dims is not None
-                step.layers, step.kept, step.width = kept_labels(of, step.dims)     # completed from its producer's
-                if why := k_past(step.op, args, of, sizes, probe_of(plan, of, classes)):
-                    raise ValueError(f"{at_point(plan, name, step.at)}: {why}")
-                for key, (written, theirs) in references(step.op, args, preflight_resolver(plan, step.at)).items():
-                    why = mismatch(of, theirs, step.op, key, written, repr(step.of), False, False, adapts(plan, step),
-                                   lambda read: entry_of(plan.steps, read, step.at)[1])
-                    if why:
-                        raise ValueError(f"{name}: operand {why}")
-                if "classes" in of.dims:
-                    check_classes(plan, name, step.op, args, of.space[-1]["featurizer"], classes)
-                else:
-                    check_tokens(engine, plan, findings, name, step.op, args, of.dims,
-                                 *known_positions(plan, of, step.at, findings))
-                bundle = ops.DECLARED[step.op]["bundle"]
-                for field in featurizers.KINDS[bundle].counts if bundle else ():
-                    width = len(of.kept["hidden_size"]) if "hidden_size" in of.kept else sizes["hidden_size"]
-                    if args[field] > width:
-                        raise ValueError(f"{name}: {step.op} {field} {args[field]} counts directions of a "
-                                         f"value {width} wide, which has no more than {width}")
-                if step.op == "pca" and of.read is not None:
-                    row_positions = read_positions(plan.steps, of.read, step.at)
-                    n = sum(len(p) for p in row_positions if isinstance(p, list)) if row_positions is not None else None
-                    if n is not None and n <= args["k"]:
-                        raise ValueError(f"{name}: pca of {n} vectors has no rank-{args['k']} basis; "
-                                         f"it needs more than {args['k']}")
-                continue
-            if step.kind == "load":         # the input its read was made on, whose tokens its positions are of
-                if step.source is not None:
-                    encode_input(engine, plan, findings, name, step.source)
-                continue
-            rows, encoded = held_rows(plan, step.dataset), encode_input(engine, plan, findings, name, step)
-            check_longest(engine, name, step, findings)
-            for key, record in entries(step).items():
-                where, site = f"{name}.{key}", cast(Site, record.site)
-                layers, select = cast("Selector | None", site.layers), cast("dict[str, Selector] | None", site.select)
-                record.layers = None if layers is None else picked(where, layers, sizes["num_layers"])
-                for axis, index in (select or {}).items():
-                    if selectors.offset(index) is not None:
-                        continue                    # relative to each query: past a row's keys it is missing
-                    shortest = min(len(e["ids"]) for e in encoded)
-                    size, what = (shortest, f"the {shortest} tokens of the input's shortest row") \
-                        if axis == "key" else (sizes[axis], f"the model's {sizes[axis]}")
-                    selected(where, axis, index, size, what)
-                record.kept = selectors.kept(select, sizes)
-                if writes(record) and (axis := address.COMPONENTS[site.component].get("ids")):
-                    for o in record.ops:
-                        given, n = arguments(o).get("with") if o.op == "swap" else None, sizes[axis]
-                        if isinstance(given, (int, float)) and not (0 <= given < n and given == int(given)):
-                            raise ValueError(f"{where}: swap with {given!r}: {site.component} holds ids, and an id is "
-                                             f"a whole number from 0 to {n - 1} (the model's {axis}, {n})")
-                pos = positions.parse(record.pos)
-                row_positions = None
-                if positions.prefill_only(pos) or step.kind == "forward":    # a forward's one call is its prefill
-                    row_positions = prefill_positions(where, record, step, rows, encoded, tokenizer, alike)
-                    record.positions = {**record.positions, step.dataset: row_positions}
-                    counts = {len(p) if isinstance(p, list) else 0 for p in row_positions}  # a missing row holds none
-                    record.width = counts.pop() if len(counts) == 1 else None   # what the rows confirm
-                probe = None                        # past a probe's encode, a column names its classes
-                for o in record.ops:
-                    if probe is None:
-                        check_tokens(engine, plan, findings, where, o.op, arguments(o), None, row_positions,
-                                     [e["ids"] for e in encoded], bool((pos["scope"] or {}).get("before")))
-                    else:
-                        check_classes(plan, where, o.op, arguments(o), probe, classes)
-                    if o.op == "encode" and kind_of(plan, arguments(o)["featurizer"]) == "linear":
-                        probe = arguments(o)["featurizer"]
-                # A metric of an answer of several tokens lines up with the read's positions, which a generation knows
-                # once it ends: it and the ops after it wait for that (`scores_aligned_answer`).
-                first = len(record.ops) - len(gathers(record))
-                record.per_call = next((i - first for i in range(first, first + record.per_call)
-                                        if scores_aligned_answer(engine, plan, findings, record.ops[i], where)),
-                                       record.per_call)
-            # What `check_operands` finds of a write's operand depends on the write's component, positions and
-            # selection and on the op's arguments, never its layers: each such write and op is checked once.
-            checked: set[tuple] = set()
-            for key, record in entries(step).items():   # the operands, once every entry of the step has its labels
-                where, edits = f"{name}.{key}", len(record.ops) - len(gathers(record))
-                dims = address.dims(cast(Site, record.site).component)
-                for i, o in enumerate(record.ops):
-                    # What the op meets: the op before it left it, as its record says (its labels the entry's).
-                    ours = Labelled(dims=dims, space=record.ops[i - 1].space if i else [], dataset=record.dataset,
-                                    layers=record.layers, read=record.read, width=record.width if "pos" in dims else None,
-                                    kept={a: v for a, v in record.kept.items() if a in dims})
-                    if why := k_past(o.op, arguments(o), ours, sizes, probe_of(plan, ours, classes)):
-                        raise ValueError(f"{at_point(plan, where, step.at)}: {why}")
-                    for k, (written, theirs) in references(o.op, arguments(o),
-                                                           preflight_resolver(plan, step.at)).items():
-                        forward = written.rpartition(".")[0] == name
-                        why = mismatch(ours, theirs, o.op, k, written, repr(step.input), i < edits, forward,
-                                       adapts(plan, o), lambda read: entry_of(plan.steps, read, step.at)[1])
+            with naming_point(plan, step.at):
+                if step.kind == "fit":
+                    try:
+                        prepare(engine, body_view(plan, name, step.at), step.steps, classes, findings)
+                    except ValueError as e:
+                        raise ValueError(f"{name}.{e}") from None
+                    continue
+                if step.kind == "op":
+                    args, of = arguments(step), record_of(plan.steps, step.of, step.at)
+                    assert step.dims is not None and of.dims is not None
+                    step.layers, step.kept, step.width = kept_labels(of, step.dims)     # completed from its producer's
+                    if why := k_past(step.op, args, of, sizes, probe_of(plan, of, classes)):
+                        raise ValueError(f"{at_point(plan, name, step.at)}: {why}")
+                    for key, (written, theirs) in references(step.op, args, preflight_resolver(plan, step.at)).items():
+                        why = mismatch(of, theirs, step.op, key, written, repr(step.of), False, False,
+                                       adapts(plan, step), lambda read: entry_of(plan.steps, read, step.at)[1])
                         if why:
-                            raise ValueError(f"{where}: operand {why}")
-                    write = (cast(Site, record.site).component, repr(record.pos), repr(record.kept), o.op,
-                             repr(arguments(o)))
-                    if i < edits and write not in checked:
-                        checked.add(write)
-                        check_operands(engine, plan, where, o, step, record, findings)
-                    dims = o.dims or dims
+                            raise ValueError(f"{name}: operand {why}")
+                    if "classes" in of.dims:
+                        check_classes(plan, name, step.op, args, of.space[-1]["featurizer"], classes)
+                    else:
+                        check_tokens(engine, plan, findings, name, step.op, args, of.dims,
+                                     *known_positions(plan, of, step.at, findings))
+                    bundle = ops.DECLARED[step.op]["bundle"]
+                    for field in featurizers.KINDS[bundle].counts if bundle else ():
+                        width = len(of.kept["hidden_size"]) if "hidden_size" in of.kept else sizes["hidden_size"]
+                        if args[field] > width:
+                            raise ValueError(f"{name}: {step.op} {field} {args[field]} counts directions of a "
+                                             f"value {width} wide, which has no more than {width}")
+                    if step.op == "pca" and of.read is not None:
+                        row_positions = read_positions(plan.steps, of.read, step.at)
+                        n = sum(len(p) for p in row_positions if isinstance(p, list)) \
+                            if row_positions is not None else None
+                        if n is not None and n <= args["k"]:
+                            raise ValueError(f"{name}: pca of {n} vectors has no rank-{args['k']} basis; "
+                                             f"it needs more than {args['k']}")
+                    continue
+                if step.kind == "load":         # the input its read was made on, whose tokens its positions are of
+                    if step.source is not None:
+                        encode_input(engine, plan, findings, name, step.source)
+                    continue
+                rows, encoded = held_rows(plan, step.dataset), encode_input(engine, plan, findings, name, step)
+                check_longest(engine, name, step, findings)
+                for key, record in entries(step).items():
+                    where, site = f"{name}.{key}", cast(Site, record.site)
+                    layers = cast("Selector | None", site.layers)
+                    select = cast("dict[str, Selector] | None", site.select)
+                    record.layers = None if layers is None else picked(where, layers, sizes["num_layers"])
+                    for axis, index in (select or {}).items():
+                        if selectors.offset(index) is not None:
+                            continue                    # relative to each query: past a row's keys it is missing
+                        shortest = min(len(e["ids"]) for e in encoded)
+                        size, what = (shortest, f"the {shortest} tokens of the input's shortest row") \
+                            if axis == "key" else (sizes[axis], f"the model's {sizes[axis]}")
+                        selected(where, axis, index, size, what)
+                    record.kept = selectors.kept(select, sizes)
+                    if writes(record) and (axis := address.COMPONENTS[site.component].get("ids")):
+                        for o in record.ops:
+                            given, n = arguments(o).get("with") if o.op == "swap" else None, sizes[axis]
+                            if isinstance(given, (int, float)) and not (0 <= given < n and given == int(given)):
+                                raise ValueError(f"{where}: swap with {given!r}: {site.component} holds ids, and an "
+                                                 f"id is a whole number from 0 to {n - 1} (the model's {axis}, {n})")
+                    pos = positions.parse(record.pos)
+                    row_positions = None
+                    if positions.prefill_only(pos) or step.kind == "forward":    # a forward's one call is its prefill
+                        row_positions = prefill_positions(where, record, step, rows, encoded, tokenizer, alike)
+                        record.positions = {**record.positions, step.dataset: row_positions}
+                        # a missing row holds none
+                        counts = {len(p) if isinstance(p, list) else 0 for p in row_positions}
+                        record.width = counts.pop() if len(counts) == 1 else None   # what the rows confirm
+                    probe = None                        # past a probe's encode, a column names its classes
+                    for o in record.ops:
+                        if probe is None:
+                            check_tokens(engine, plan, findings, where, o.op, arguments(o), None, row_positions,
+                                         [e["ids"] for e in encoded], bool((pos["scope"] or {}).get("before")))
+                        else:
+                            check_classes(plan, where, o.op, arguments(o), probe, classes)
+                        if o.op == "encode" and kind_of(plan, arguments(o)["featurizer"]) == "linear":
+                            probe = arguments(o)["featurizer"]
+                    # A metric of an answer of several tokens lines up with the read's positions, which a generation
+                    # knows once it ends: it and the ops after it wait for that (`scores_aligned_answer`).
+                    first = len(record.ops) - len(gathers(record))
+                    record.per_call = next((i - first for i in range(first, first + record.per_call)
+                                            if scores_aligned_answer(engine, plan, findings, record.ops[i], where)),
+                                           record.per_call)
+                # What `check_operands` finds of a write's operand depends on the write's component, positions and
+                # selection and on the op's arguments, never its layers: each such write and op is checked once.
+                checked: set[tuple] = set()
+                for key, record in entries(step).items():   # the operands, once every entry of the step has its labels
+                    where, edits = f"{name}.{key}", len(record.ops) - len(gathers(record))
+                    dims = address.dims(cast(Site, record.site).component)
+                    for i, o in enumerate(record.ops):
+                        # What the op meets: the op before it left it, as its record says (its labels the entry's).
+                        ours = Labelled(dims=dims, space=record.ops[i - 1].space if i else [], dataset=record.dataset,
+                                        layers=record.layers, read=record.read,
+                                        width=record.width if "pos" in dims else None,
+                                        kept={a: v for a, v in record.kept.items() if a in dims})
+                        if why := k_past(o.op, arguments(o), ours, sizes, probe_of(plan, ours, classes)):
+                            raise ValueError(f"{at_point(plan, where, step.at)}: {why}")
+                        for k, (written, theirs) in references(o.op, arguments(o),
+                                                               preflight_resolver(plan, step.at)).items():
+                            forward = written.rpartition(".")[0] == name
+                            why = mismatch(ours, theirs, o.op, k, written, repr(step.input), i < edits, forward,
+                                           adapts(plan, o), lambda read: entry_of(plan.steps, read, step.at)[1])
+                            if why:
+                                raise ValueError(f"{where}: operand {why}")
+                        write = (cast(Site, record.site).component, repr(record.pos), repr(record.kept), o.op,
+                                 repr(arguments(o)))
+                        if i < edits and write not in checked:
+                            checked.add(write)
+                            check_operands(engine, plan, where, o, step, record, findings)
+                        dims = o.dims or dims
         if points(entry)[0].kind in ("forward", "generate"):
             for step, served in cast("list[tuple[Forward, list[Forward]]]", serving(plan, name)):
-                write_schedule(engine, plan, name, step, served)
-                check_last_only(engine, name, step, findings)
+                with naming_point(plan, step.at):
+                    write_schedule(engine, plan, name, step, served)
+                    check_last_only(engine, name, step, findings)
+
+
+@contextmanager
+def naming_point(plan: Plan, at: dict[str, int]) -> Iterator[None]:
+    """A refusal at one point of a sweep names the point after its path (`at_point`), as compile's do; one whose
+    path names it already (a fit body's step at the fit's point) is left as it is."""
+    try:
+        yield
+    except ValueError as e:
+        path, sep, why = str(e).partition(": ")
+        if not at or not sep or " at " in path or type(e) not in (ValueError, PlanError):
+            raise
+        raise type(e)(f"{at_point(plan, path, at)}: {why}") from None
 
 
 def at_point(plan: Plan, where: str, at: dict[str, int]) -> str:

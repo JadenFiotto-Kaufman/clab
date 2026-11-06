@@ -14,6 +14,7 @@ import functools
 import json
 import math
 import os
+import re
 import types
 from collections.abc import Iterator
 from typing import Annotated, Any, Literal, NoReturn, TypeVar, Union, get_args, get_origin
@@ -47,6 +48,32 @@ class PlanError(ValueError):
 
 def fail(path: str, message: str) -> NoReturn:
     raise PlanError(f"{path}: {message}" if path else message)
+
+
+# The builtin types pydantic names a union's member by in an error's location; a model member goes by its class name.
+MEMBER_TYPES = ("str", "int", "float", "bool", "dict", "list", "none", "tuple", "set")
+
+
+def located(loc: tuple, given: Any, missing: bool) -> tuple[str, list[tuple[str, str]]]:
+    """A pydantic error's location as a document path (`steps.patched.input[1]`), and the union members it went
+    through, each as the path where the union stands and the member's tag. Pydantic names a union's member in the
+    location (`str`, `list[union[str,TextPart]]`, `TextPart`, and this module's `~` tags), which the document does not
+    hold. So a part that is no key of the document there and is spelled as a type is a member's tag. A `missing`
+    error's last part is the field the document leaves out."""
+    path, members, here = "", [], given
+    for i, part in enumerate(loc):
+        if isinstance(part, int):
+            path += f"[{part}]"
+            here = here[part] if isinstance(here, list) and 0 <= part < len(here) else None
+        elif isinstance(here, dict) and part in here or missing and i == len(loc) - 1:
+            path += f".{part}" if path else part
+            here = here.get(part) if isinstance(here, dict) else None
+        elif part.startswith("~") or "[" in part or part in MEMBER_TYPES or part[:1].isupper():
+            members.append((path, part))
+        else:
+            path += f".{part}" if path else part
+            here = None
+    return path, members
 
 
 def derived(default: Any, description: str, **more: Any) -> Any:
@@ -486,8 +513,8 @@ class Pos(Record):
     is each row's generated inputs through its first `</think>`, and `count` of a read there is the thinking's
     length in tokens (all its inputs on a row that never closes it). The scope is the frame's: an occurrence that
     holds none of the frame's tokens is not one of its own, so over `"2:"` a text said at call 1 is not found and
-    until is the whole frame, as on a row that never says it. An until scope holds a different number of positions
-    on each row. With `before` its frame is decode calls: over a frame that holds the prompt it would start before
+    until is the whole frame, as on a row that never says it. An until scope has no width compile can fix, so it
+    pairs with no other forward's value. With `before` its frame is decode calls: over a frame that holds the prompt it would start before
     the frame's first token (position 0, or at a generation's head the prompt's last, before which its prefill
     computes no head) and name no position on any row, so compile refuses it. A write's positions beyond the
     prefill are decided call by call, as each runs, and until names positions up to an occurrence not yet seen
@@ -587,25 +614,25 @@ class Labelled(Record):
     dataset: str | None = derived(None, DATASET)
     layers: list[int] | None = derived(None, "the model layers the value is from, in the order its site picks them: "
                                              "the labels of its `layers` axis where it has one, the one layer it was "
-                                             "read at where not; null for a value from no layer (a model's own, or "
-                                             "one reduced over its layers); `[]` until preflight resolves a slice or "
+                                             "read at where not. Null for a value from no layer (a model's own, or "
+                                             "one reduced over its layers). `[]` until preflight resolves a slice or "
                                              "a layer counted from the last")
     read: str | None = derived(None, "the entry whose value this is, or descends from through op steps, whose "
                                      "positions it holds where it has a `pos` axis; null for a value no read made, "
                                      "and for one whose rows hold other rows' values (a `permute`'s and what "
                                      "descends from it)")
     width: int | None = derived(None, "how many positions the value holds on every row, where it has a `pos` axis "
-                                      "and that is one number: the static width its read's `pos` names, which "
-                                      "compile writes, or, where the `pos` leaves it open, the number every row's "
-                                      "positions hold where they are resolved (a prefill read's by preflight, a "
-                                      "loaded read's by its run) and agree; null where rows hold different numbers "
-                                      "of positions, where none are resolved yet, or there is no `pos` axis. Only "
-                                      "pairing with another forward's value needs it to be one number")
+                                      "and that is one number. Compile writes the static width its read's `pos` "
+                                      "names. Where the `pos` leaves it open, it is the number every row's "
+                                      "positions hold once they are resolved (a prefill read's by preflight, a "
+                                      "loaded read's by its run), where they agree. Null where rows hold different "
+                                      "numbers of positions, where none are resolved yet, or there is no `pos` "
+                                      "axis. Only pairing with another forward's value needs it to be one number")
     kept: dict[str, selectors.Kept] = derived({}, "the indices a site's `select` keeps on each axis it selects, in "
                                                   "their order (`key`: the keys it picks, or `{\"offset\": [...]}`, "
-                                                  "those relative to each query), an op step's those of the value it "
-                                                  "is over on the axes its own still has; an unselected axis is "
-                                                  "whole, and `[]` stands until preflight resolves a slice or a "
+                                                  "those relative to each query). An op step's are those of the "
+                                                  "value it is over, on the axes its own still has. An unselected "
+                                                  "axis is whole. `[]` stands until preflight resolves a slice or a "
                                                   "negative pick")
     space: list[dict] = derived([], "the coordinates the value is in: the encodes left open around it, outermost "
                                     "first, each its `featurizer` and `select`; none for the site's own layout, and "
@@ -677,15 +704,16 @@ class Intervention(Labelled):
     gathered: bool = derived(False, "whether the run takes the entry's value off the model: `saves` names it, "
                                     "a later entry or step uses it, or a gathered `grad` entry is its gradient")
     per_call: int = derived(0, "how many of the ops after the entry's last edit a generation runs at each call it "
-                               "reads the entry beyond its prefill, on that call's own value, the rest running once "
-                               "the calls are arranged by position: the leading ones that are positionwise (Ops), "
-                               "keep the `pos` axis and take no operand that has one, up to the first that scores "
-                               "an answer of several tokens, which preflight finds; 0 in a forward and in the prefill")
-    positions: dict[str, list] = derived({}, "the positions the entry resolved to, per row (as `pos` counts them: an "
-                                             "index into the row's prompt tokens, BOS first, then its generated ones; "
-                                             "`alignment_missing` for a row it does not reach), under the dataset whose "
-                                             "rows they are; the prefill's set by preflight, a generation's decode "
-                                             "calls' by the run")
+                               "reads the entry beyond its prefill, on that call's own value. The rest run once the "
+                               "calls are arranged by position. Those counted are the leading ops that are "
+                               "positionwise (Ops), keep the `pos` axis and take no operand that has one, up to the "
+                               "first that scores an answer of several tokens, which preflight finds. 0 in a forward "
+                               "and in the prefill")
+    positions: dict[str, list] = derived({}, "the positions the entry resolved to, per row, under the dataset whose "
+                                             "rows they are. A position counts as `pos` does: an index into the row's "
+                                             "prompt tokens, BOS first, then its generated ones. `alignment_missing` "
+                                             "stands for a row it does not reach. Preflight sets the prefill's, and "
+                                             "the run a generation's decode calls'")
 
     @field_validator("pos", mode="before")
     @classmethod
@@ -774,14 +802,14 @@ class Forward(Record):
     longest row; under `batch` each padded to its own longest row; under `sorted` the rows longest first, each
     batch padded to its own, and every value put back in dataset row order. Padding is never a position, so a
     row's `positions` and its `key` axis (as wide as the input's longest row, NaN past the row's own keys) are the
-    same under each. At the thread count the suite pins (`tests/conftest.py`, 12, whose bits 24 threads give too;
-    8 can differ) a row's numbers do not depend on which rows share its batch; at 4 or fewer they can differ by
-    about 1e-8. They do depend on the batch's shape: a trailing partial batch is a smaller matrix, a batch padded to
-    its own width a narrower one, and either can differ in the last bits (in float32 a forward's values by 6e-8 at
-    most on the tiny corpus, by 3.3e-5, 3.9e-7 relative, on GPT-2 over 2,000 AG News rows); a featurizer Adam trains through such a forward can move by about its learning rate, since Adam scales
-    a rounding-sized gradient along a flat direction up to the step size (SGD moves it in the last bits), so a fit
-    whose trained tensors are compared belongs under `dataset` padding. Results reproduce to the bit at a fixed
-    batch size, padding and thread count."""
+    same under each. Under `dataset` a row's numbers depend on the width of the input's longest row, not on which
+    rows share its batch. At some thread counts the batch's other rows can still move them in the last bits. They
+    do depend on the batch's shape: a trailing partial batch is a smaller matrix, and a batch padded to its own
+    width a narrower one. Either can differ in the last bits: in float32 a forward's values move by 6e-8 at most on
+    the corpus (`tests/test_padding.py`), and a real model's move more. A featurizer trained through such a forward
+    can move by more than the last bits, since an optimizer such as Adam scales a rounding-sized gradient up to its
+    step size. So a fit whose trained tensors are compared belongs under `dataset` padding. Results reproduce to the
+    bit at a fixed batch size, padding, readout and thread count, each of which the run records."""
     kind: Literal["forward"]
     input: str | list[str | TextPart]
     interventions: Interventions = {}
@@ -789,27 +817,27 @@ class Forward(Record):
     dataset: str | None = derived(None, DATASET)
     schedule: dict[str, Any] = derived({}, "the forward this point runs, or the point whose forward serves it. A "
                                            "forward depends on the step's options and on its writes alone (`axes`: "
-                                           "each write's site, positions, ops up to its last edit and their operands), "
-                                           "so the points that agree on those axes are served by the forward of the "
-                                           "first of them, and each other holds `serving`, that point's coordinates, "
-                                           "and nothing else (the points a forward serves are those that name it: "
-                                           "`plan.serving`), and, at a forward that reads entries only for its own "
-                                           "writes, `freed`, those entries, of whose batches the run keeps none. "
-                                           "Compile writes those; preflight, with the model in hand, "
-                                           "writes at each point that runs its forward the sites the forward visits in "
-                                           "the engine's forward order (`sites`: each its component and layer and the "
-                                           "records done there in order, a write with its ops up to its last edit and "
-                                           "each operand resolved to a producer's name and point or to the name of a "
-                                           "read of the same forward, a read with the point whose entry it is and the "
-                                           "name it feeds, and `readout` on a read of `logits` that the run's readout "
-                                           "`at-reads` does at the last block's output), `stop`, the site the forward "
-                                           "ends at (null for a generation, which runs whole), for a forward with "
-                                           "`grad` entries `grad` (one item per distinct value differentiated, `of` "
-                                           "the names of its reads, one per layer, and `wrt` the names of the `grad` "
-                                           "reads whose gradient it is), and for a generation each record's `calls` "
-                                           "and `online`, `prompt` on a part over the prompt of an entry beyond the "
-                                           "prefill, and the `loop` of calls the engine iterates (null: every one). "
-                                           "The engines execute it and decide nothing")
+                                           "each write's site, positions, ops up to its last edit and their operands). "
+                                           "The points that agree on those axes are served by the forward of the "
+                                           "first of them. Each of the others holds `serving`, the first one's "
+                                           "coordinates, and nothing else; the points a forward serves are those that "
+                                           "name it (`plan.serving`). A forward that reads entries only for its own "
+                                           "writes holds `freed`, those entries, of whose batches the run keeps none. "
+                                           "Compile writes those. Preflight, with the model in hand, writes the rest "
+                                           "at each point that runs its forward. `sites` holds the sites the forward "
+                                           "visits, in the engine's forward order, each its component and layer and "
+                                           "the records done there in order. A write there holds its ops up to its "
+                                           "last edit, each operand resolved to a producer's name and point or to the "
+                                           "name of a read of the same forward. A read there holds the point whose "
+                                           "entry it is and the name it feeds, and `readout` where it reads `logits` "
+                                           "that the run's readout `at-reads` does at the last block's output. `stop` "
+                                           "is the site the forward ends at (null for a generation, which runs "
+                                           "whole). A forward with `grad` entries holds `grad`, one item per distinct "
+                                           "value differentiated: `of` the names of its reads, one per layer, and "
+                                           "`wrt` the names of the `grad` reads whose gradient it is. A generation "
+                                           "holds each record's `calls` and `online`, `prompt` on a part over the "
+                                           "prompt of an entry beyond the prefill, and the `loop` of calls the engine "
+                                           "iterates (null: every one). The engines execute it and decide nothing")
     batch_size: int | None = derived(None, "the rows a batch of the input holds, whatever the run's batch size, where "
                                            "the step fixes it: a fit's eval step's are the fit's `batch_size`; null, "
                                            "the run's")
@@ -873,16 +901,16 @@ class Generate(Forward, Labelled):
     calls arranged by position (its record's `per_call` counts those it runs at each call). So a metric of the head at
     `{"frame": ":"}` holds one number a call, `[rows, calls]`, where a read with no op, or whose first op waits,
     holds `calls × vocab_size` values a row in the model's dtype until the generation ends (twice that while it is
-    arranged): an op waits where its bits depend on the shape of the value it runs on (a matmul, `readout`'s or an
-    `encode`'s; a sum over a long axis, `kl`'s, `cosine`'s, `mean`'s, `norm`'s; `pow`, which torch computes two
-    ways), as a call's value and the whole one's differ in shape. On the CPU either way a value is the same
-    to the bit; on CUDA a `token_prob` or `cross_entropy` over GPT-2's 50,257-token vocabulary can differ in its
-    last bits, since torch picks its softmax's kernel by the tensor's outer size, which a call's value and the
-    whole one's differ in.
+    arranged). An op waits where its bits depend on the shape of the value it runs on, as a call's value and the
+    whole one's differ in shape: a matmul (`readout`'s or an `encode`'s), a sum over a long axis (`kl`'s, `js`'s,
+    `entropy`'s, `cosine`'s, `mean`'s, `sum`'s, `std`'s, `norm`'s, `dot`'s), and `pow`, which torch computes two
+    ways. On the CPU either way a value is the same to the bit. On CUDA a per-call metric can differ in its last
+    bits from the same metric over the whole read, since torch picks a softmax's kernel by the tensor's outer size,
+    which a call's value and the whole one's differ in.
 
     Rows run in batches as a forward's do, and reproduce to the bit only at a fixed batch size: the prefill
-    projects the head at the last position only and every decode call is a `[batch, 1, ...]` matmul, so
-    batch sizes 4 and 2 already differ by about 1e-7 at call 0."""
+    projects the head at the last position only and every decode call is a `[batch, 1, ...]` matmul, so two
+    batch sizes can differ in the last bits from call 0."""
     # Its other keys go to the engine, but `reads` and `writes` are refused, as on a forward (`SIDES`).
     model_config = ConfigDict(extra="allow")
     kind: Literal["generate"]  # type: ignore[assignment]
@@ -1044,9 +1072,9 @@ class Fit(Record):
     at: dict[str, int] = derived({}, AT)
     evals: "dict[str, dict[str, Step]]" = derived(
         {}, "each eval as the steps it runs, by label, then by body step: the body's steps compiled again at the "
-            "fit's point, after it, each dataset the substitution names read as the one it maps to, each body name "
-            "`<fit>.<eval>.<name>` and each trained featurizer `<fit>.<featurizer>`, each step and value on the "
-            "fit's axes, and a forward's batches of the fit's `batch_size`")
+            "fit's point, after it. Each dataset the substitution names is read as the one it maps to. Each body "
+            "name is `<fit>.<eval>.<name>`, and each trained featurizer `<fit>.<featurizer>`. Each step and value "
+            "is on the fit's axes, and a forward runs in batches of the fit's `batch_size`")
 
     @model_validator(mode="after")
     def _counts(self) -> "Fit":
@@ -1089,15 +1117,14 @@ class Featurizer(Record):
     header: dict[str, str] | None = derived(None, "the header of the bundle `file_path` names, which preflight "
                                                   "checks the model's width against")
     width: int | None = derived(None, "the feature width the featurizer has at the sites it is used at, one for all "
-                                      "of them, which preflight finds among the model's sizes (null for one used "
-                                      "nowhere; a gate over axes, how many units it has: the product of `kept`'s "
-                                      "lengths, where an affine over layers is as wide as its sites' last axis); a "
-                                      "saved bundle's header records it")
+                                      "of them, which preflight finds among the model's sizes; null for one used "
+                                      "nowhere. For a gate over axes it is how many units the gate has, the "
+                                      "product of `kept`'s lengths. An affine over layers is as wide as its "
+                                      "sites' last axis. A saved bundle's header records it")
     kept: dict[str, list[int]] = derived({}, "a featurizer over axes (a gate's units, an affine's maps): the indices "
-                                             "it keeps on each axis it is over, "
-                                             "in `over`'s order (`layers` by model layer), as the sites it is used at "
-                                             "select them or its bundle's header records them, which preflight "
-                                             "finds; empty for any other featurizer")
+                                             "it keeps on each axis it is over, in `over`'s order (`layers` by model "
+                                             "layer). Preflight finds them as the sites it is used at select them, or "
+                                             "as its bundle's header records them. Empty for any other featurizer")
 
     @model_validator(mode="after")
     def _fields(self) -> "Featurizer":
@@ -1121,7 +1148,7 @@ class Run(Record):
     as on an NDIF server, and every engine option after its defaults in `options`), what served it (`versions`:
     clab's version with its commit, the packages it runs on and python, where the model is: the server's, under
     `ndif`; `threads`, torch's intra-op thread count there at the run's start, which with the batch shape sets a CPU
-    matmul's last bits; null in a record from before it was kept). `dtype` and `devices` are the distinct dtypes and
+    matmul's last bits). `dtype` and `devices` are the distinct dtypes and
     devices of the model's parameters there, in the order first met (a quantized model's
     packed weights among them, `uint8` under `nf4`; every rank's devices under `tp`). `sizes` are the model's
     (`num_layers`, `hidden_size`, `num_heads`, ...), the axes a site's selectors count among: what a saved
@@ -1200,20 +1227,31 @@ class Plan(Record):
         try:
             super().__init__(**fields)
         except ValidationError as e:
-            said = []
-            for error in e.errors():                # each as `<document path>: <what>`
-                path = ""
-                for part in error["loc"]:
-                    if isinstance(part, int):
-                        path += f"[{part}]"
-                    elif not part.startswith("~"):
-                        path += f".{part}" if path else part
+            found = []                              # each as `<document path>: <what>`
+            for error in e.errors():
+                path, members = located(error["loc"], fields, error["type"] == "missing")
                 text = error["msg"].removeprefix("Value error, ")
                 if error["type"] == "kind":
                     given = error["input"].get("kind") if isinstance(error["input"], dict) else error["input"]
                     text = f"unknown step kind {given!r}; valid: {', '.join(KINDS)}"
-                said.append(f"{path}: {text}" if path else text)
-            raise PlanError("\n".join(said)) from None
+                # ruled out: a union's member the value's shape does not fit, refused at the member itself
+                ruled_out = error["type"].endswith("_type") and bool(members) and members[-1][0] == path
+                found.append({"path": path, "text": text, "members": members, "ruled_out": ruled_out,
+                              "input": error.get("input")})
+            # At a union, a member the value's shape rules out says nothing where another member got further; where
+            # every member rules it out, one line says what the value should be.
+            for point in sorted({p for f in found for p, _ in f["members"]}, key=len):
+                at = [f for f in found if any(p == point for p, _ in f["members"])]
+                out = [f for f in at if f["ruled_out"] and f["members"][-1][0] == point]
+                if out and len(out) < len(at):
+                    found = [f for f in found if f not in out]
+                elif len(out) > 1:
+                    forms = [re.sub(r" or instance of \w+$", "", f["text"].removeprefix("Input should be "))
+                             for f in out]
+                    one = {**out[0], "text": f"{out[0]['input']!r} should be {', or '.join(forms)}", "members": []}
+                    found = [one if f is out[0] else f for f in found if f not in out[1:]]
+            raise PlanError("\n".join(f"{f['path']}: {f['text']}" if f["path"] else f["text"]
+                                      for f in found)) from None
 
     @model_validator(mode="before")
     @classmethod

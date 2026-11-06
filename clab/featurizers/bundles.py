@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any
 from safetensors import safe_open
 from torch import Tensor
 
-from clab.featurizers import FORMAT, KINDS
+from clab.featurizers import FORMAT, KINDS, article
 from clab.format import registry
 
 if TYPE_CHECKING:
@@ -69,8 +69,7 @@ def recorded(layer: str | None) -> list[int | None]:
 
 def selection(header: dict[str, str]) -> dict[str, Any]:
     """The indices a bundle's site kept on each axis it selects, as its header's `select` records them; none, the
-    whole component, where the header has no `select`: one made at a site that selects nothing, or before headers
-    recorded a selection, which is taken to be the whole component."""
+    whole component, where the header has no `select`, as one made at a site that selects nothing has none."""
     return json.loads(header.get("select") or "{}")
 
 
@@ -104,8 +103,8 @@ def load(root: str, kind: str, fields: dict[str, Any], model: Model, labels: lis
                              "file carries none of them")
         return KINDS[kind].published(tensors, fields), None
     if set(tensors) != set(KINDS[kind].saves):
-        raise ValueError(f"{fields['file_path']} holds {', '.join(sorted(tensors))}; a {kind} bundle holds "
-                         f"{', '.join(KINDS[kind].saves)}")
+        raise ValueError(f"{fields['file_path']} holds {', '.join(sorted(tensors))}; {article(kind)} {kind} bundle "
+                         f"holds {', '.join(KINDS[kind].saves)}")
     for key, value in header(kind, fields, model, labels).items():
         if found.get(key) != value:
             raise ValueError(f"{fields['file_path']}: header {key!r} is {found.get(key)!r}; this document "

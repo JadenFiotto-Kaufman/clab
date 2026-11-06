@@ -21,7 +21,7 @@ each record with its labels and, on every read and write, the positions it resol
 to label positions, and each forward's and generation's `schedule`, which forward served each point and what it
 did. The manifest holds each distinct list of positions per row once, in its top-level `positions`, and a record's
 `positions` names its list there by index under its dataset (`{"train": 0}`), so records that resolved alike share
-one; a record holding its list itself, as a manifest an older clab wrote does, reads as well. The plan's
+one; a record holding its list itself reads as well. The plan's
 `featurizers` hold each one's width; its `run` holds the batch size, `padding` and `readout` it ran at (the
 padding and the readout even where they are the defaults), the thread count torch computed with (`threads`), the
 model's sizes, and what each run of each step cost (`costs`: its seconds, its peak memory on each CUDA device, its
@@ -198,8 +198,8 @@ def load(out: str) -> Plan:
         with open(tokens) as f:
             plan.run.tokens = json.load(f)
     elif plan.run is not None and not plan.run.tokens:       # neither beside the manifest nor, as before, in it
-        raise FileNotFoundError(f"{out}/tokens.json is missing, and the manifest holds no tokens; a run this clab "
-                                "wrote has one beside its manifest, so rerun the document that wrote it")
+        raise FileNotFoundError(f"{out}/tokens.json is missing, and the manifest holds no tokens: rerun the "
+                                "document that wrote it")
     for name, d in described.items():
         value = read_saved_value(out, name, d)
         if d["axes"]:
@@ -227,21 +227,21 @@ def recorded(steps: dict[str, Any]) -> Iterator[Intervention]:
 def manifest(out: str) -> tuple[dict[str, Any], dict[str, Any]]:
     """The manifest of the run at `out`, as JSON, each record's `positions` its lists (an index into the
     manifest's `positions` the list there, records of one index holding one list), and apart from it its `results`:
-    each saved value's record by name. One an older clab wrote is refused by name: whose value records have no
-    `axes` (it cannot say which sweeps a value depends on, and taken as unswept a swept value's points would load as
-    one), or whose fit has an `eval` and no `evals` (it holds no record of an eval's values)."""
+    each saved value's record by name. A manifest whose value records have no `axes` is refused by name: it cannot
+    say which sweeps a value depends on, and taken as unswept a swept value's points would load as one. So is one
+    whose fit has an `eval` and no `evals`, which holds no record of an eval's values."""
     try:
         with open(os.path.join(out, "manifest.json")) as f:
             held = json.load(f)
     except FileNotFoundError:
         raise FileNotFoundError(f"no run at {out!r} (no manifest.json); run the document first") from None
     if any("axes" not in d for d in held.get("results", {}).values()):
-        raise ValueError(f"{out}/manifest.json predates the sweep axes a saved value's record holds ('axes'), so it "
-                         "does not say which sweeps its values depend on; rerun the document that wrote it")
+        raise ValueError(f"{out}/manifest.json: a saved value's record holds no 'axes', so it does not say which "
+                         "sweeps its values depend on; rerun the document that wrote it")
     for name, entry in held.get("steps", {}).items():
         if any(p.get("kind") == "fit" and p.get("eval") and "evals" not in p for p in points(entry)):
-            raise ValueError(f"{out}/manifest.json predates a fit's evals as steps ('evals'), so its fit {name!r} "
-                             "does not hold its evals' records; rerun the document that wrote it")
+            raise ValueError(f"{out}/manifest.json: fit {name!r} has an 'eval' and no 'evals', so it holds no "
+                             "record of its evals' values; rerun the document that wrote it")
     table = held.pop("positions", [])
     for entry in held_entries(held.get("steps", {})):
         for dataset, given in entry.get("positions", {}).items():

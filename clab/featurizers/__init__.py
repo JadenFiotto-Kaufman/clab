@@ -15,7 +15,8 @@ its coordinates of a value `h` (the last axis becomes the kind's axis: `features
 nothing changes nothing to the bit, and a sparse autoencoder's error term is kept exactly; and `apply` gives
 its version of `h` in `h`'s own layout (a subspace's projection, a dictionary's reconstruction, a gate's
 masked value or, given `with`, its interpolation toward that value, an adapter's adapted value, an affine map's
-`h + h W + b`). A fit's objective may name a featurizer's scalar as `<featurizer>.<scalar>` (a gate's
+`h + h W + b`, a pca's projection through its mean, `mean + (h - mean) B Bᵀ`, a constant's vector in place of the
+value). A fit's objective may name a featurizer's scalar as `<featurizer>.<scalar>` (a gate's
 `mask` is the mean of its soft mask; an sae's `reconstruction` and `l1` are over the coordinates the body read of
 it in that run of the body, its `encode`s no `decode` closes, which the instance keeps while a fit trains it). Its
 math runs on the value's device and dtype, with autocast off: a model served in bfloat16 under autocast leaves a
@@ -153,7 +154,8 @@ class Kind:
     def published(cls, tensors: dict[str, Tensor], fields: dict[str, Any]) -> dict[str, Tensor]:
         """The tensors of a published file (one with no clab header), as an instance loads them; a kind that
         reads none refuses."""
-        raise ValueError(f"{fields['file_path']} has no clab header; a {cls.kind} bundle is one clab wrote")
+        raise ValueError(f"{fields['file_path']} has no clab header; {article(cls.kind)} {cls.kind} bundle is one "
+                         "clab wrote")
 
     # -- what the run calls ----------------------------------------------------------------------------------
 
@@ -211,7 +213,7 @@ class Kind:
 
     def scalar(self, name: str) -> Tensor:
         """The scalar `name` a fit's objective may name: one of `scalars`, as compile checks."""
-        raise ValueError(f"a {self.kind!r} featurizer has no scalar {name!r}")
+        raise ValueError(f"{article(self.kind)} {self.kind!r} featurizer has no scalar {name!r}")
 
     def size(self) -> int:
         """How many coordinates the instance's space has: the shape of its encode of one zero vector made where
@@ -229,6 +231,12 @@ def check(kind: str, fields: dict[str, Any]) -> None:
     if kind not in KINDS:
         raise ValueError(f"unknown featurizer kind {kind!r}; valid: {', '.join(KINDS)}")
     KINDS[kind].check(fields)
+
+
+def article(kind: str) -> str:
+    """The indefinite article a refusal writes before featurizer kind `kind`: "an" before a vowel sound (an affine,
+    and an sae, said letter by letter), "a" before any other (a gate, a lora)."""
+    return "an" if kind.startswith(tuple("aeiou")) or kind == "sae" else "a"
 
 
 def labels(rows: dict[str, list[dict[str, Any]]], column: str) -> list:

@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 import torch
 
-from clab.featurizers import KINDS, Kind, bundles, labels, make
+from clab.featurizers import KINDS, Kind, article, bundles, labels, make
 from clab.format import address, registry, selectors
 from clab.format.registry import Value
 from clab.format.selectors import selected
@@ -96,7 +96,7 @@ def select_mismatch(name: str, f: Featurizer, read: Intervention) -> str | None:
     """Why the bundle `f` loads may not be used at `read`: its header's `select` is not the indices `read`'s site
     keeps on each axis it selects (`Intervention.kept`), with no `select` the whole component; None where they are
     the same, and for a featurizer with no clab header. An axis a gate's header records as `kept.<axis>` is that
-    record's to check (`check_gate_axes`), here as in a header written before `select` was. A bundle trained at one
+    record's to check (`check_gate_axes`). A bundle trained at one
     head applied at another would run and mean nothing."""
     gated = {key.partition(".")[2] for key in f.header or {} if key.startswith("kept.")}
     used = {a: v for a, v in read.kept.items() if a not in gated}
@@ -104,7 +104,7 @@ def select_mismatch(name: str, f: Featurizer, read: Intervention) -> str | None:
         return None
     site, file = cast(Site, read.site), (f.model_extra or {})["file_path"]
     said = f"header 'select' is {f.header['select']!r}" if "select" in f.header else \
-        "header has no 'select': it was made at the whole component, or before headers recorded a selection"
+        "header has no 'select': it was made at the whole component"
     keeps = f"whose selection keeps {', '.join(f'{a} {v}' for a, v in used.items())}" if used else \
         "which selects nothing"
     return f"{file}: {said}; this document uses {name!r} at {site.component} layer {site.layers!r}, {keeps}"
@@ -138,7 +138,7 @@ def check_bundle_shapes(plan: Plan) -> None:
             needed = ["width", *(k for k in kind.header if k in (*kind.drawn, *kind.counts, "classes"))]
             if (lacking := next((k for k in needed if k not in f.header), None)) is not None:
                 fail(f"featurizers.{name}.file_path", f"{file}: header records no {lacking!r}, which "
-                     f"{'an' if f.kind[0] in 'aeiou' else 'a'} {f.kind} bundle records")
+                     f"{article(f.kind)} {f.kind} bundle records")
             width = f.header["width"]
             fields = {k: bundles.value(f.header[k]) for k in kind.header if k in f.header and k != "classes"}
             fields.update({k: 0 for k in kind.drawn if k not in kind.header})     # a constant's init: any number
@@ -156,17 +156,16 @@ def check_bundle_shapes(plan: Plan) -> None:
                 shape, laid_out = list(f.bundle[tensor].shape), list(getattr(drawn, tensor).shape)
                 if shape == laid_out:
                     continue
-                a = "an" if f.kind[0] in "aeiou" else "a"
                 if over is not None:
                     said = ", ".join(f"{key} {f.header.get(key)}" for key in keys.values()) + \
                         (f", width {width}" if kind.stacked else "")
-                    fail(f"featurizers.{name}.file_path", f"{file}: {tensor!r} is {shape}, and its header lays {a} "
-                         f"{f.kind} over {over} out on {said}: {tensor!r} is {laid_out}, one "
+                    fail(f"featurizers.{name}.file_path", f"{file}: {tensor!r} is {shape}, and its header lays "
+                         f"{article(f.kind)} {f.kind} over {over} out on {said}: {tensor!r} is {laid_out}, one "
                          f"{'map' if kind.stacked else 'unit'} per index it keeps on each axis")
                 said = ", ".join([f"width {width}"] + [f"{k} {f.header[k]}" for k in kind.header
                                                         if k in f.header and k != "over"])
-                fail(f"featurizers.{name}.file_path", f"{file}: {tensor!r} is {shape}, and its header lays {a} "
-                     f"{f.kind} out at {said}: {tensor!r} is {laid_out}")
+                fail(f"featurizers.{name}.file_path", f"{file}: {tensor!r} is {shape}, and its header lays "
+                     f"{article(f.kind)} {f.kind} out at {said}: {tensor!r} is {laid_out}")
 
 
 def check_gate_axes(plan: Plan) -> None:
@@ -338,7 +337,7 @@ def check_input_site(plan: Plan, where: str, at: dict, f: Featurizer, o: Op | Op
     file = (f.model_extra or {})["file_path"]
     if recorded is None and given is not None:
         raise ValueError(f"{where}: {file}'s header records no input site (with.component): it was trained on its "
-                         "own site's value, or before bundles recorded a 'with'; retrain it with this 'with'")
+                         "own site's value; retrain it with this 'with'")
     if recorded is None:
         return
     if given is None:
@@ -379,8 +378,8 @@ def check_named_values(plan: Plan) -> None:
                          "value in a step before the featurizer's first use")
                 record = record_of(plan.steps, ref, points(runnable(plan.steps)[made])[0].at)
                 if record.axes:
-                    fail(path, f"{ref!r} depends on the sweep axes {record.axes}, and a {kind} is drawn once per "
-                         f"point of its own fields: {field} names a value on no sweep axis")
+                    fail(path, f"{ref!r} depends on the sweep axes {record.axes}, and {article(kind)} {kind} is drawn "
+                         f"once per point of its own fields: {field} names a value on no sweep axis")
                 for where, read, _, _, around in used.get(name, []):
                     space = [{k: v for k, v in arguments(o).items() if k in ("featurizer", "select")} for o in around]
                     last = KINDS[kind_of(plan, arguments(around[-1])["featurizer"])].axis if around else \
@@ -393,14 +392,14 @@ def check_named_values(plan: Plan) -> None:
                         shared = [a for a in dims if a not in (last, *address.EXAMPLE_AXES)
                                   and (read.kept.get(a) is None or len(read.kept[a]) > 1)]
                         fix = (f"one vector is shared by every {shared[0]} the site keeps, so for each one's own, "
-                               f"declare a site per {shared[0]} (a select of one) with a {kind} of its own, each "
-                               f"{field} a mean of a read there over every axis but {last}") if shared else \
+                               f"declare a site per {shared[0]} (a select of one) with {article(kind)} {kind} of its "
+                               f"own, each {field} a mean of a read there over every axis but {last}") if shared else \
                             f"reduce it to that, a mean of a read at the site over every axis but {last}"
-                        fail(path, f"{ref!r} is laid out {dims}, {why}, and a {kind}'s {field} is one vector of its "
-                             f"width, laid out {[last]} as {where} meets the value: {fix}")
+                        fail(path, f"{ref!r} is laid out {dims}, {why}, and {article(kind)} {kind}'s {field} is one "
+                             f"vector of its width, laid out {[last]} as {where} meets the value: {fix}")
                     if record.space != space:
-                        fail(path, f"{ref!r} is in another coordinate space than {where}'s value; a {kind}'s {field} "
-                             "is in the coordinates of the value it is applied to")
+                        fail(path, f"{ref!r} is in another coordinate space than {where}'s value; {article(kind)} "
+                             f"{kind}'s {field} is in the coordinates of the value it is applied to")
 
 
 def check_named_widths(engine: Engine, plan: Plan) -> None:
@@ -422,8 +421,9 @@ def check_named_widths(engine: Engine, plan: Plan) -> None:
                         raise ValueError(f"{where}: featurizer {name!r} is drawn from {ref!r} ({field}), which keeps "
                                          f"{last} {held if held is not None else 'whole'}, {wide} wide, and is applied "
                                          f"here to a value keeping {last} {kept if kept is not None else 'whole'}, "
-                                         f"{f.width} wide; a {f.kind}'s {field} lies unit for unit on the value it is "
-                                         f"written into: make {ref!r} from a read at this use's select")
+                                         f"{f.width} wide; {article(f.kind)} {f.kind}'s {field} lies unit for unit on "
+                                         f"the value it is written into: make {ref!r} from a read at this use's "
+                                         "select")
 
 
 def named_values(spec: Featurizer) -> dict[str, str]:

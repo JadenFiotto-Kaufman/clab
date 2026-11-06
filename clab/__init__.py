@@ -19,9 +19,9 @@ __all__ = ["Plan", "run", "describe"]
 def run(plan: "Plan | str", engine: "str | Engine" = "nnterp", out: str | None = None, batch_size: int = 8,
         device: str | None = None, padding: str = "dataset", readout: str = "full", **options: Any) -> Plan:
     """`Plan(path)` -> `compile` -> `execute` on `engine` -> `dump` into `out` (default `out/<document name>`).
-    Returns the filled plan. `padding` is how each batch is padded (`format.data.PADDINGS`: `dataset`, the exact
+    Returns the filled plan. `padding` is how each batch is padded (`format.data.PADDINGS`: `dataset`, the
     default, `batch` or `sorted`), and `readout` how a forward computes `logits` (`compile.schedule.READOUTS`: `full`,
-    the exact default, or `at-reads`). `engine` is a registered name, loaded on `device` (default the engine's own,
+    the default, or `at-reads`). `engine` is a registered name, loaded on `device` (default the engine's own,
     `cpu`, or `cuda:0` for vllm; for nnterp and hooks one torch device or a device map transformers computes,
     `"auto"` among them) with the engine's own
     `options` (`remote="local"` for ndif), or a loaded engine, so one model serves many documents. A loaded

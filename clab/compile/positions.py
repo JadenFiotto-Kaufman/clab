@@ -220,7 +220,9 @@ def resolve(pos: dict, prompt: int, said: list[int], occurrences: list[set[int]]
         tokens = scope_tokens(pos["scope"], tokens, occurrences, texts, encoded)
         positions = [tokens[i] for i in select(pos["index"], len(tokens))]         # stage three
         if (static := width(pos)) is not None and len(positions) != static:         # a static width holds all of them
-            raise ValueError(f"tokens {pos['index']} do not fit its {len(tokens)} scope tokens")
+            n = len(tokens)
+            held = f"{n} scope token{'s' * (n != 1)}" if pos["scope"] else f"{n} position{'s' * (n != 1)} at this frame"
+            raise ValueError(f"index {pos['index']} does not fit the row's {held}")
         positions = [t - 1 for t in positions] if before else positions
     except ValueError as e:
         if prefill_only(pos):

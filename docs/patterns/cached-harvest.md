@@ -55,8 +55,8 @@ Compile reads the run's `manifest.json` and the value's file, and refuses by nam
 | no run there | `no run at out/x under the corpus root (no manifest.json); …` |
 | another model block, a loader key or `dtype` included | `out/x ran another model than this document's: attn_implementation None where this document's is 'eager'` |
 | a name the run did not save | `out/x saved no 'harvest.nope'; it saved harvest.acts, basis` |
-| a manifest whose value records hold no `axes` | `out/x/manifest.json predates the sweep axes a saved value's record holds ('axes'), …` |
-| a manifest whose fit has an `eval` and no `evals` | `out/x/manifest.json predates a fit's evals as steps ('evals'), …` |
+| a manifest whose value records hold no `axes` | `out/x/manifest.json: a saved value's record holds no 'axes', …` |
+| a manifest whose fit has an `eval` and no `evals` | `out/x/manifest.json: fit 'fit' has an 'eval' and no 'evals', …` |
 | the run's dataset under another name, or not declared | `'harvest.acts' was made over the rows of dataset 'prompts', which this document does not declare; …` |
 | other rows, or the same rows in another order | `'harvest.acts' was made over the rows of dataset 'prompts', and this document's 'prompts' is not the rows out/x read, in their order: as many rows, whose digest differs` |
 | fewer or more rows | `… is not the rows out/x read, in their order: 3 rows where it read 4` |

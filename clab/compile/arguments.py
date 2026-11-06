@@ -48,12 +48,12 @@ def featurizer_kind(cx: Compiling, plan: Plan, path: str, name: str, args: dict)
     kind = kind_of(plan, ref)
     serves = featurizers.KINDS[kind].ops()
     if name not in serves:
-        fail(f"{path}.featurizer", f"{ref!r} is a {kind!r} featurizer, which has no {name}: it serves "
-             f"{', '.join(serves)}" + ("; it has no way back into the value" if name == "decode" else ""))
+        fail(f"{path}.featurizer", f"{ref!r} is {featurizers.article(kind)} {kind!r} featurizer, which has no {name}: "
+             f"it serves {', '.join(serves)}" + ("; it has no way back into the value" if name == "decode" else ""))
     if name == "apply" and args.get("with") is not None:
         if "with_" not in registry.signature(featurizers.KINDS[kind].method("apply")).parameters:
-            fail(f"{path}.with", f"a {kind}'s apply takes no 'with', an adapter's input read at another site (a lora's), "
-                 "or the value a gate interpolates toward")
+            fail(f"{path}.with", f"{featurizers.article(kind)} {kind}'s apply takes no 'with', an adapter's input read "
+                 "at another site (a lora's), or the value a gate interpolates toward")
         if featurizers.KINDS[kind].adapts and not isinstance(args["with"], str):
             fail(f"{path}.with", f"{args['with']!r} is not a name; 'with' names a value read at the positions the op "
                  "acts on")
@@ -373,8 +373,9 @@ def mismatch(ours: Labelled, theirs: Labelled, name: str, key: str, written: str
                 continue
             read = reads(side.read) if side.read is not None else None
             if read is None or not positions.pending_width(positions.parse(read.pos)):
-                return (f"{ragged} holds a different number of positions on each row, which pair with no other "
-                        "value's; read both at a static index without a scope ('index': -1, or '-3:'), at one "
+                return (f"{ragged} has no width compile can fix (an open index, an `until` scope, several "
+                        "occurrences), so it pairs with no other forward's value; read both at a static index without a "
+                        "scope ('index': -1, or '-3:'), at one "
                         "occurrence of a scope in the prefill, not until, whose rows give its width, or over decode "
                         "calls at a frame of a static number of them with an index of static width ({'frame': '1:4', "
                         "'index': ':3'})")
