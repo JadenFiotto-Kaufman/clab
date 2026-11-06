@@ -1,6 +1,6 @@
 ---
 title: Cached Harvests
-one_liner: "Harvest once, use it many times: save a harvest, bring it into another document with a load step, fit a probe or take a pca on it without a forward, make a large harvest in shards with skip and take, and what must match for a load to compile."
+one_liner: "How do I harvest once and reuse it? Save it, load it in another document, fit on it without a forward, harvest in shards."
 tags: [patterns, load, cache, harvest, shards, skip]
 related: [docs/usage/output.md, docs/usage/data.md, docs/usage/fit.md, docs/usage/bundles.md, docs/usage/sweeps.md, docs/usage/engines.md, docs/patterns/probing.md, docs/patterns/sae.md]
 sources: [clab/plan.py, clab/compile/__init__.py, clab/compile/preflight.py, clab/steps/__init__.py, clab/output/__init__.py, clab/engines/nnterp.py]
@@ -17,7 +17,8 @@ A harvest is a read over every row of a dataset, saved; a later document that on
 ```json
 {
   "model": {"key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
-            "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998"},
+            "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998",
+            "dtype": "float32"},
   "data": {"prompts": {"path": "weekdays/train"}},
   "steps": {
     "harvest": {"kind": "forward", "input": "prompts.input",
@@ -28,7 +29,7 @@ A harvest is a read over every row of a dataset, saved; a later document that on
 }
 ```
 
-Run it with `--out out/prompts_l0` inside the corpus. Every later document that uses the read starts from it; the same `model` and `data` blocks, and in place of the forward:
+Run it with `--out out/prompts_l0` inside the corpus. A later document that uses the read keeps the same `model` and `data` blocks, and loads the read in place of the forward:
 
 ```json
 "steps": {
@@ -37,7 +38,13 @@ Run it with `--out out/prompts_l0` inside the corpus. Every later document that 
 }
 ```
 
-The step's value is named by the step, `harvest`, as an op step's is. `basis` is pca_harvest.json's basis to the bit, and its bundle's header names the site, layer and width of the read the load carries, so `documents/pca_control.json` loads it as it loads the original. A probe or a dictionary fits the same way: a fit's body takes the loaded value's rows by id, as it takes a harvest made in its own document ([fit.md](../usage/fit.md)), and an `encode` of it uses the featurizer at the read's site. A run that loads a value and saves it passes on the read it carries, so a load of that save encodes as the first load does; an op's value over a read, loaded or not, is no read's own, and an `encode` of it is refused. `sae_train.json` with its harvest loaded trains the same dictionary to the bit. On Llama-3.2-1B in bfloat16, a 4-way probe over a 10,000-row cache of one residual vector per row, scored on a 7,600-row held-out cache, gives the held-out accuracy of the document that harvested both (0.8326) to the bit, in 4 s where that document took 64.
+- **`from` is relative to the corpus root**, the nearest directory above the document that holds `data/` ([running.md](../usage/running.md#the-corpus-root)), whatever directory the run starts in. `--out` is relative to the working directory, so run the harvest from the corpus root.
+- **The step's value is named by the step,** `harvest`, as an op step's is.
+- **`basis` equals pca_harvest.json's basis** ([running.md](../usage/running.md#when-two-runs-give-the-same-numbers)). Its bundle's header names the site, layer and width of the read the load carries, so `documents/pca_control.json` loads it as it loads the original.
+- **A probe or a dictionary fits the same way.** A fit's body takes the loaded value's rows by id, as it takes a harvest made in its own document ([fit.md](../usage/fit.md)). `sae_train.json` with its harvest loaded trains an equal dictionary.
+- **A document of loads and op steps loads no weights.**
+- **An `encode` of a loaded read uses the featurizer at the read's site.** A run that loads a value and saves it passes on the read it carries. A load of that save encodes as the first load does.
+- **An op's value over a read, loaded or not, is no read's own,** and an `encode` of it is refused.
 
 ## What the load checks
 
@@ -45,42 +52,67 @@ Compile reads the run's `manifest.json` and the value's file, and refuses by nam
 
 | refused | message, after `steps.<step>.from` or `.value` |
 |---|---|
-| no run there | `no run at out/x under the corpus root (no manifest.json); run the document that saves the value there first, with --out out/x` |
-| another model block, a loader key included | `out/x ran another model than this document's: attn_implementation None where this document's is 'eager'` |
+| no run there | `no run at out/x under the corpus root (no manifest.json); …` |
+| another model block, a loader key or `dtype` included | `out/x ran another model than this document's: attn_implementation None where this document's is 'eager'` |
 | a name the run did not save | `out/x saved no 'harvest.nope'; it saved harvest.acts, basis` |
-| a manifest an older clab wrote, whose value records have no `axes` | `out/x/manifest.json predates the sweep axes a saved value's record holds ('axes'), so it does not say which sweeps its values depend on; rerun the document that wrote it` |
-| a manifest an older clab wrote, whose fit has an `eval` and no `evals` | `out/x/manifest.json predates a fit's evals as steps ('evals'), so its fit 'fit' does not hold its evals' records; rerun the document that wrote it` |
+| a manifest whose value records hold no `axes` | `out/x/manifest.json predates the sweep axes a saved value's record holds ('axes'), …` |
+| a manifest whose fit has an `eval` and no `evals` | `out/x/manifest.json predates a fit's evals as steps ('evals'), …` |
+| the run's dataset under another name, or not declared | `'harvest.acts' was made over the rows of dataset 'prompts', which this document does not declare; …` |
 | other rows, or the same rows in another order | `'harvest.acts' was made over the rows of dataset 'prompts', and this document's 'prompts' is not the rows out/x read, in their order: as many rows, whose digest differs` |
+| fewer or more rows | `… is not the rows out/x read, in their order: 3 rows where it read 4` |
 | a chat dataset rendered with another `template` | `'read.acts' was made over the rows of dataset 'chats', whose chats out/x rendered with template {'add_generation_prompt': True}, and this document's 'chats' has None` |
 | a sweep it depends on, over other values here | `'harvest.acts' is swept over 'layers', [0, 1] in out/x, and this document sweeps 'layers' over [1, 0]; …` |
 
-So the loading document declares the dataset under the same name, and its rows after `split`, `shuffle`, `skip`, `take` and `columns` must be the run's: the same `sha256` and `n_rows`, and for chats the same `template`, which the digest does not cover. A swept value loads at every point of the axes it depends on, each point the saved one there: the load declares each of the run's sweeps it depends on that the loading document does not, with the run's label and values, so a harvest swept over `layers` loads with no other field swept and comes out keyed `layers=0`, `layers=1` as the run's did; a sweep the document declares under that label must have the same values. A bundle (a `pca`'s value, a trained featurizer) is refused with the `file_path` that loads it as a featurizer ([bundles.md](../usage/bundles.md)); so are a value in a featurizer's coordinates, a generation's value or one holding its positions, and a load inside a fit's body. A value an op took out of the coordinates, by changing the last axis they lie on, is in none and loads: a per-token L0, `[{"op": "encode", "featurizer": "sae"}, {"op": "gt", "with": 0}, {"op": "sum", "over": ["features"]}]`, laid out `[rows, pos]`.
+**What must match:**
+
+- The `model` block is the run's, field for field. `dtype` defaults to `float32`, so a load of a bfloat16 harvest writes `"dtype": "bfloat16"` too.
+- The loading document declares the dataset under the run's name.
+- Its rows after `split`, `shuffle`, `skip`, `take` and `columns` are the run's: the same `sha256` and `n_rows`.
+- A chat dataset renders with the run's `template`, which the digest does not cover.
+
+**A swept value:**
+
+- It loads at every point of the axes it depends on, each point the saved one there.
+- The load declares each of the run's sweeps it depends on that the loading document does not, with the run's label and values.
+- So a harvest swept over `layers` loads with no other field swept, keyed `layers=0`, `layers=1` as the run's was.
+- A sweep the loading document declares under that label must have the same values.
+
+**What does not load:**
+
+- A bundle (a `pca`'s value, a trained featurizer). It is refused with the `file_path` that loads it as a featurizer ([bundles.md](../usage/bundles.md)): `'basis' is a bundle, which a featurizer of its kind loads, with 'file_path': 'out/prompts_l0/basis.safetensors'`.
+- A value in a featurizer's coordinates.
+- A generation's value, or one holding its positions.
+- A load inside a fit's body.
+
+A value an op took out of the coordinates, by changing the last axis they lie on, is in none and loads. A per-token L0, `[{"op": "encode", "featurizer": "sae"}, {"op": "gt", "with": 0}, {"op": "sum", "over": ["features"]}]`, loads laid out `[rows, pos]`.
 
 ## Positions and the table
 
-A loaded read keeps its positions per row, and preflight tokenizes its input as a forward would, so `clab table` labels `pos` and `pos_token` exactly as the harvesting run's table does, and `clab show` lists the read under `<step>.<entry>` (`harvest.acts`). The tokens are this run's, from the same checkpoint and the same rows.
+A loaded read keeps its positions per row, and preflight tokenizes its input as a forward would. So `clab table` labels `pos` and `pos_token` as the harvesting run's table does, and `clab show` lists the read under `<step>.<entry>` (`harvest.acts`). The tokens are this run's, from the same checkpoint and the same rows.
 
 ## A harvest in shards
 
-`skip` drops the first N rows, after `shuffle` and before `take`, so one shuffled order splits into shards, each a run of its own:
+A harvest too large for one run is made in shards: one shuffled order, cut with `skip` and `take` ([data.md](../usage/data.md#narrowing-and-renaming-rows)), one run per shard. On the 42 rows of `data/weekdays_full/data.json`:
 
-```json
-"cache": {"hf": "fancyzhx/ag_news", "revision": "eb185aade064a813bc0b7f42de02595523103ca4",
-          "split": "train", "shuffle": true, "skip": 20000, "take": 10000}
-```
+| shard | dataset block |
+|---|---|
+| 0 | `{"path": "weekdays_full/data", "shuffle": true, "skip": 0, "take": 20}` |
+| 1 | `{"path": "weekdays_full/data", "shuffle": true, "skip": 20, "take": 22}` |
 
-is rows 20,000 to 29,999 of the order `shuffle` gives. A document loads one shard per `load`, with the same dataset block; loading several shards as one value is not a step clab has.
+The two shards' values, joined in order, equal the harvest of all 42 shuffled rows. A load of a shard needs a dataset block, under the shard's dataset name, that gives the same rows: `{"path": "weekdays_full/data", "shuffle": true, "skip": 20}` loads shard 1. Nothing in a document joins several shards into one value.
 
 ## Under `ndif`
 
-The loaded value travels in the request, inside the plan, as a loaded bundle's tensors do, so the server reads no file of yours, and `-o remote=local` runs what a server runs: the result equals the nnterp engine's to the bit. A small cached operand therefore serves a model you cannot load yourself, as a counterfactual read saved from one NDIF run and patched into another. A request carries at most 512 MiB of loaded tensors over a document's loads; a document that loads more is refused before anything is sent, with each load's size:
+The loaded value travels in the request, inside the plan, as a loaded bundle's tensors do, so the server reads no file of yours. `-o remote=local` runs what a server runs, and its result equals the nnterp engine's. A small cached operand therefore serves a model you cannot load yourself, as a counterfactual read saved from one NDIF run and patched into another.
+
+A request carries at most 512 MiB of loaded tensors over a document's loads (`clab/steps/__init__.py` `LOADED`). A document that loads more is refused before anything is sent, with each load's size. Run it where the file is, on the nnterp or hooks engine:
 
 ```text
-clab: harvest, held: the values this document loads hold 600.0 MiB of tensors (harvest 400.0 MiB, held 200.0 MiB), and a request carries at most 512 MiB inside its plan; run it where the file is, on the nnterp or hooks engine
+clab: harvest, held: the values this document loads hold 805.7 MiB of tensors (harvest 402.8 MiB, held 402.8 MiB), and a request carries at most 512 MiB inside its plan; …
 ```
 
 ## Pitfalls
 
-- **The cache is the run that made it.** A row's values depend on that run's batch size and padding ([running.md](../usage/running.md#batch-size-and-reproducibility)); the loading document reproduces numbers computed from the cache, not a fresh harvest at another batch shape.
+- **The cache is the run that made it.** A row's values depend on that run's batch size and padding ([running.md](../usage/running.md#batch-size-and-padding)). The loading document reproduces numbers computed from the cache, not a fresh harvest at another batch shape.
 - **Change the data, rerun the harvest.** An edited row, a new `take` or another `shuffle` moves the digest, and every load of the old cache is refused until the harvest runs again.
 - **Save what you will load.** Only names in the harvesting run's `saves` have files; a held-out harvest the downstream document scores needs saving too.

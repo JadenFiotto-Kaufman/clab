@@ -15,10 +15,10 @@ For changing clab itself: read architecture first, then the page for the part yo
 
 - [architecture](architecture.md) — How clab is built: the chain from document to output directory, the import direction, one concept per module, and where the code holds the five constraints that keep a document running the same everywhere.
 - [compile-and-run](compile-and-run.md) — The two passes and the run: compile's checks with the document alone, preflight's with the model, the schedule each forward runs, how steps.run walks a plan, and what belongs to the engine.
-- [engines](engines.md) — The engine protocol and how to add an engine: what execute must do, what steps.run asks for, executing a bound schedule site by site, where a forward stops, live operands, and refusing by name.
+- [engines](engines.md) — The engine protocol and how to add an engine: the constructor and options, what execute must do, the members steps.run and preflight read, a bound schedule site by site, where a forward stops, and where an engine refuses.
 
 ## Changing it
 
 - [extending](extending.md) — Adding an op, a featurizer kind, a component or a step kind: the decorator, the signature as the document's contract, where the tables come from, and the tests to add.
-- [testing](testing.md) — Running and extending the suite: offline CPU runs at the pinned thread count, snapshot pins and re-pinning, the GPU and torchrun tests, the FORMAT drift test, the docs test, and pyright.
+- [testing](testing.md) — Running and extending the suite: offline CPU runs at the pinned thread count, snapshot pins and re-pinning, the GPU and torchrun tests, the FORMAT drift test, the docs test, pyright, and the CI workflows that run them.
 - [contributing](contributing.md) — How changes land: branch and commit conventions, format changes with before-and-after JSON, one spelling per thing, the corpus runs unchanged, regenerating FORMAT.md, and the docs standard.

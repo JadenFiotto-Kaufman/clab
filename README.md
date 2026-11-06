@@ -56,12 +56,12 @@ last token of the counterfactual prompt, `patched` swaps that value into the bas
 reads the logits, and the two `op` steps score them. `saves` lists what the run writes.
 
 ```text
-$ uv run clab run documents/patching.json
+$ clab run documents/patching.json
 patching on nnterp (batch size 8, device cpu, tp 1) -> out/patching
-  iia.safetensors              iia              [4,1]
-  logit_diff.safetensors       logit_diff       [4,1]
+  iia.safetensors         iia         [4,1]
+  logit_diff.safetensors  logit_diff  [4,1]
   out/patching/manifest.json
-$ uv run clab table out/patching iia logit_diff
+$ clab table out/patching iia logit_diff
 row  pos  pos_token  input                              cf_answer  iia  base_answer  logit_diff
 0    10   ▁is        If today is Thursday, tomorrow is   Sunday    0.0   Friday      -0.027417995035648346
 1    8    ▁is        If today is Friday, tomorrow is     Monday    0.0   Saturday    0.18085992336273193
@@ -72,9 +72,8 @@ row  pos  pos_token  input                              cf_answer  iia  base_ans
 `iia` is 1 where the patched model's most likely next token is the counterfactual answer, and `logit_diff` is
 the counterfactual answer's logit less the base answer's. The corpus checkpoint has random weights, so these
 numbers show the mechanics, not a finding. `pos` and `pos_token` say where the scored read landed: "Thursday"
-is three tokens, so row 0's last token is at position 10. `uv run clab show out/patching` prints how the run
-went: one row per run of a step with the points it served and what it cost, the positions each entry resolved
-to per row, and each saved value's `dims`, the sweep axes it depends on and its shape.
+is three tokens, so row 0's last token is at position 10. `clab show out/patching` prints how the run went:
+what each step cost, the positions each entry resolved to per row, and each saved value's layout and shape.
 
 From Python, `clab.run` returns the filled plan:
 
@@ -86,23 +85,14 @@ plan = clab.run("documents/patching.json")      # writes out/patching
 plan                                            # Plan(patching, run on nnterp, 2 results)
 plan.results["logit_diff"][:, 0]                # tensor([-0.0274,  0.1809,  0.0351, -0.1933])
 
-swept = clab.run("documents/pos_sweep.json")    # the same patch written at positions -1, -2 and -3
-list(swept.results["iia"])                      # [-1, -2, -3]: one [4, 1] tensor per point
-probe = clab.run("documents/generate_probe.json")
-list(probe.results["p_answer"])                 # [0, 1, 2]: a read swept over the frames, one tensor per frame
-probe.results["patched"]                        # tensor [4, 3]: the ids depend on no sweep, so one generation
-
 Plan.load("out/patching").table("iia", "logit_diff")[0]
 # {'row': 0, 'pos': 10, 'pos_token': '▁is', 'input': 'If today is Thursday, tomorrow is', 'cf_answer': ' Sunday', 'iia': 0.0, 'base_answer': ' Friday', 'logit_diff': -0.027417995035648346}
 ```
 
-A result is keyed by the sweep axes its own value depends on, and points that differ only in what they read share
-one forward. By default every batch is padded to the input's longest row: a row's numbers do not depend on which
-rows share its batch, though they do on the dataset's longest row, which sets every batch's width, and a run
-reproduces to the bit at one batch size. `--padding batch` pads each
-batch to its own longest row, and `--padding sorted` also batches the rows longest first and puts every value back
-in row order; on data whose lengths vary they feed several times fewer tokens, for numbers that move in the last
-bits (a featurizer Adam trains through them, by about its learning rate). [docs/usage/running.md](docs/usage/running.md) has the run options and the four calls behind `clab.run`, and
+A sweep, `{"sweep": [...]}` where a value goes, runs the document at each value on one model load
+([docs/usage/sweeps.md](docs/usage/sweeps.md)). A `generate` step reads and writes at the prefill and at each
+decode call ([docs/usage/generate.md](docs/usage/generate.md)). `--padding` and `--readout` trade the last
+bits for speed ([docs/usage/running.md](docs/usage/running.md#batch-size-and-padding)), and
 [docs/usage/output.md](docs/usage/output.md) reads a run back.
 
 ## What you can do
@@ -123,11 +113,10 @@ Each technique has a page with documents that run:
 - [Sparse autoencoders](docs/patterns/sae.md): splice in a published dictionary, ablate its features, or train one.
 - [Probing](docs/patterns/probing.md): train a linear probe per layer on a label column.
 - [LoRA](docs/patterns/lora.md): train a low-rank adapter through the frozen model and turn it on in chosen steps.
+- [Cached harvests](docs/patterns/cached-harvest.md): harvest once, save it, and load it in other documents to fit or score without a forward.
 
 Across techniques:
 
-- [Sweeps](docs/usage/sweeps.md): `{"sweep": [...]}` where a value goes runs the document at each value on one model load; labels zip or cross two sweeps.
-- [Generation](docs/usage/generate.md): a `generate` step reads and writes at the prefill and at each decode call.
 - [Fits](docs/usage/fit.md): a `fit` step trains featurizers inside the run, through the frozen model.
 - [Bundles](docs/usage/bundles.md): a trained featurizer is saved as a file that another document loads, its header checked against that document before anything runs.
 - [Engines](docs/usage/engines.md): `nnterp` (the default), `hooks` (plain transformers with forward hooks, to cross-check), `ndif` and `vllm` (vLLM's worker, one request per row, without gradients).
@@ -139,37 +128,45 @@ clab is not on PyPI. From a checkout of this repository:
 
 ```bash
 uv sync
+source .venv/bin/activate
 ```
 
 It needs Python 3.10 or later; `uv sync` installs nnsight, nnterp, torch and the rest into the checkout's
-`.venv`, and `uv run clab ...` runs inside it. nnterp 2 comes from a checkout of
-[ndif-team/nnterp](https://github.com/ndif-team/nnterp)'s `v2.0.0` branch, at the path `[tool.uv.sources]` in
-`pyproject.toml` names: point it at yours. The suite runs against nnterp commit
-`e5d0f8e755c6c04ce7c84eeab2832e2ef8dfce20`, the one CI checks out.
-A GPU is optional: the corpus under `documents/` (52 in all) runs on CPU
-on tiny random-weight checkpoints, and the six under `documents/real/` run Llama-3.2-1B, a gated checkpoint,
-and want one. The first run of a document downloads its checkpoint from the Hugging Face hub; after that,
-`HF_HUB_OFFLINE=1` runs it from the local cache.
+`.venv`. Inside that venv a command is `clab …`, as every page spells it. From outside it, the same command is
+`uv run --no-sync clab …`: `uv run` without `--no-sync` syncs the venv first, which puts transformers back at
+the lock's newer version, and the snapshots were made at the one the tests below pin.
+
+nnterp 2 comes from a checkout of [ndif-team/nnterp](https://github.com/ndif-team/nnterp)'s `v2.0.0` branch, at
+the path `[tool.uv.sources]` in `pyproject.toml` names: point it at yours. The suite runs against nnterp commit
+`e5d0f8e755c6c04ce7c84eeab2832e2ef8dfce20`, the one CI checks out. A GPU is optional: the corpus under
+`documents/` (52 in all) runs on CPU on tiny random-weight checkpoints, and the six under `documents/real/` run
+Llama-3.2-1B, a gated checkpoint, and want one. The first run of a document downloads its checkpoint from the
+Hugging Face hub; after that, `HF_HUB_OFFLINE=1` runs it from the local cache.
 
 ## Tests
 
 ```bash
 uv sync --dev
 uv pip install transformers==5.20.2
-CUDA_VISIBLE_DEVICES= HF_HUB_OFFLINE=1 uv run --no-sync pytest tests/ -q
+ATEN_CPU_CAPABILITY=avx2 CUDA_VISIBLE_DEVICES= HF_HUB_OFFLINE=1 uv run --no-sync pytest tests/ -q
 uvx pyright
 ```
 
 The suite runs offline and on CPU, on the tiny checkpoints
-[docs/developing/testing.md](docs/developing/testing.md#running-the-suite) lists, at the 12 threads `tests/conftest.py`
-pins. Its snapshots were made with transformers 5.20.2, which `uv sync` does not pin, and `uv run` without
-`--no-sync` would sync back to the newest. [.github/workflows/test.yml](.github/workflows/test.yml) runs these and
-the docs and FORMAT checks on every push to `master` and every pull request.
+[docs/developing/testing.md](docs/developing/testing.md#running-the-suite) lists, at the thread count
+`tests/conftest.py` pins. Its snapshots were made with transformers 5.20.2, which `uv sync` does not pin.
+`ATEN_CPU_CAPABILITY=avx2` is the vector width the snapshots were made at: on a CPU with AVX-512, torch's kernels
+otherwise reduce in another order and move the last bits. The suite skips its float comparisons against the snapshots on
+a CPU of another vendor than the snapshots' ([testing.md](docs/developing/testing.md#running-the-suite)).
+[.github/workflows/test.yml](.github/workflows/test.yml) runs these and the docs and FORMAT checks on every push
+to `master` and every pull request.
 
-`tests/test_real.py` (the documents under `documents/real/`) and `tests/test_device.py` need a CUDA device, and the
-first `meta-llama/Llama-3.2-1B`, a gated checkpoint, in the local cache; the suite skips both.
-[.github/workflows/gpu.yml](.github/workflows/gpu.yml) runs them on a self-hosted runner labelled `gpu`, and is off
-until one exists. By hand, from the repo root, in a venv over a python whose torch runs on your CUDA driver:
+`tests/test_real.py` (the documents under `documents/real/`), `tests/test_device.py` and `tests/test_vllm.py`
+need a CUDA device; `tests/test_real.py` needs `meta-llama/Llama-3.2-1B`, a gated checkpoint, in the local
+cache, and `tests/test_vllm.py` needs vLLM. The CPU suite skips them.
+[.github/workflows/gpu.yml](.github/workflows/gpu.yml) runs all three on a self-hosted runner labelled `gpu`,
+when dispatched by hand with the repository variable `GPU_RUNNER` set to `true`. By hand, from the repo root, in
+a venv over a python whose torch runs on your CUDA driver:
 
 ```bash
 uv venv --python <a python whose torch runs on your driver> --system-site-packages <venv>
@@ -184,10 +181,11 @@ CUDA_VISIBLE_DEVICES=0 HF_HUB_OFFLINE=1 PYTHONPATH=. <venv>/bin/python -m pytest
 and `NDIF_API_KEY`, or `nnsight.CONFIG`), and writes the output directory locally from what comes back. The
 server needs clab installed at your version and the document's checkpoint deployed at its revision.
 `-o remote=local` makes the same trip in this process without a server, and on `documents/patching.json` it
-gives the nnterp engine's numbers to the bit:
+gives the nnterp engine's numbers
+([docs/usage/running.md](docs/usage/running.md#when-two-runs-give-the-same-numbers)):
 
 ```bash
-uv run clab run documents/patching.json --engine ndif -o remote=local
+clab run documents/patching.json --engine ndif -o remote=local
 ```
 
 [docs/usage/engines.md](docs/usage/engines.md) has what each engine serves, devices, and what a server must have.
@@ -202,7 +200,7 @@ uv run clab run documents/patching.json --engine ndif -o remote=local
 - [docs/errors/](docs/errors/index.md): refusals by their message, and [the symptom index](docs/errors/symptom-index.md) for wrong numbers nothing refused.
 - [docs/reference/](docs/reference/index.md): the CLI, the Python API and the glossary.
 - [docs/developing/](docs/developing/index.md): how clab is built ([architecture](docs/developing/architecture.md)), how to add an op, a featurizer kind, a component or a step kind ([extending](docs/developing/extending.md)), the engine protocol, testing and contributing.
-- [FORMAT.md](FORMAT.md): every field, step kind, op, component, featurizer kind and engine option, generated from the code by `clab describe --markdown`; `uv run clab describe ops` prints one of its tables.
+- [FORMAT.md](FORMAT.md): every field, step kind, op, component, featurizer kind and engine option, generated from the code by `clab describe --markdown`; `clab describe ops` prints one of its tables.
 
 ## Agents
 

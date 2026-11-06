@@ -1,9 +1,9 @@
 ---
 title: Data and Inputs
-one_liner: "Declaring datasets and inputs: file, inline and hub rows; split, shuffle, skip, take, columns (renamed or derived) and template; text and chat inputs; list inputs for teacher forcing; answer columns with strip, lower and sets."
+one_liner: "How do I load rows and pick what a step runs over? File, inline and hub datasets, narrowing, renamed and derived columns, chats, teacher forcing and answer columns."
 tags: [usage, data, inputs, chat]
-related: [docs/usage/writing-a-document.md, docs/usage/positions.md, docs/usage/ops.md, docs/usage/generate.md, docs/usage/fit.md, docs/usage/running.md, docs/usage/output.md, docs/patterns/generation-experiments.md]
-sources: [clab/format/data.py, clab/plan.py, clab/compile/__init__.py]
+related: [docs/usage/writing-a-document.md, docs/usage/positions.md, docs/usage/ops.md, docs/usage/generate.md, docs/usage/fit.md, docs/usage/running.md, docs/usage/output.md, docs/patterns/generation-experiments.md, docs/errors/answer-does-not-line-up.md]
+sources: [clab/format/data.py, clab/plan.py, clab/compile/__init__.py, clab/compile/answers.py]
 ---
 
 # Data and Inputs
@@ -30,14 +30,18 @@ The `data` block names a document's datasets. Each dataset is a list of rows, ea
     "p_answer": {"kind": "op", "op": "token_prob", "of": "ask.logits", "token": "qa.answer"},
     "forced": {"kind": "forward", "input": ["days.prompt", "days.base_answer"],
                "interventions": {"logits": {"site": {"component": "lm_head_output"},
-                                            "pos": {"scope": {"column": "days.base_answer", "before": true}}}}},
+                                            "pos": {"scope": {"column": "days.base_answer", "occurrence": -1,
+                                                              "before": true}}}}},
     "nll": {"kind": "op", "op": "cross_entropy", "of": "forced.logits", "target": "days.base_answer"}
   },
   "saves": ["p_answer", "nll"]
 }
 ```
 
-`qa` is two inline rows whose `answer` is a set: `p_answer` is the summed probability of either member. `days` keeps 4 rows of the `train` split of `data/weekdays_full/data.json`, in a fixed shuffled order, with its `input` column renamed `prompt`. `forced` runs each prompt with its answer appended (teacher forcing) and reads the positions that predict the answer's tokens.
+- `qa` is two inline rows whose `answer` is a set: `p_answer` is the summed probability of either member.
+- `days` keeps 4 rows of the `train` split of `data/weekdays_full/data.json`, in a fixed shuffled order, with its `input` column renamed `prompt`.
+- `forced` runs each prompt with its answer appended (teacher forcing) and reads the positions that predict the answer's tokens.
+- **`"occurrence": -1` picks the appended answer.** Without it the scope takes the answer's first occurrence, which is in the prompt wherever the prompt says the answer too ([positions.md](positions.md#words-and-occurrences)).
 
 ## Where rows come from
 
@@ -52,7 +56,7 @@ A dataset has exactly one source; giving two is refused.
            "config": "wnli", "split": "validation", "take": 3}
   ```
 
-  Its rows never go into the plan or the manifest. Compile loads them to check the document and records their digest, the run loads them again where the model runs, and `clab table` loads them again to label its rows. Offline (`HF_HUB_OFFLINE=1`) they come from the local cache. A hub dataset with several splits and no `split` is refused, and the message lists them.
+  Its rows never go into the plan or the manifest. Compile loads them to check the document and records their digest, the run loads them again where the model runs, and `clab table` loads them again to label its rows. Offline (`HF_HUB_OFFLINE=1`) they come from the `datasets` library's cache, which one online load of that commit fills (`tests/test_hub.py` gives the command). A hub dataset with several splits and no `split` is refused, and the message lists them.
 
 ## Narrowing and renaming rows
 
@@ -60,34 +64,45 @@ The five fields apply in this order: `split`, `shuffle`, `skip`, `take`, `column
 
 | field | does | refused |
 |---|---|---|
-| `split` | a file: keeps the rows whose `split` column equals it; the hub: which split | on inline rows; a split no row has |
+| `split` | a file: keeps the rows whose `split` column equals it; the hub: which split | on inline rows; a split no row has (`data.pairs: the dataset has no rows in split 'train'`) |
 | `shuffle: true` | one fixed random order, the same on every machine (below) | — |
 | `skip: N` | drops the first N rows; with `take`, a shard of the order (`"skip": 20000, "take": 10000` is rows 20,000 to 29,999) | N that leaves no row; a negative N |
 | `take: N` | keeps the first N of the rows left; after `shuffle`, a random sample of N | N beyond the rows there are (after `skip`) |
 | `columns` | `{"<new name>": "<column as the source has it>"}` renames columns; `{"<new name>": {"from": "<column>", "after"?, "before"?, "strip"?}}` derives one ([below](#a-column-cut-from-another)) | a source the rows lack; a new name that is a column the rows keep; a derived column's text absent on a row |
 
-A renamed column is no longer under its old name: in the example, `days.input` is refused and `days.prompt` is the column. Renaming lets one file serve under another dataset's column names, which a fit's `eval` substitution needs ([fit.md](fit.md)). A swap, `{"a": "b", "b": "a"}`, is allowed, since neither old name is kept. A rename into a name the steps read changes what they read, unrefused: on `weekdays/train`, `{"input": "entity", "prompt": "input"}` runs every `pairs.input` step on the entity alone (`<s> ▁Friday` on row 1); check `run.tokens` after renaming.
+- **A renamed column answers to its new name only.** In the example, `days.input` is refused and `days.prompt` is the column. Renaming lets one file serve under another dataset's column names, which a fit's `eval` substitution needs ([fit.md](fit.md)).
+- **A swap, `{"a": "b", "b": "a"}`, is allowed**, since neither old name is kept.
+- **A rename into a name the steps read changes what they read, unrefused.** On `weekdays/train`, `{"input": "entity", "prompt": "input"}` runs every `pairs.input` step on the entity alone (`<s> ▁Friday` on row 1). Check `run.tokens` after renaming.
+- **`take` without `shuffle` keeps the first N rows.** On a file sorted by label or difficulty, that is not a sample.
 
 The manifest records each dataset's `sha256` and `n_rows` after these fields apply, and a row's index in `clab table` counts these rows.
 
-### A column cut from another
-
-A `columns` entry that is an object derives a column from another column's text, where a renamed one moves it. GSM8K's `answer` ends in `#### <the number>`; the number alone is
-
-```json
-"test": {"hf": "openai/gsm8k", "revision": "740312add88f781978c0658806c59bc2815b9866", "config": "main", "split": "test",
-         "columns": {"gold": {"from": "answer", "after": {"text": "#### "}, "strip": true}}}
-```
-
-`after` keeps the text after the first occurrence of its text, `before` the text before the first occurrence of its text (after `after`'s, when both are given), and `strip` drops the surrounding whitespace of what is left. `from` names the column as the source has it, which stays under its own name. Each is a text, `{"text": ...}`, as in a list input: one string, its only field, compared exactly (no `strip`, `lower` or set, which an op's literal takes; the derived column's own `strip` strips what is left); a bare string is refused with it. Compile cuts every row and refuses, naming the row, one whose `from` is not text or that lacks one of its texts: `data.test.columns.gold.after: row 17: '#### ' is not in its 'answer', …`. The derived column is part of the rows, so it is in the dataset's `sha256` as a column the source has is, and a hub dataset's rows are cut again where the run loads them. It is text cut from text, decided before any forward, never a computation on values.
-
-`shuffle`'s order ranks each row's index `i` by the 8-byte blake2b hash of `repr((0, i))` (`clab/format/data.py` `shuffled`), so it depends on the row count alone and is reproduced outside clab by
+`shuffle`'s order ranks each row's index `i` by the 8-byte blake2b hash of `repr((0, i))` (`clab/format/data.py` `shuffled`), so it depends on the row count alone. Outside clab, with `n` the row count after `split`:
 
 ```python
 order = sorted(range(n), key=lambda i: hashlib.blake2b(repr((0, i)).encode(), digest_size=8).digest())
 ```
 
-which gives each shuffled row in turn as its index among the rows before `shuffle` (after `split`); `skip: S` then drops the first S of that order, and `take: N` keeps the next N. A harvest too large for one run is made in shards this way, each saved and loaded by its own document ([cached-harvest.md](../patterns/cached-harvest.md#a-harvest-in-shards)).
+`skip: S` then drops the first S of that order and `take: N` keeps the next N. A harvest too large for one run is made in shards this way ([cached-harvest.md](../patterns/cached-harvest.md#a-harvest-in-shards)).
+
+### A column cut from another
+
+A `columns` entry that is an object derives a column from another column's text, where a renamed one moves it. On `weekdays/train` the day each prompt names is
+
+```json
+"pairs": {"path": "weekdays/train",
+          "columns": {"day": {"from": "input", "after": {"text": "today is "}, "before": {"text": ","}}}}
+```
+
+which gives `Thursday`, `Friday`, `Saturday` and `Sunday`.
+
+- **`after`** keeps the text after the first occurrence of its text.
+- **`before`** keeps the text before the first occurrence of its text, after `after`'s when both are given.
+- **`strip`** drops the surrounding whitespace of what is left.
+- **`from`** names the column as the source has it, which stays under its own name.
+- **Each text is `{"text": ...}`**, one string compared exactly, with no `strip`, `lower` or set. A bare string is refused: `data.pairs.columns.day.after: 'today is ' is a string; …`.
+- **Compile cuts every row** and refuses, naming the row, one whose `from` is not text or lacks one of its texts: `data.pairs.columns.day.after: row 0: 'yesterday was ' is not in its 'input', …`.
+- **The derived column is part of the rows**, so the dataset's `sha256` covers it, and a hub dataset's rows are cut again where the run loads them. It is text cut from text before any forward, never a computation on values.
 
 ## Inputs
 
@@ -105,6 +120,8 @@ Text is tokenized as the tokenizer does by default, with BOS where it adds one; 
 
 `documents/forced_answer.json` writes `"input": ["days.input", "days.base_answer"]` to append each row's answer to its prompt. Nothing is inserted between parts, so the answer's own leading space separates the words. A text, `{"text": ...}`, one string alone, adds fixed text: `["days.input", {"text": " and then"}, "days.base_answer"]` gives `If today is Thursday, tomorrow is and then Friday`. All columns of a list come from one dataset, a list needs at least one column, and a chat column in a list is refused, since a list joins text. Reading the answer's positions is [positions.md](positions.md); scoring each token is [ops.md](ops.md).
 
+**A column without the answer's leading space** (`data/weekdays/said.json`'s `said`) joins the prompt's last word when appended bare. `["p.input", "p.said"]` gives `issubstr`, and the scope on `p.said` is refused: `column 'p.said' ('substr') is not in its input; it occurs only inside 'issubstr', …`. Put the space in as a text: `"input": ["p.input", {"text": " "}, "p.said"]`. On the corpus Llama, where `substr` and ` substr` are the same tokens, that gives the same numbers as rows with the space written in. On a byte-level BPE such as GPT-2's, the bare target is other tokens than the input says. A metric of it is then refused (`'substr' is 4 tokens; the read has 3 positions on that row; …`), or scores the wrong tokens where the counts agree. There the space goes into the rows, since a derived column only cuts ([below](#answer-columns)).
+
 ### Chat inputs
 
 A column whose value on each row is a list of `{"role", "content"}` messages is a chat. clab renders it through the checkpoint's own chat template and tokenizes the result without adding special tokens, since the template writes its own. `documents/chat_turn.json` reads `chats.chat` from `data/weekdays/chat.json`; on the corpus Llama the first row renders as:
@@ -119,11 +136,12 @@ The dataset's `template` is passed to the checkpoint's `apply_chat_template` as 
 "chats": {"path": "weekdays/chat", "template": {"add_generation_prompt": true}}
 ```
 
-Without a template the prompt ends with the template's close of the last message, and `pos: -1` is that close's last token. With `add_generation_prompt` it ends with the assistant's header, so a `generate` continues as the assistant. What an argument does is the template's: on a Llama-2-style template, as above, `add_generation_prompt` changes nothing. Check the rendering in `run.tokens`. A `template` on a dataset that no step reads as a chat is refused, and so is a `tokenize` key in it. Positions inside a turn are [positions.md](positions.md).
+- **Without a template** the prompt ends with the template's close of the last message, and `pos: -1` is that close's last token.
+- **With `add_generation_prompt`** it ends with the assistant's header, so a `generate` continues as the assistant. What an argument does is the template's: on a Llama-2-style template, as above, `add_generation_prompt` changes nothing. Check the rendering in `run.tokens`.
+- **A `template` on a dataset that no step reads as a chat is refused**, and so is a `tokenize` key in it. Positions inside a turn are [positions.md](positions.md#chat-turns).
+- **A chat comes only from a column that already holds `{"role", "content"}` messages**; nothing in a document turns a text column into one. To run a text dataset as user turns, write the messages outside clab as inline `rows` (or a file), and record the hub source and its revision in `description`.
 
-clab renders a chat only from a column that already holds `{"role", "content"}` messages; nothing in a document turns a text column into one. To run a text dataset as user turns, write the messages outside clab as inline `rows` (or a file), and record the hub source and its revision in `description`.
-
-**A template can read the clock.** Llama-3.2's template adds a system header when the chat has none and writes `Today Date: <today>` in it (`strftime_now`), so the same document would render other tokens on another day, which a dataset's digest cannot say: it covers the rows, not how they render. A chat of such a template is refused before any forward unless the dataset's `template` pins the date, and the refusal gives the pin:
+**A template can read the clock.** Llama-3.2's template adds a system header when the chat has none and writes `Today Date: <today>` in it (`strftime_now`). The same document would then render other tokens on another day, which a dataset's digest cannot say: it covers the rows, not how they render. A chat of such a template is refused before any forward unless the dataset's `template` pins the date, and the refusal gives the pin (`tests/test_plan.py` `test_a_chat_template_that_reads_the_clock_renders_only_with_its_date_pinned`):
 
 ```text
 clab: blanked: chats.chat: the checkpoint's chat template calls strftime_now, which writes today's date into the prompt, so these rows render to other tokens on another day and nothing in the run record says so; pin it in data.chats.template, {"date_string": "26 Jul 2024"}
@@ -135,8 +153,6 @@ clab: blanked: chats.chat: the checkpoint's chat template calls strftime_now, wh
 
 With the pin, the prompt carries that date; check it in `run.tokens`.
 
-Llama-3.1's template writes a fixed default date and reads no clock.
-
 ## Answer columns
 
 Where a field takes a column, as an answer to score or as text to find (a metric's answer, `contains`'s text, a scope's `column`), write `"<dataset>.<column>"`, or the object with flags:
@@ -145,11 +161,15 @@ Where a field takes a column, as an answer to score or as text to find (a metric
 "token": {"column": "qa.answer", "strip": true, "lower": true}
 ```
 
-- **Flags say how text compares; they never rewrite the data.** `lower` compares lowercased; `strip` makes surrounding whitespace optional. Scored against logits, the answer's token then stands for every vocabulary token that compares the same: in `documents/answer_spellings.json`, ` Yes` under both flags sums the probability of `▁Yes`, `▁yes`, `Yes`, `yes`, `YES` and `▁YES`. What that does to each metric is [ops.md](ops.md).
+- **Flags say how text compares; they never rewrite the data.** `lower` compares lowercased; `strip` makes surrounding whitespace optional. Scored against logits, the answer's token then stands for every vocabulary token that compares the same: in `documents/answer_spellings.json`, ` Yes` under both flags sums the probability of `▁Yes`, `▁yes`, `Yes`, `yes`, `YES` and `▁YES`. What that does to each metric is [ops.md](ops.md#metrics).
 - **A list of strings is a set**, any member of which is the answer: `"answer": [" Yes", " True"]` above. `clab table` prints it as JSON.
-- **A fixed answer is a literal, not a column.** Where an op takes an answer or a text, `{"text": "</think>"}` stands in place of the column: the same text on every row, tokenized as written and compared under the same flags (`{"text": " yes", "strip": true, "lower": true}`; a list is a set), which a text in a list input or a derived column does not take. It scores exactly as a column holding that text on every row does, to the bit, so a constant column built only to be scored is not needed. A bare string is always a column reference: `"token": "</think>"` is refused with `'</think>' is not <dataset>.<column> over a dataset; …; text written as it is, the same on every row, is {'text': '</think>'}`.
+- **A fixed answer is a literal, not a column.** Where an op takes an answer or a text, `{"text": "</think>"}` stands in place of the column. It is the same text on every row, tokenized as written and compared under the same flags (`{"text": " yes", "strip": true, "lower": true}`; a list is a set). It gives the same numbers as a column holding that text on every row (`tests/test_answers.py` `test_a_literal_scores_as_the_constant_column_of_its_text_does`), so a constant column built only to be scored is not needed.
+- **A bare string is always a column reference.** `"token": "</think>"` is refused with `'</think>' is not <dataset>.<column> over a dataset; …; text written as it is, the same on every row, is {'text': '</think>'}`.
 - **A path reaches inside a column's entries**: `pairs.counterfactual_inputs_variables[0].entity` is the `entity` of each row's first variables object.
-- **An answer is tokenized exactly as written, without special tokens.** On a byte-level BPE tokenizer such as GPT-2's, `" Friday"` and `"Friday"` are different tokens; on the corpus Llama both are `▁Friday`. Write the space the prompt implies. An answer column from the hub may lack it, and a document cannot add it: a derived column only cuts a column's text ([above](#a-column-cut-from-another)), and a dataset is never a computation on its values. On a byte-level BPE tokenizer the bare word is then refused wherever it is more tokens than the spaced one (GPT-2's `signs` is `sign`, `s`; ` signs` is one token), and `strip` does not help, since it loosens the comparison, not the answer's tokens: `lam.answer row 0: 'signs' is 2 tokens; the read has 1 position on that row; …`. Write the rows inline, or to a file, from a script that adds the space, and record the hub source and commit in `description`. Text searched in a generation is decoded text, in which the first generated token has lost its space: [generate.md](generate.md#the-first-generated-tokens-leading-space).
+- **An answer is tokenized exactly as written, without special tokens.** Write the space the prompt implies. On a byte-level BPE tokenizer such as GPT-2's, `" Friday"` and `"Friday"` are different tokens; on the corpus Llama both are `▁Friday`.
+- **Where both spellings are one token, the wrong one is scored without a refusal.** On `documents/gpt2_reach.json`'s GPT-2, `is` and ` is` are each one token, and a `token_prob` of either runs. Where the bare word is more tokens than the spaced one, it is refused ([answer-does-not-line-up.md](../errors/answer-does-not-line-up.md)); the symptom is in [symptom-index.md](../errors/symptom-index.md#answers-and-metrics).
+- **A hub column without the space is fixed outside the document.** A derived column only cuts a column's text, and `strip` loosens the comparison, not the answer's tokens. Write the rows inline, or to a file, from a script that adds the space, and record the hub source and commit in `description`.
+- **Text searched in a generation is decoded text**, in which the first generated token has lost its space: [generate.md](generate.md#the-first-generated-tokens-leading-space).
 
 ## `example_id`
 
@@ -176,6 +196,4 @@ The datasets under the repository's `data/`, by the `path` that reads them. Ever
 
 ## Pitfalls
 
-- **`take` without `shuffle` keeps the first N rows.** On a file sorted by label or difficulty, that is not a sample.
 - **A file dataset is read again when you table a run.** `clab table` loads it from `data/` under the working directory and refuses rows that changed since the run ([output.md](output.md#tabling-needs-the-rows)). Inline rows do not have this problem.
-- **`split` on a file filters by a `split` column.** A file without one, or a value no row has, gives `data.days: the dataset has no rows in split 'train'`.

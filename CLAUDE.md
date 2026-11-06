@@ -1,62 +1,63 @@
 # clab — Agent Guide
 
-**Start at [docs/index.md](docs/index.md)**, the router for every docs section. Find the one page for the task and read it before writing a document. Something broke? If the run finished, nothing was refused and the numbers look wrong, start at [docs/errors/symptom-index.md](docs/errors/symptom-index.md); for a refusal, look its message up in [docs/errors/index.md](docs/errors/index.md).
-
-## Contributing
-
-- **Base PRs on `master`.**
-- Commit messages are one plain declarative sentence.
-- A format change is proposed with before-and-after JSON and lands only when the owner ratifies it.
-- `FORMAT.md` is generated: regenerate it with `uv run clab describe --markdown` (it writes the file at the repo root; do not redirect) in the same commit as the code.
-- Docs change in the same PR as the code that invalidates them.
-- Conventions: [docs/developing/contributing.md](docs/developing/contributing.md).
+**Find the one page for your task in the table below**, or start at [docs/index.md](docs/index.md), the router for every docs section, and read that page before writing a document.
 
 ## By task
 
 | I want to... | Read |
 |---|---|
 | Write my first document | [usage/writing-a-document.md](docs/usage/writing-a-document.md) |
-| Load a dataset, inline rows or a chat | [usage/data.md](docs/usage/data.md) |
-| Choose a component or layers | [usage/sites.md](docs/usage/sites.md) |
+| Load a dataset, inline rows or a chat, or cut a column from another's text | [usage/data.md](docs/usage/data.md) |
+| Choose a component or layers, or read attention at keys relative to each query (previous-token, induction) | [usage/sites.md](docs/usage/sites.md), its [`select`](docs/usage/sites.md#select) for keys |
 | Point at a token | [usage/positions.md](docs/usage/positions.md), [concepts/positions.md](docs/concepts/positions.md) |
 | Read or write at a site | [usage/interventions.md](docs/usage/interventions.md) |
 | Score or reduce a value, or compute on one (a norm, a ratio, a comparison) | [usage/ops.md](docs/usage/ops.md) |
 | Run one document at many settings | [usage/sweeps.md](docs/usage/sweeps.md) |
 | Generate text and score it | [usage/generate.md](docs/usage/generate.md), [patterns/generation-experiments.md](docs/patterns/generation-experiments.md) |
+| Score what a generation says after a marker, or how long its reasoning is (`after`, `until`, `count`) | [patterns/generation-experiments.md](docs/patterns/generation-experiments.md#score-what-follows-a-text-after) |
 | Train a featurizer, or load one | [usage/featurizers.md](docs/usage/featurizers.md), [usage/fit.md](docs/usage/fit.md), [usage/bundles.md](docs/usage/bundles.md) |
-| Run a document and choose an engine | [usage/running.md](docs/usage/running.md), [usage/engines.md](docs/usage/engines.md) |
+| Harvest once and use it in another document (`load`) | [patterns/cached-harvest.md](docs/patterns/cached-harvest.md) |
+| Find a latent's max-activating examples (`top_k` over `["rows", "pos"]`) | [patterns/sae.md](docs/patterns/sae.md#find-a-latents-max-activating-examples) |
+| Run a technique (activation, path and attribution patching; zero, mean, resample and optimal ablation; expert ablation; attention; logit and tuned lenses; steering; DAS and DBM; head masking; SAEs; probes; LoRA) | [patterns/index.md](docs/patterns/index.md) |
+| Run a document and choose an engine (nnterp, hooks, ndif, vllm) | [usage/running.md](docs/usage/running.md), [usage/engines.md](docs/usage/engines.md) |
+| Check a document before the model loads | [usage/running.md](docs/usage/running.md#check-before-you-run) |
+| Feed fewer tokens, or compute the head only where it is read | [usage/running.md](docs/usage/running.md#batch-size-and-padding) |
 | Load a quantized model, or shard one over GPUs with `tp` | [usage/engines.md](docs/usage/engines.md#quantized-and-sharded-models), [usage/running.md](docs/usage/running.md#sharding-a-model--o-tp) |
-| Run on an NDIF server | [usage/engines.md](docs/usage/engines.md), [concepts/one-session.md](docs/concepts/one-session.md) |
+| Run many rows on GPUs with vLLM | [usage/engines.md](docs/usage/engines.md#running-on-vllm) |
+| Run on an NDIF server | [usage/engines.md](docs/usage/engines.md#running-on-ndif), [concepts/one-session.md](docs/concepts/one-session.md) |
+| Cross-check a result on a second engine | [usage/engines.md](docs/usage/engines.md#cross-checking-with-hooks) |
 | Read a run back | [usage/output.md](docs/usage/output.md) |
-| Run a technique (patching, path patching, ablation, expert ablation, logit lens, steering, DAS, head masking, SAEs, probes, LoRA) | [patterns/index.md](docs/patterns/index.md) |
-| Fix a refusal | [errors/index.md](docs/errors/index.md) |
-| Find out why the numbers are wrong when nothing was refused | [errors/symptom-index.md](docs/errors/symptom-index.md) |
+| Fix a refusal, or find out why the numbers are wrong when nothing was refused | [errors/index.md](docs/errors/index.md), [errors/symptom-index.md](docs/errors/symptom-index.md) |
 | Look up an exact field, op, component or option | [FORMAT.md](FORMAT.md), [reference/index.md](docs/reference/index.md) |
 | Extend clab (an op, a featurizer kind, a component, a step kind, an engine) | [developing/extending.md](docs/developing/extending.md), [developing/engines.md](docs/developing/engines.md) |
 | Understand why it behaves this way | [concepts/index.md](docs/concepts/index.md) |
 
 ## Before writing a clab document
 
-- **An entry with an edit in `ops` writes; one without `ops` only reads.** A write whose `ops` list is lost runs and returns exactly the unpatched numbers. See [usage/interventions.md](docs/usage/interventions.md).
-- **Write each answer column as the model continues the prompt, leading space included, and add `strip: true` where `contains` or a scope searches generated text.** On a byte-level BPE tokenizer `a` and ` a` are two valid one-token answers, and the wrong one is scored without a refusal; a row's first generated token loses its leading space when decoded. See [usage/data.md](docs/usage/data.md#answer-columns), [usage/generate.md](docs/usage/generate.md#the-first-generated-tokens-leading-space).
-- **Carry a null control.** Write back what was read at the same site; its scores must equal the clean run's to the bit, or the read and the write are not at the same place. See [usage/interventions.md](docs/usage/interventions.md#the-null-control).
-- **Carry a null for every gradient: an `of` whose ops end in `{"op": "scale", "factor": 0}`, whose `grad` must be exactly zero.** A `grad` of the wrong entry runs and gives a plausible map; check it once against a central difference. See [patterns/attribution-patching.md](docs/patterns/attribution-patching.md#check-the-gradient).
-- **Check where a scoped read landed (its record's `positions`, which `clab show` prints per entry) before trusting it, and scope a teacher-forced answer with `"occurrence": -1`.** `occurrence` defaults to the first match, which is the prompt's copy when the prompt says the answer too. See [usage/positions.md](docs/usage/positions.md#check-where-it-landed).
-- **Where the prompt repeats a name, `"occurrence": -1` is the query's copy on the rows that query it, and the context's on the others.** A patch scoped there runs without a refusal and gives a plausible curve; check the recorded `positions` on rows of each kind. See [usage/positions.md](docs/usage/positions.md#words-and-occurrences).
-- **Give each of two sweeps of one field its own `label`.** Unlabelled, they share the field's name and zip into the diagonal instead of a grid. See [usage/sweeps.md](docs/usage/sweeps.md#labels-zip-or-cross).
-- **To patch one layer at a time, sweep `layers`; a slice or list on a write patches every picked layer in one forward.** Sweep a patch's read `pos` together with its write `pos`, or the last token's value lands at every position. See [usage/interventions.md](docs/usage/interventions.md#writes-across-layers), [patterns/activation-patching.md](docs/patterns/activation-patching.md#a-layer-by-position-map).
-- **At one site, list a freeze or hold before the patch it protects.** Entries at one site compose in the order written: listed after the patch, the freeze overwrites it, and every point equals the clean run, nulls included. See [usage/interventions.md](docs/usage/interventions.md#the-order-ops-run-in), [patterns/head-and-neuron-patching.md](docs/patterns/head-and-neuron-patching.md#path-patching).
-- **After a fit, name the trained featurizer `<fit>.<name>`.** The bare name is the untrained draw, and it runs without a refusal. See [usage/fit.md](docs/usage/fit.md#members).
-- **Write `do_sample: false` on every generate step.** Options a step leaves out come from the checkpoint's generation config, which may sample, and nothing seeds sampling. See [usage/generate.md](docs/usage/generate.md#options).
-- **Count `alignment_missing` rows before reading a mean over a generation.** Reductions skip the rows a read never reached, and nothing in the number says so. See [errors/alignment-missing.md](docs/errors/alignment-missing.md#count-it-prevent-it-or-refuse-it).
-- **State a published SAE's `site`, `centered` and `activation` from its release, and compare the measured L0 with the release's.** The file says none of them, and a wrong value runs. See [usage/featurizers.md](docs/usage/featurizers.md#loading-a-published-sparse-autoencoder).
-- **Compare runs to the bit only at one `--batch-size` and one thread count.** A different batch shape moves the last bits. See [usage/running.md](docs/usage/running.md).
-- **Score a large model's logits inside the forward's head entry, not in an op step over two saved reads.** Every value a step binds stays on the model's device until the run ends, a read's batches are joined there, and an op step computes over the whole value at once, so a `kl` step over two full-vocabulary reads can run out of memory and stop the run at that step; `{"op": "kl", "against": "clean.logits"}` in the later forward's head entry keeps only the reference. See [usage/ops.md](docs/usage/ops.md#a-step-or-an-entry).
-- **Recompute a few points in float32 before reading small effects from a bfloat16 run.** A bit-exact null in bfloat16 certifies the wiring, not small effects: on Qwen3-4B a head with exactly zero effect in float32 shows about ±0.02 in a mean logit difference over 120 rows. See [usage/ops.md](docs/usage/ops.md#the-float32-rule).
+Each mistake below runs without a refusal and costs a conclusion.
+
+- **An entry without an edit in `ops` only reads**: a write that lost its `ops` runs and returns the clean numbers. See [interventions](docs/usage/interventions.md).
+- **Write an answer column as the model continues the prompt, leading space included**: on a byte-level BPE tokenizer the other spelling is another one-token answer. See [data](docs/usage/data.md#answer-columns).
+- **Add `strip: true` where `contains` or a scope searches generated text**: a SentencePiece tokenizer drops the first generated token's leading space when decoding. `contains` is a substring test; count whole words with a scope over the decode calls. See [generate](docs/usage/generate.md#the-first-generated-tokens-leading-space), [generation experiments](docs/patterns/generation-experiments.md#did-it-say-the-answer-contains-over-the-text).
+- **Carry a null control**: writing back what was read must give the clean run's numbers. Compare two runs only at one batch size, padding, readout, device and thread count; a fit's body and evals run at the fit's own `batch_size`. See [interventions](docs/usage/interventions.md#the-null-control), [running](docs/usage/running.md#when-two-runs-give-the-same-numbers).
+- **Carry a null for every gradient**: a `grad` of the metric's entry with `{"op": "mul", "with": 0}` appended to its ops must be exactly zero. A `grad` of the wrong entry gives a plausible map. See [attribution patching](docs/patterns/attribution-patching.md#check-the-gradient).
+- **Check a scoped read or write's `positions` in `clab show` on rows of each kind before trusting it**: `occurrence` counts matches in the whole row, the prompt's copies included. Scope a teacher-forced answer with `"occurrence": -1`. See [positions](docs/usage/positions.md#check-where-it-landed).
+- **Map an index along a `select`ed axis back through the select list**: `argmax`, `top_k` and `clab table` count within it. See [sites](docs/usage/sites.md#select).
+- **Give each of two sweeps of one field its own `label`**, or they zip into the diagonal instead of a grid. See [sweeps](docs/usage/sweeps.md#labels-zip-or-cross).
+- **Sweep `layers` to patch one layer at a time**: a slice or list on a write patches every layer it picks at once. See [interventions](docs/usage/interventions.md#writes-across-layers).
+- **Sweep a patch's read `pos` with its write `pos`**, or one read value lands at every swept position. See [activation patching](docs/patterns/activation-patching.md#a-layer-by-position-map).
+- **Scope both sides of a patch between two inputs**: an unscoped `pos` pairs index with index, whatever tokens share an index on rows of equal length. See [symptom index](docs/errors/symptom-index.md#a-window-between-rows-of-equal-length).
+- **List a freeze before the patch it protects at one site**: listed after, it overwrites the patch, and every point equals the clean run. See [interventions](docs/usage/interventions.md#the-order-ops-run-in).
+- **After a fit, name the trained featurizer `<fit>.<name>`**: the bare name is the untrained draw. See [fit](docs/usage/fit.md#members).
+- **Carry an `epochs: 0` point beside every fit**: a trained featurizer means something only where it beats its own draw on the same rows. See [fit](docs/usage/fit.md#epochs-0-is-a-null-control).
+- **Write `do_sample: false` on every generate step**: options a step leaves out come from the checkpoint's generation config, which may sample, and nothing seeds sampling. See [generate](docs/usage/generate.md#options).
+- **Count `alignment_missing` rows before reading a mean over a generation**: reductions skip them, and the number does not say so. See [alignment missing](docs/errors/alignment-missing.md#count-it-prevent-it-or-refuse-it).
+- **State a published SAE's `centered`, `activation` and layer, inline in `site`, from its release.** A wrong `centered`, a TopK file stated as `relu`, a wrong layer, or a `site` naming the entries' site is not refused. Compare its mean L0 over every token after BOS with the release's. See [featurizers](docs/usage/featurizers.md#loading-a-published-sparse-autoencoder).
+- **Recompute a few points in float32 before reading small effects from a bfloat16 run**: a null that equals the clean run in bfloat16 certifies the wiring, not small effects. See [ops](docs/usage/ops.md#the-float32-rule).
 
 ## Before changing clab
 
-- **A check that needs the model belongs in preflight, never in compile.** Compile runs on the client under `ndif`; preflight runs where the model is. See [developing/architecture.md](docs/developing/architecture.md#where-the-code-holds-the-five-constraints).
-- **`@op` alone registers nothing: add the op to the ordered list at the end of `clab/ops/__init__.py`**, and a new featurizer kind to the import line at the end of `clab/featurizers/__init__.py`. See [developing/extending.md](docs/developing/extending.md).
-- **Add a component only under a name nnterp's `support()` lists.** Otherwise every document is refused by name, on both engines. See [developing/extending.md](docs/developing/extending.md#adding-a-component).
-- **Leave the suite's thread count pinned.** `tests/conftest.py` pins torch to the 12 threads the snapshots were made with, since at 4 or fewer a row's numbers move by about 1e-8; compare two runs of a document only at one thread count. See [developing/testing.md](docs/developing/testing.md).
+- **Base PRs on `master`; regenerate FORMAT.md with `uv run --no-sync clab describe --markdown` in the code's commit, and change the docs in the same PR.** See [contributing](docs/developing/contributing.md).
+- **A format change lands only with before-and-after JSON the owner ratified.** See [contributing](docs/developing/contributing.md#changing-the-format).
+- **A check that needs the model belongs in preflight, never in compile; a check from the plan and the engine's declarations alone goes in `start_run`.** See [compile and run](docs/developing/compile-and-run.md#where-a-check-belongs).
+- **Leave `tests/conftest.py`'s thread pin alone**: the thread count sets the last bits, and the snapshots were made at the pinned one. See [testing](docs/developing/testing.md#running-the-suite).

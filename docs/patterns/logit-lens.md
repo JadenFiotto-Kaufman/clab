@@ -1,9 +1,9 @@
 ---
 title: Logit Lens
-one_liner: "The logit lens in one forward: readout over a layers selector, a kl check against the model's logits, kl between lenses aligned by layer label, top_k to see what each layer would say, and a tuned lens with a trained affine translator per layer."
+one_liner: "What does each layer predict? The logit lens and its wiring check, top_k per layer, kl between lenses, and a tuned lens."
 tags: [patterns, lens, logit-lens, tuned-lens, readout, layers, kl, top_k, affine]
 related: [docs/usage/sites.md, docs/usage/ops.md, docs/concepts/values-and-layout.md, docs/usage/sweeps.md, docs/usage/positions.md, docs/usage/featurizers.md, docs/usage/fit.md]
-sources: [clab/ops/transforms.py, clab/ops/metrics.py, clab/format/address.py, clab/compile/interventions.py, clab/engines/nnterp.py, clab/featurizers/affine.py, documents/tuned_lens.json]
+sources: [clab/ops/transforms.py, clab/ops/metrics.py, clab/format/address.py, clab/compile/interventions.py, clab/engines/nnterp.py, clab/featurizers/affine.py, documents/tuned_lens.json, tests/snapshots/tuned_lens.nnterp.json]
 ---
 
 # Logit Lens
@@ -27,7 +27,7 @@ The logit lens decodes a layer's residual stream through the model's own final n
 }
 ```
 
-`lens.logits` is laid out `layers, rows, pos, vocab_size`, and each metric of it keeps the `layers` axis: `p_answer` is the answer's probability at every layer, row and position. `clab table out/logit_lens_all p_answer top1` prints one line per layer and row, with the model's layer in the `layer` column. `documents/logit_lens.json` is the same lens as a sweep, a point per layer; its points differ only in what they read, so one forward serves both, and the numbers are equal to the bit ([sweeps.md](../usage/sweeps.md#widen-the-read-instead)).
+`lens.logits` is laid out `layers, rows, pos, vocab_size`, and each metric of it keeps the `layers` axis: `p_answer` is the answer's probability at every layer, row and position. `clab table out/logit_lens_all p_answer top1` prints one line per layer and row, with the model's layer in the `layer` column. `documents/logit_lens.json` is the same lens as a sweep, a point per layer; its points differ only in what they read, so one forward serves both, and the numbers are the same ([sweeps.md](../usage/sweeps.md#widen-the-read-instead)).
 
 `readout` takes a residual-stream component whole ([ops.md](../usage/ops.md#transforms) lists them). Another component, or a site that selects part of `hidden_size`, is refused inside an entry:
 
@@ -35,11 +35,13 @@ The logit lens decodes a layer's residual stream through the model's own final n
 clab: steps.f.interventions.x.ops[0]: readout projects a residual-stream value; mlp_norm_output is not one: read one of token_embeddings, layer_input, attention_output, layer_mid, mlp_output, layer_output
 ```
 
-As a step, `{"kind": "op", "op": "readout", "of": "f.x"}` over a saved read gives the entry form's numbers to the bit on the CPU (on CUDA the two can differ in the last bits: the entry form projects the selected positions, a matmul of another shape, up to about 5e-5 in a logit on pythia-410m), and a read of another component is refused there the same way (`steps.r.of: 'f.x' is read at mlp_norm_output: ...`).
+As a step, `{"kind": "op", "op": "readout", "of": "f.x"}` over a saved read gives the entry form's numbers on the CPU. A read of another component is refused there the same way (`steps.r.of: 'f.x' is read at mlp_norm_output: ...`).
+
+- **On CUDA the entry form of `readout` differs from the step form in the last bits.** The entry form projects only the selected positions, a matmul of another shape. Write both sides of an exact comparison as `readout` steps over plain reads.
 
 ## Check the wiring, then trust the lens
 
-At the last layer, `layer_output` through `readout` is what the model itself computes from it, so its lens must equal the model's `logits`: to the bit on the CPU, and on CUDA to the last bits of the selected-positions matmul (write both as `readout` steps for a bit-exact check there). A `kl` of every layer's lens against `logits` checks that in the same forward, and adds the standard summary of the lens: how far each layer's prediction is from the final one. This complete document is that check, plus what each layer would say:
+At the last layer, `layer_output` through `readout` is what the model itself computes from it, so its lens must equal the model's `logits`. A `kl` of every layer's lens against `logits` checks that in the same forward. At the other layers it is the standard summary of the lens: how far each layer's prediction is from the final one. Written as below, `to_final` is KL(lens ‖ final) ([ops.md](../usage/ops.md#metrics)). This complete document is that check, plus what each layer would say:
 
 ```json
 {
@@ -72,7 +74,12 @@ At the last layer, `layer_output` through `readout` is what the model itself com
 }
 ```
 
-On the corpus model `to_final` is exactly `0.0` at layer 1, the last, on every row, and positive at layer 0. A nonzero value there means the engine's `readout` is not the model's own last computation. `readout` is the one op each engine computes itself ([engines.md](../usage/engines.md#cross-checking-with-hooks)): on nnterp it is the model's own, so `to_final` is 0.0 at the last layer of the softcapped tiny Gemma-2 too; on hooks it is the final norm, the head and the config's softcap, and on a model that does more after its head it is not the model's: on the tiny Cohere, which scales its logits, the hooks lens at the last layer matches `lm_head_output` and not `logits`. Read `lm_head_output` beside `logits` to see which one the lens matches before reading any other layer.
+Run as it stands, at the default `--batch-size` 8, this document's `to_final` is exactly `0.0` at layer 1, the last, on every row, and positive at layer 0. At a batch size that splits the four rows, the last layer's `to_final` is float32 rounding instead, of either sign; read a value that small as zero ([ops.md](../usage/ops.md#metrics)). The same holds on the tiny GPT-2 of `documents/tuned_lens.json`. A value at the last layer well above rounding means the engine's `readout` is not the model's own last computation:
+
+- **nnterp's `readout` is the model's own.**
+- **hooks' `readout` is the final norm, the head and the config's softcap.** A model may do more after its head, such as scaling its logits. There the hooks lens at the last layer matches `lm_head_output`, not `logits` ([engines.md](../usage/engines.md#cross-checking-with-hooks)).
+
+Read `lm_head_output` beside `logits` to see which one the lens matches before reading any other layer.
 
 `lens.final` has no `layers` axis, so `kl` compares every layer with the same final distribution ([values-and-layout.md](../concepts/values-and-layout.md#the-layers-axis)).
 
@@ -98,11 +105,11 @@ Two lenses compare layer by layer through their labels, whatever order each list
 "shift_by_layer": {"kind": "op", "op": "mean", "of": "shift"}
 ```
 
-With `patched.lens` read at `"layers": [1, 0]` and `clean.lens` at `":"`, `shift` pairs layer 1 with layer 1 and 0 with 0. An `against` lens that lacks one of the `of` lens's layers is refused by name. `shift_by_layer` is one number per layer, since `mean` keeps the `layers` axis unless `over` names it.
+With `patched.lens` read at `"layers": [1, 0]` and `clean.lens` at `":"`, `shift` pairs layer 1 with layer 1 and 0 with 0. Two such lenses read in one forward give a `kl` of exactly 0 at both layers, which checks the pairing. An `against` lens that lacks one of the `of` lens's layers is refused by name ([values-and-layout.md](../concepts/values-and-layout.md#the-layers-axis)). `shift_by_layer` is one number per layer, since `mean` keeps the `layers` axis unless `over` names it.
 
 ## A tuned lens
 
-The final norm and head were trained on the last layer's stream, so an early layer's logit lens reads it in the wrong basis. A tuned lens first maps each layer's stream with a translator of its own, `h + h W + b`, trained so that the lens's next-token distribution matches the model's: the objective is KL(final ‖ lens). `documents/tuned_lens.json` is one on the tiny GPT-2, with one [`affine` over layers](../usage/featurizers.md#an-affine-map) holding the translators of layers 0 to 3 (every layer but the last, whose lens is the model's own logits), all trained in one fit:
+An early layer's logit lens reads its stream in the last layer's basis ([pitfalls](#pitfalls)). A tuned lens first maps each layer's stream with a translator of its own, `h + h W + b`, trained so that the lens's next-token distribution matches the model's. `documents/tuned_lens.json` is one on the tiny GPT-2, with one [`affine` over layers](../usage/featurizers.md#an-affine-map) holding the translators of layers 0 to 3 (every layer but the last, whose lens is the model's own logits), all trained in one fit:
 
 ```json
 "sites": {"resid": {"component": "layer_output", "layers": "0:4"}, "head": {"component": "logits"}},
@@ -119,20 +126,22 @@ and in the fit's body, after the forward that reads `h` at `resid` and `final` a
 ```
 
 - **The lens reads; it never writes.** `apply` and `readout` are op steps over a plain read, so the forward is the model's own. `apply` inside the entry would write each translated layer back, and every layer after it would see that.
-- **One forward per minibatch trains every layer.** The affine takes each layer's map by its id, `kl` keeps the `layers` axis, and the objective averages it over every axis, so each map takes the gradient of its own layer's loss alone. A sweep of the site's `layers` instead would make a fit, and its forwards, per layer.
-- **The direction is `reverse`.** An operand cannot carry a `layers` axis that `of` lacks, so the lens is `of`, and `"reverse": true` scores KL(final ‖ lens) ([ops.md](../usage/ops.md#metrics)). The document scores the logit lens the same way, `{"op": "kl", "of": "lfw.ll", "against": "lfw.final", "reverse": true}`, and `gain` is the tuned lens's held-out mean KL less the logit lens's, one number per layer.
-- **The null is the logit lens.** Every translator starts at zero, so at `epochs: 0` the tuned lens's held-out KL is the logit lens's to the bit at every layer and `gain` is `0.0`. On CUDA the entry and step forms of `readout` differ in the last bits (above), so write the logit lens as a `readout` step over a plain read there for the same null.
-- **Memory is the scored pass's.** After each epoch the body runs over every training row, and its `readout` step binds a `[layers, rows, positions, vocab_size]` value over all of them, whatever the fit's `batch_size`; on a large vocabulary, keep the positions and the training rows few.
+- **One forward per minibatch trains every layer.** The affine takes each layer's map by its id, and `kl` keeps the `layers` axis. The objective averages it over every axis, so each map takes the gradient of its own layer's loss alone. A sweep of the site's `layers` instead would make a fit, and its forwards, per layer.
+- **The objective is KL(final ‖ lens).** An operand cannot carry a `layers` axis that `of` lacks, so the lens is `of` and the `kl` takes `"reverse": true` ([ops.md](../usage/ops.md#metrics)). The document scores the logit lens the same way, `{"op": "kl", "of": "lfw.ll", "against": "lfw.final", "reverse": true}`, and `gain` is the tuned lens's held-out mean KL less the logit lens's, one number per layer. This is the other direction from `to_final` above, so the two KLs differ away from the last layer.
+- **Sweep `epochs` over `[0, 2]` to put the null beside the fit** in one run: `gain` is then two points, keyed by `epochs` (`Plan.load(out).results["gain"][0]`). A swept fit's bundle file holds a bundle per point, which no featurizer loads ([bundles.md](../usage/bundles.md#swept-training-runs)), so leave the fit unswept when another document loads `fit.lens`.
+- **The null is the logit lens.** Every translator starts at zero, so at `epochs: 0` the tuned lens's held-out KL equals the logit lens's at every layer and `gain` is `0.0`. That holds when the run's `--batch-size` is the fit's `batch_size`, 2 here: `lfw` runs in batches of `--batch-size`, the fit's eval in batches of its own, and another batch shape moves the last bits ([running.md](../usage/running.md#when-two-runs-give-the-same-numbers)). Run the null with `--batch-size 2`. On CUDA, write the logit lens as a `readout` step too ([above](#the-document)).
+- **The wiring check needs a site of its own.** The lens trains at layers 0 to 3 over positions `0:15`, and the [check](#check-the-wiring-then-trust-the-lens) reads every layer (`"layers": ":"`) at `pos: -1`. Declare that site and read it, beside `logits` at `pos: -1`, as two more entries of `lfw` or a forward of their own.
+- **Memory is the scored pass's**: after each epoch the body's `readout` step binds a `[layers, rows, positions, vocab_size]` value over every training row, whatever the fit's `batch_size` ([fit.md](../usage/fit.md#what-a-fit-costs)).
 
-On the corpus model two epochs take the held-out KL at layer 0 from 0.0032 nats (the logit lens's) to 0.0008, below the logit lens's at all four layers. The model is random, so that shows the mechanics and nothing about what a lens learns.
+On the corpus model two epochs take the held-out KL at layer 0 from 0.0032 nats (the logit lens's) to 0.0008, below the logit lens's at all four layers (`tests/snapshots/tuned_lens.nnterp.json`). The model is random, so that shows the mechanics and nothing about what a lens learns.
 
 ## Variations
 
-- **The last few tokens.** `"pos": {"index": "-3:"}` on both `logits` and `final` lenses each row's last three tokens, the last included. `kl` pairs position with position, and `clab table OUT to_final` prints a line per layer, row and position, its `pos` and `pos_token` saying which token: 8, 9 and 10 (`▁tom`, `orrow`, `▁is`) on row 0, `to_final` 0.0 at layer 1 on each.
+- **The last few tokens.** `"pos": {"index": "-3:"}` on both `logits` and `final` lenses each row's last three tokens, the last included. `kl` pairs position with position. `clab table OUT to_final` prints a line per layer, row and position, its `pos` and `pos_token` saying which token. On row 0 those are 8, 9 and 10 (`▁tom`, `orrow`, `▁is`), with `to_final` 0.0 at layer 1 on each.
 - **Every position.** `"pos": {"index": ":"}` lenses every prompt token. A one-token answer column is then scored at every position of its row, a ragged value NaN past each row's own tokens.
-- **Keep only the score.** `"ops": [{"op": "readout"}, {"op": "token_prob", "token": "prompts.base_answer"}]` inside the entry gives the same numbers as the `token_prob` step, bit for bit on the CPU and to the last bits on CUDA, and holds no vocabulary-wide logits past each batch: `layers × rows × positions × vocab_size` adds up quickly on a real model.
+- **Keep only the score.** `"ops": [{"op": "readout"}, {"op": "token_prob", "token": "prompts.base_answer"}]` inside the entry gives the same numbers as the `token_prob` step on the CPU. It holds no vocabulary-wide logits past each batch, and `layers × rows × positions × vocab_size` adds up quickly on a real model.
 - **Sublayers.** `attention_output` and `mlp_output` lens what one sublayer writes; `layer_mid` the stream between them.
-- **One layer.** An int `layers` gives a lens without a `layers` axis.
+- **One layer.** An int `layers` gives a lens without a `layers` axis ([sites.md](../usage/sites.md#layers)).
 
 ## Pitfalls
 

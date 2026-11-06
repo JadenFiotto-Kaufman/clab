@@ -8,11 +8,11 @@ sources: [clab/compile/positions.py, clab/compile/preflight.py]
 
 # A Position Does Not Fit a Row
 
-In the prefill (frame 0, and the one call of every `forward` step), the data alone decides where a `pos` lands on each row. So clab resolves every row before any forward and refuses a text, an occurrence or a static index that a row does not have, naming the entry and the row (`clab/compile/positions.py` `prefill_positions`). An index with an open end that picks none of a short row's tokens is not refused, nor is any miss beyond the prefill: the row is `alignment_missing`, as [alignment-missing.md](alignment-missing.md) explains, and only a write there is refused.
+In the prefill (frame 0, and the one call of every `forward` step), the data alone decides where a `pos` lands on each row. So clab resolves every row before any forward and refuses a text, an occurrence or a static index that a row does not have, naming the entry and the row (`clab/compile/positions.py` `prefill_positions`). An open-ended index that picks none of a short row's tokens is not refused for a read, nor is any miss beyond the prefill: the row is `alignment_missing` ([alignment-missing.md](alignment-missing.md)). A write there is refused.
 
 ## See the row's tokens
 
-Each message names a row. A row's positions are its input tokens, BOS first and a chat template's markers included, as [positions.md](../usage/positions.md) explains and [concepts/positions.md](../concepts/positions.md) says why. A refusal writes no output directory, but the compiled plan already holds every input's tokens by then, so the step-by-step calls show the row that failed:
+Each message names a row. A row's positions are its input tokens, BOS first and a chat template's markers included ([positions.md](../usage/positions.md#recipes)). A refusal writes no output directory, but the compiled plan already holds every input's tokens by then, so the step-by-step calls show the row that failed:
 
 ```python
 from clab import Plan
@@ -27,7 +27,7 @@ except ValueError as refusal:
 print(compiled.run.tokens["pairs.input"][1])        # ['<s>', '▁If', '▁today', '▁is', '▁Friday', ',', ...]
 ```
 
-`run.tokens` is keyed by input (`pairs.input`, `pairs.counterfactual_inputs[0]`); [output.md](../usage/output.md) describes the run record.
+`run.tokens` is keyed by input (`pairs.input`, `pairs.counterfactual_inputs[0]`); [output.md](../usage/output.md#the-run-record) describes the run record.
 
 ## `… is not in its input`
 
@@ -35,7 +35,11 @@ print(compiled.run.tokens["pairs.input"][1])        # ['<s>', '▁If', '▁today
 patched.patch: row 1: text 'Thursday' is not in its input
 ```
 
-A `text` or `column` scope is found on token and word boundaries, as written. `Sara` is not in `Sarah`, and a text found only inside a word says so: `row 0: text 'toda' is not in its input; it occurs only inside 'today', cutting a word, and an occurrence lies on word boundaries`. A `column` scope's message quotes the row's value: `row 0: column 'pairs.cf_answer' (' Sunday') is not in its input`. Case and surrounding whitespace compare exactly unless the scope sets `lower` or `strip` (on a column, on its reference). The BOS a tokenizer adds covers no text, so `{"text": "<s>"}` is never found; `pos: 0` is the BOS. The usual cause is a `text` that is the same on every row while the rows differ, as here: row 1 says Friday. A `column` scope searches each row for its own value; a list of texts finds any of them.
+- **A `text` scope is one literal on every row.** A value that differs by row is a `column` scope, which searches each row for its own value; a list of texts finds any of them.
+- **Text is found on token and word boundaries, as written.** [positions.md](../usage/positions.md#words-and-occurrences) says how case, whitespace, `lower` and `strip` are matched.
+- **A text found only inside a word says so:** `row 0: text 'toda' is not in its input; it occurs only inside 'today', cutting a word, and an occurrence lies on word boundaries`.
+- **A `column` scope's message quotes the row's value:** `row 0: column 'pairs.cf_answer' (' Sunday') is not in its input`.
+- **The BOS covers no text,** so `{"text": "<s>"}` is never found; `pos: 0` is the BOS.
 
 ## `… occurs N times …; it has no occurrence K`
 
@@ -43,20 +47,20 @@ A `text` or `column` scope is found on token and word boundaries, as written. `S
 patched.patch: row 0: text ' is' occurs 2 times in the row's input; it has no occurrence 2
 ```
 
-`occurrence` counts from 0, in order of where each occurrence ends; `-1` is the last. A list of picks (`[0, 2]`) needs every pick on every row.
+The `occurrence` asks for more matches than the row holds; [positions.md](../usage/positions.md#words-and-occurrences) says how occurrences count. A list of picks (`[0, 2]`) needs every pick on every row.
 
 ## `tokens … do not fit its N scope tokens`
 
 ```text
-patched.patch: row 0: tokens -40:-1 do not fit its 11 scope tokens
+patched.patch: row 0: tokens 40 do not fit its 11 scope tokens
 ```
 
-An index with a static width (an int, a list of picks, a slice like `"-4:-1"` or `"0:3"`) needs that many tokens on every row, counted in the whole prompt or, with a scope, in the scope's text. The shortest row decides. `pos: 40` on an 11-token row is the same refusal (`tokens 40 do not fit …`).
+An index of static width (an int, a list of picks, a slice like `"-4:-1"` or `"0:3"`) needs that many tokens on every row, counted in the whole prompt or, with a scope, in the scope's text. The shortest row decides.
 
 In a `generate` step the prefill computes the head at the last position only, so an earlier prompt position of `lm_head_output` or `logits` does not fit:
 
 ```text
-patched.logits: row 0: tokens -2: do not fit its 1 scope tokens; a generation's prefill computes lm_head_output at its last position only, so that is all call 0 holds of it
+answer.logits: row 0: tokens -2: do not fit its 1 scope tokens; a generation's prefill computes lm_head_output at its last position only, so that is all call 0 holds of it
 ```
 
 Read the logits of earlier prompt positions in a `forward` step on the same input.
@@ -67,7 +71,7 @@ Read the logits of earlier prompt positions in a `forward` step on the same inpu
 patched.patch: row 0: the write's positions hold no token of this row; a write needs one to write
 ```
 
-An index with an open end (`"10:"`) has no static width, so on a row too short for it the write resolves to no position at all, and a write is refused. A read at the same index is not refused: those rows are `alignment_missing`, its values there are NaN, and `clab table` gives each of them one line with `alignment_missing` true ([symptom-index.md](symptom-index.md#positions-and-selections)).
+An open-ended index (`"10:"`) has no static width, so on a row too short for it the write resolves to no position at all, and a write is refused. A read at the same index is not refused: those rows are `alignment_missing` and their values NaN ([alignment-missing.md](alignment-missing.md)).
 
 ## `… begins the row, at position 0, which no position comes before`
 
@@ -81,10 +85,11 @@ A scope with `before` names the position before each of its tokens, and position
 
 ```text
 blanked.blank: row 0: the row has no 'system' message
+blanked.blank: row 0: the row has no 'system' message; the template wrote a 'system' header of its own, whose tokens are positions, not a message: locate its words with a {'text': ...} scope
 ```
 
-A `turn` scope names a role of the chat in that row; check the role's spelling against the rows ([data.md](../usage/data.md) covers chat inputs).
+A `turn` scope names a role of the chat in that row; check the role's spelling against the rows ([data.md](../usage/data.md#chat-inputs) covers chat inputs). The second form is a template that writes a header for a role the chat does not hold: those tokens are no message, so a `turn` scope never finds them, and a `text` scope does.
 
 ## Skipping a row instead
 
-A refused row cannot be skipped: the data decided, so change the data (a `split`, `take`, or a dataset of only the rows that fit). A read whose index has an open end, and any read beyond the prefill (decode frames of a `generate` step), leaves a row it does not reach `alignment_missing`: its values are NaN and reductions leave it out, as [alignment-missing.md](alignment-missing.md) explains.
+A refused row cannot be skipped: the data decided, so change the data (a `split`, a `take`, or a dataset of only the rows that fit).

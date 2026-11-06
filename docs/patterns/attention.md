@@ -1,14 +1,14 @@
 ---
 title: Attention Experiments
-one_liner: "Experiments inside attention: knocking out a head or keys through the scores or the pattern renormalized by sum, patching a head's pattern while keeping its values, and reading queries and keys after RoPE."
+one_liner: "Where does a head look? Patterns, previous-token and induction stripes, knocking out heads or keys, patching a pattern, queries after RoPE."
 tags: [patterns, attention]
-related: [docs/usage/sites.md, docs/usage/engines.md, docs/usage/interventions.md, docs/usage/positions.md, docs/usage/output.md, docs/patterns/head-and-neuron-patching.md, docs/patterns/ablation.md, docs/concepts/positions.md]
+related: [docs/usage/sites.md, docs/usage/engines.md, docs/usage/interventions.md, docs/usage/positions.md, docs/usage/output.md, docs/patterns/head-and-neuron-patching.md, docs/patterns/ablation.md, docs/concepts/positions.md, docs/concepts/values-and-layout.md]
 sources: [clab/ops/edits.py, clab/compile/interventions.py, clab/steps/batches.py]
 ---
 
 # Attention Experiments
 
-The attention interior is the queries, keys and values, the scores entering the softmax, and the pattern leaving it. Patching or ablating a head's result ([head and neuron patching](head-and-neuron-patching.md)) asks what the head writes; these components ask where it looks and why. They are read inside the attention's forward, so the model block needs `"attn_implementation": "eager"`, and the hooks engine does not serve them.
+The attention interior is the queries, keys and values, the scores entering the softmax, and the pattern leaving it. Patching or ablating a head's result ([head and neuron patching](head-and-neuron-patching.md)) asks what the head writes; these components ask where it looks and why. They are read inside the attention's forward, so the model block needs `"attn_implementation": "eager"`, and the hooks engine does not serve them ([sites](../usage/sites.md#attention-needs-eager)).
 
 ## Reading a pattern
 
@@ -19,16 +19,16 @@ The attention interior is the queries, keys and values, the scores entering the 
 "clean": {"kind": "forward", "input": "pairs.input", "interventions": {"pattern": {"site": "pattern", "pos": -1}}}
 ```
 
-The value is `(rows, pos, num_heads, key)`, here `[4, 1, 4, 11]`. `key` is each row's own tokens in order, key 0 its BOS, as wide as the longest row and NaN past a shorter row's last token, so a row's keys sum to 1 over the entries that are there ([sites](../usage/sites.md) has the key axis). Without eager, preflight refuses the read by name ([sites](../usage/sites.md#attention-needs-eager)); eager and sdpa differ in the last bits, so compare runs under one implementation ([engines](../usage/engines.md#cross-checking-with-hooks)).
+The value is `(rows, pos, num_heads, key)`, here `[4, 1, 4, 11]`. `key` is each row's own tokens in order, key 0 its BOS, as wide as the longest row and NaN past a shorter row's last token. A row's keys sum to 1 over the entries that are there ([the key axis](../concepts/values-and-layout.md#the-key-axis)). Eager and sdpa differ in the last bits, so compare runs under one implementation ([engines](../usage/engines.md#cross-checking-with-hooks)).
+
+A previous-token or induction score reads the pattern at keys relative to each query: `select: {"key": {"offset": -1}}` ([sites](../usage/sites.md#select)).
 
 ### A key that moves by row
 
-A `key` selector picks the same indices on every row, so it cannot follow a word that sits at a different position on each. Read the whole `key` axis, and add a marker entry scoped on the word: a read with no ops, which nothing names, so it costs nothing, while its record holds where it landed on each row (`positions`). That position is the word's key index into the saved pattern. In the document above:
+A `key` selector counted from the start picks the same keys on every row, and an offset follows the query; neither follows a word that sits at a different position on each row. Read the whole `key` axis, and add a marker entry scoped on the word: a read with no ops, which nothing names, so it costs nothing, while its record holds where it landed on each row (`positions`). That position is the word's key index into the saved pattern. Added to `clean` in `documents/attention_knockout.json`, beside its `pattern` entry:
 
 ```json
-"clean": {"kind": "forward", "input": "pairs.input", "interventions": {
-  "pattern": {"site": "pattern", "pos": -1},
-  "entity": {"site": "pattern", "pos": {"scope": {"column": "pairs.entity"}, "index": -1}}}}
+"entity": {"site": "pattern", "pos": {"scope": {"column": "pairs.entity"}, "index": -1}}
 ```
 
 ```python
@@ -51,7 +51,7 @@ The same document then zeroes one head's whole pattern at the last query, swept 
 "zero": {"site": "one_head", "pos": -1, "ops": [{"op": "swap", "with": 0.0}]}
 ```
 
-A head mixes its values with its pattern, so a zero pattern makes it contribute nothing at that position: the logits equal, to the bit, those of zeroing the same head's `attention_premix` there.
+A head mixes its values with its pattern, so a zero pattern makes it contribute nothing at that position. The logits are the same as those of zeroing the same head's `attention_premix` there.
 
 ## Knocking out keys
 
@@ -71,7 +71,18 @@ Through the pattern, zero the keys, then rescale each row back to the sum it had
             "ops": [{"op": "renormalize", "norm": "sum"}]}
 ```
 
-Both remove BOS for every head here, and the two patterns agree to about 5e-8. `renormalize` must say `"norm": "sum"`: its default rescales to the L2 norm, and the rows then sum to about 0.95 instead of 1. A `key` selector counts from the start of each row's own tokens (`0`, `[0, 2]`, `"0:3"`), so it names the same token on every row only where the rows share it at that place, as BOS or a common prefix; a write past a row's own keys changes nothing.
+- **Both remove BOS for every head here**, and give the same pattern up to float32 rounding.
+- **`renormalize` must say `"norm": "sum"`.** Its default rescales to the L2 norm, and the rows then sum to less than 1.
+- **A `key` selector names the same token on every row only where the rows share it at that place**, as BOS or a common prefix. A write past a row's own keys changes nothing.
+- **A write selects on one axis**, so a key knocked out through `select: {"key": 0}` is knocked out for every head. To knock it out for one head, restore the other heads with a second write at the same site, from a clean read of their scores at the same `pos`:
+
+```json
+"others": {"site": {"component": "attention_scores", "layers": 0, "select": {"num_heads": [1, 2, 3]}}, "pos": -1},
+"keep_others": {"site": {"component": "attention_scores", "layers": 0, "select": {"num_heads": [1, 2, 3]}}, "pos": -1,
+                "ops": [{"op": "swap", "with": "clean.others"}]}
+```
+
+With `others` read in `clean` and `keep_others` after `knock` in the knocked-out step, head 0's weight on BOS is 0 and heads 1 to 3 hold the clean pattern.
 
 ## Patching a pattern
 
@@ -88,7 +99,7 @@ Key k of the swapped row is weight on the counterfactual's token k, written onto
 patched.look_there: operand 'counterfactual.their_pattern' was read on pairs.counterfactual_inputs[0], row 0 of which is 9 tokens; pairs.input has 11 there, so their key axes do not line up
 ```
 
-The document therefore runs on `data/weekdays_aligned/data.json`, the pairs that tokenize alike. `documents/real/pattern_patching.json` runs the same sweep over the 32 heads of one layer of Llama-3.2-1B and records the result in its description; it needs a GPU and a gated checkpoint.
+The document therefore runs on `data/weekdays_aligned/data.json`, the pairs that tokenize alike. A real-model version is `documents/real/pattern_patching.json`, which needs a GPU and a gated checkpoint.
 
 ## Queries after RoPE
 
@@ -99,10 +110,8 @@ The document therefore runs on `data/weekdays_aligned/data.json`, the pairs that
 "patch": {"site": "q", "pos": -1, "ops": [{"op": "swap", "with": "counterfactual.v_cf"}]}
 ```
 
-`attention_queries` is laid out `(rows, pos, num_heads, qk_head_dim)` and taken after the projection, the head split and RoPE, so a query carries the position it was computed at. At layer 0 every prompt here ends in the same token, and the queries read at the last token are identical across a pair whose prompts have the same length and differ (same norm, rotated) across a pair whose lengths differ. A query swapped between prompts of different lengths therefore also moves the position its head looks from. Patch between pairs that tokenize alike, or count the position change as part of the effect. `attention_keys` are taken after RoPE as well, and differ across such a pair the same way; keys and values are narrowed by `num_kv_heads`, before they are repeated across query heads.
+`attention_queries` is laid out `(rows, pos, num_heads, qk_head_dim)` and taken after the projection, the head split and RoPE, so a query carries the position it was computed at. The evidence: at layer 0 every prompt here ends in the same token, and its last-token queries are identical across prompts of one length and rotated, with the same norm, across prompts of different lengths.
 
-## Pitfalls
-
-- Every component here needs `attn_implementation: "eager"`, and the hooks engine serves none of them.
-- `renormalize` on a pattern needs `"norm": "sum"`.
-- A pattern or a query moved between prompts of different lengths lines up the wrong tokens or positions; pattern patching is refused, a query swap is not.
+- **A query swapped between prompts of different lengths also moves the position its head looks from.** Nothing refuses it: the document runs on `weekdays/train`, whose rows differ in length. Patch between pairs that tokenize alike, or count the position change as part of the effect.
+- **`attention_keys` are taken after RoPE as well**, and differ across such a pair the same way.
+- **Keys and values are narrowed by `num_kv_heads`**, before they are repeated across query heads.

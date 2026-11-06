@@ -13,32 +13,32 @@ Find the part of the document you are writing or the stage of the run you are at
 
 ## Declaring
 
-- [writing-a-document](writing-a-document.md) — The anatomy of a clab document: the root keys, a four-step patching experiment read top to bottom, how steps name each other's values, saves, and what is checked before the model loads.
-- [data](data.md) — Declaring datasets and inputs: file, inline and hub rows; split, shuffle, take, columns and template; text and chat inputs; list inputs for teacher forcing; answer columns with strip, lower and sets.
+- [writing-a-document](writing-a-document.md) — How do I write a document? The root keys, one patching experiment read top to bottom, how steps name each other's values, and saves.
+- [data](data.md) — How do I load rows and pick what a step runs over? File, inline and hub datasets, narrowing, renamed and derived columns, chats, teacher forcing and answer columns.
 
 ## Locating
 
-- [sites](sites.md) — Choosing where to read or write: the component table, layers as an int or a selector, select to narrow heads, neurons or keys, the layout a site's value has, and when attention needs eager.
-- [positions](positions.md) — Pointing pos at the tokens you mean: the last token, an answer's tokens, a word by occurrence, the token before one, a chat turn, every token, the generated tokens, and reading back where each read and write landed.
+- [sites](sites.md) — Where do I read or write? Choosing a component and layers, and select over heads, neurons, experts or keys, from the start or relative to each query.
+- [positions](positions.md) — Which tokens does an entry touch? pos for the last token, a word, the token before it, a chat turn, text up to a marker and generated tokens, and checking where it landed.
 
 ## Reading and writing
 
-- [interventions](interventions.md) — Reading and writing at a site: entries, reads versus writes, the order ops run in, operands from earlier steps or the same forward, a gradient read with grad, writes across layers, named bundles of entries, and the null control every document should carry.
-- [ops](ops.md) — Scoring and reducing values: metrics on logits or probe scores, reductions and over (norm, dot, count, std among them), transforms like readout, argmax, top_k, detokenize and grad, elementwise arithmetic and comparisons, op steps versus ops inside an entry, and the float32 rule.
+- [interventions](interventions.md) — How do I read or write a value at a site? Entries, edits, the order they run in, operands, gradients, writes across layers, named bundles and the null control.
+- [ops](ops.md) — Which op scores, reduces or transforms a value? Metrics, KL in either direction, reductions (median, count), top_k over rows and positions, permute, arithmetic, and step versus entry.
 
 ## Repeating
 
-- [sweeps](sweeps.md) — Running one document at many settings: what a sweep can stand for, labels that zip or cross, what each point costs, when one wider read replaces a sweep, and reading swept results by coordinate.
-- [generate](generate.md) — Generation steps: options passed to the model's generate, deterministic decoding, frames for the prefill and decode calls, writes kept on through generation, writes found online at generated text, EOS and rows that stop early.
+- [sweeps](sweeps.md) — How do I run one document at many settings? What a sweep may stand for, labels that zip or cross, each point's cost, and reading swept results.
+- [generate](generate.md) — How do I generate, and read or write as it generates? Options, frames (0, 1:, :, -1) for the prefill and decode calls, a read at every call, writes through every generated token, and rows that stop early.
 
 ## Featurizers and training
 
-- [featurizers](featurizers.md) — Declaring a featurizer and using it in an entry: the eight kinds, encode, decode and apply, nested brackets, selecting features, and loading a published sparse autoencoder with the fields the file cannot state.
-- [fit](fit.md) — Training a featurizer inside a run: train, objective, optimizer, epochs and minibatches, early stopping, eval substitutions, the history and members a fit produces, and epochs 0 as a null control.
-- [bundles](bundles.md) — Saving a trained or harvested featurizer and loading it in another document: the files a run writes, file_path, the header checks at compile and before any forward, the two-document workflow, and reading back a run that loads one.
+- [featurizers](featurizers.md) — How do I use a learned or loaded space in an entry? Declaring each kind, encode, decode and apply, selecting features, and a published SAE.
+- [fit](fit.md) — How do I train a featurizer inside a run? Objective, optimizer, epochs, early stopping, evals, history, what a fit costs, and the epochs-0 null.
+- [bundles](bundles.md) — How do I save a trained featurizer and load it in another document? The files, file_path, the header checks and the two-document workflow.
 
 ## Running
 
-- [running](running.md) — Running a document from the command line or Python: clab run and its options, what is refused before the model loads, a step that runs out of memory, choosing batch size, bit reproducibility, where output goes and the corpus root, sharding with tp, and the four calls behind clab.run.
-- [engines](engines.md) — Choosing an engine: nnterp, hooks and ndif, what each can serve, device and device maps, engine options, quantized and sharded models, running on an NDIF server or its local simulation, and what the server must have installed.
-- [output](output.md) — Reading a run back: the files a run writes, clab show and clab table and their columns, plan.table in Python, why tabling needs the data files, the manifest with each record's layout, positions and schedule, and the run record with what each step cost.
+- [running](running.md) — How do I run a document, and why would two runs differ? The CLI and Python, batch size, padding, readout, memory, the corpus root and tp.
+- [engines](engines.md) — Which engine runs it? nnterp, hooks, ndif and vllm: what each serves, devices, options, quantized and sharded models.
+- [output](output.md) — How do I read a run back? clab show, clab table, plan.results, the manifest's positions, the run record, and loading a saved value elsewhere.
