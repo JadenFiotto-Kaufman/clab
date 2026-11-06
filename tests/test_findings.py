@@ -1085,7 +1085,9 @@ def test_m1_two_sweeps_of_one_label_zip_and_the_refusal_names_label():
 
 def test_m2_a_metric_over_two_reads_without_a_static_width_says_to_read_at_a_static_index(engines):
     """Two reads at an open index in the prefill compile, their width the rows' to decide; on rows of different
-    lengths preflight refuses the pair naming each count's rows and a static span every row holds."""
+    lengths preflight refuses the pair naming each count's rows and a static span every row holds. They are reads of
+    one forward, and the refusal says a pair of different reads needs a fixed width whether one forward or two made
+    them."""
     compiled = plan(data={"d": DAYS}, steps={
         "f": forward({"lens": {"site": {"component": "layer_output", "layers": -1}, "pos": {"index": ":"},
                                "ops": [{"op": "readout"}]}, "logits": {"site": HEAD, "pos": {"index": ":"}}}),

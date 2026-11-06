@@ -374,7 +374,7 @@ def mismatch(ours: Labelled, theirs: Labelled, name: str, key: str, written: str
             if side.width is not None or forward:
                 continue
             source = side
-            while source.read is None and isinstance(source, OpStep):   # permuted: the read whose rows it reorders
+            while isinstance(source, OpStep):   # back to the entry or load whose positions it holds or reorders
                 source = records(source.of)
             read = cast(Intervention, records(source.read)) if source.read is not None else None
             if read is None or not positions.pending_width(parsed := positions.parse(read.pos)):
@@ -387,7 +387,10 @@ def mismatch(ours: Labelled, theirs: Labelled, name: str, key: str, written: str
             resolved = read.positions.get(cast(str, read.dataset))
             if resolved is None:
                 continue                            # the rows decide, in preflight
-            holds = f"{counted} holds" if source is side else f"{ragged} reorders the rows of {source.read!r}, which holds"
+            # A permuted value names the read it reorders: a load by its step, which the document names, and its value.
+            reordered = repr(source.read) if not isinstance(source, Load) else \
+                f"{cast(str, source.read).partition('.')[0]!r} (a load of {source.value!r})"
+            holds = f"{counted} holds" if side.read is not None else f"{ragged} reorders the rows of {reordered}, which holds"
             if parsed["scope"]:                     # the rows are known (preflight's, a load's), and they disagree
                 return (f"{holds} {row_counts(resolved)}; two values of different reads pair only at a fixed width, "
                         "whether one forward or two made them, which a scoped read has where every row's scope holds "
@@ -395,7 +398,7 @@ def mismatch(ours: Labelled, theirs: Labelled, name: str, key: str, written: str
             n = min((len(p) for p in resolved if isinstance(p, list) and p), default=1)
             return (f"{holds} {row_counts(resolved)}; two values of different reads pair only at a fixed width, "
                     "whether one forward or two made them, which an open index has where every row holds as many "
-                    f"positions: read a static span every row holds ('index': '0:{n}', or '-{n}:'), or reduce it")
+                    f"positions: read a static span every row holds ({anchored(parsed['index'], n)}), or reduce it")
         if theirs.width is not None and ours.width is not None and theirs.width != ours.width:
             return (f"{written!r} holds {theirs.width} position(s) per row and the value {name!r} {verb} holds "
                     f"{ours.width}; position i {'scores against' if group == 'metrics' else 'meets'} position i, so "
@@ -421,6 +424,25 @@ def mismatch(ours: Labelled, theirs: Labelled, name: str, key: str, written: str
         return (f"{written!r} holds {f'every {axis}' if held is None else f'{axis} {held}'}, and {whose} holds "
                 f"{'every one' if own is None else own}; {why}: {fix}")
     return None
+
+
+def anchored(index: object, n: int) -> str:
+    """Static spans of `n` positions, the fewest a row's open `index` holds, that keep where the index is anchored,
+    as a refusal suggests them: its start where it counts from the start (`"2:"` gives `'2:7'` over 5), its end
+    where it counts from the end (`'-5:'`, `":-1"` giving `'-6:-1'`), both for `":"`; as `'index': '<span>'`."""
+    parts = index.split(":") if isinstance(index, str) else []
+    start, stop, step = (parts + ["", ""])[:3] if len(parts) in (2, 3) else (None, None, None)
+    spans = []
+    try:
+        s = int(step or 1)
+        if start is not None and s > 0 and (start == "" or int(start) >= 0):
+            a = int(start or 0)
+            spans.append(f"{a}:{a + n * s}" + (f":{s}" if s != 1 else ""))
+        if stop is not None and s == 1 and (stop == "" or int(stop) < 0):
+            spans.append(f"-{n}:" if stop == "" else f"{int(stop) - n}:{stop}")
+    except ValueError:
+        spans = []
+    return "'index': " + ", or ".join(f"'{span}'" for span in spans or [f"0:{n}", f"-{n}:"])
 
 
 def row_counts(resolved: list) -> str:

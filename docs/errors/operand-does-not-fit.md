@@ -66,13 +66,15 @@ Where the rows agree on a width the other side does not have, the refusal is [`�
 ```text
 patched.patch: operand 'counterfactual.v_cf' holds 9 positions on rows 0-1, 3 and 11 positions on row 2; two values of different reads pair only at a fixed width, whether one forward or two made them, which an open index has where every row holds as many positions: read a static span every row holds ('index': '0:9', or '-9:'), or reduce it
 resampled.abl: operand 'donor' reorders the rows of 'harvest.acts', which holds 11 positions on row 0 and 9 positions on rows 1-3; …
+steps.resampled.interventions.abl.ops[0].with: 'donor' reorders the rows of 'cached' (a load of 'harvest.acts'), which holds 11 positions on row 0 and 9 positions on rows 1-3; …
 ```
 
 - **Preflight counts an open index's width.** In the prefill, `{"index": ":"}` (or `"2:"`, or no `pos`) holds on each row as many positions as the row's prompt gives it. Compile leaves the width to the rows, and preflight counts them before any forward.
 - **Rows of one length pair.** There the count is the read's width, and it pairs as a static width does. `documents/ablation_pair.json` with `":"` in place of each `"0:12"` gives its own numbers, equal on its 12-token prompts ([running.md](../usage/running.md#when-two-runs-give-the-same-numbers)).
 - **Rows of different lengths are refused**, as in the first message (`documents/patching.json` with `v_cf` at `":"`). Each count is named with its rows.
-- **A permuted read is its read's rows reordered**, so the refusal names the read it permutes (the second message).
-- **The fix.** Read a static span every row holds, `"0:9"` or `"-9:"`, the shortest row's count, or reduce the read over `pos` first.
+- **Two reads of one forward pair the same way.** A `kl` of two `":"` reads of one forward on such rows is refused alike: they are different reads.
+- **A permuted read is its read's rows reordered**, so the refusal names the read it permutes (the second message), and a permuted load names the load step and the value it loads (the third, at compile, since a load carries its rows' positions).
+- **The fix.** Read a static span every row holds, as long as the shortest row's count, that keeps the read's own start or end: `"0:9"` or `"-9:"` for `":"`, `"2:9"` or `"-7:"` for `"2:"`. Or reduce the read over `pos` first.
 
 ## `… has a pos axis, and this write lands beyond the prefill …`
 
