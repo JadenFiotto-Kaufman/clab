@@ -588,6 +588,28 @@ def test_a_sweep_over_featurizers_a_fit_does_not_train_makes_the_fit_a_list_of_p
         Plan(**probe_fit("rot_a", train=[{"sweep": ["probe"]}]), document=doc).compile()
 
 
+@pytest.mark.parametrize("spelled", ["rot_a", "fit.rot_a"])
+def test_a_body_sweep_over_the_featurizers_a_fit_trains_is_refused_at_each_point(engines, spelled):
+    """das training rot_a and rot_b, its body swept over the two (bare, or as the fit's members): each point trains
+    both and uses one, which the unswept document (train both, use one) is refused for, so each point is refused
+    before any forward, naming the point."""
+    def both(d):
+        d["featurizers"] = {n: DRAWN[n] for n in ("rot_a", "rot_b")}
+        swept = {"sweep": [spelled, spelled.replace("rot_a", "rot_b")], "label": "r"}
+        fit = d["steps"]["fit"]
+        fit.update(train=["rot_a", "rot_b"], epochs=2)
+        fit["steps"]["v_cf"]["featurizer"] = swept
+        for i in (0, 2):
+            fit["steps"]["patched"]["interventions"]["patch"]["ops"][i]["featurizer"] = swept
+        for k in ("held_counterfactual", "held_patched", "held_iia"):
+            d["steps"].pop(k)
+        d["saves"] = ["fit.train.iia"]
+    plan = edited("das", both).compile()
+    with pytest.raises(ValueError, match=rf'^fit at r="{re.escape(spelled)}": \'rot_b\' is trained but used at no '
+                                         r"site at this point, where a sweep in the body names another featurizer"):
+        engines("nnterp", plan.model).execute(plan, batch_size=BATCH_SIZE)
+
+
 def test_a_sweep_over_a_fits_draw_and_its_trained_featurizer_scores_each_as_its_own_document(engines):
     """das's held-out steps swept over `rot` and `fit.rot`, the draw and what the fit trained from it: each point's
     held-out logit difference is that of das written with that one name, to the bit."""

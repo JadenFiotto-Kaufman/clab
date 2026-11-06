@@ -125,7 +125,7 @@ An `encode`'s, `decode`'s or `apply`'s `featurizer` may be a sweep over featuriz
 - **Each point is checked as that featurizer's use is.** A kind that does not serve the op, or a width the featurizer has at another site, is refused naming the point.
 - **A write runs a forward per point.** A read that only encodes shares one forward, each point's value encoded with its own featurizer ([sweeps.md](sweeps.md#what-a-sweep-costs)).
 - **The draw beside the trained.** After `documents/das.json`'s fit, `{"sweep": ["rot", "fit.rot"]}` scores the declared draw and the trained rotation in one document.
-- **In a fit's body**, a sweep over featurizers the fit does not train makes the fit a list of points, one training per point. `train` takes no sweep: write one fit per featurizer it trains.
+- **In a fit's body**, a sweep over featurizers the fit does not train makes the fit a list of points, one training per point. A sweep over the fit's own trained featurizers is refused, since each point would train them all and use one (`fit at r="rot_a": 'rot_b' is trained but used at no site at this point, …`). `train` takes no sweep: write one fit per featurizer it trains.
 - **Sweep a field when one declaration serves.** `documents/random_subspace.json` sweeps its subspace's `seed`; name several featurizers where they differ in kind, `k`, bundle or anything else a field cannot sweep.
 
 ## A gate over named axes

@@ -238,16 +238,18 @@ def units(where: str, name: str, f: Featurizer, read: Intervention, over: list[s
 def write_widths(engine: Engine, plan: Plan) -> None:
     """Each featurizer's width, written on its record (`Featurizer.width`, at every point): the size of the last
     axis of every site it is used at, which is one size, and the width its bundle's header says. A `select` on
-    its features stays within them, and a featurizer a fit trains is used somewhere. A featurizer over axes keeps on
+    its features stays within them, and a featurizer a fit trains is used somewhere at each of the fit's points (a sweep
+    in the body over featurizers it trains leaves the others unused at each point). A featurizer over axes keeps on
     each of them the indices every site it is used at selects, which are one selection, or that its bundle's header
     records (`units`), written on its record too (`Featurizer.kept`): a gate over axes is as wide as it has units,
     in one order at every use, and one that stacks its tensors over them (`Kind.stacked`: an affine over layers) as
     its sites' last axis, its uses listing those indices in any order, since it takes each one's slice by its id
     (the order of the first use is the order its tensors and its bundle's header lay them out in)."""
     from clab.compile.preflight import naming_point      # the stage whose refusals name their point
-    sizes, out, laid = engine.sizes(), {}, {}
+    sizes, out, laid, used_at = engine.sizes(), {}, {}, {}
     for name, used in uses(plan).items():
         for where, read, at, o, around in used:
+            used_at.setdefault(name, []).append(at)
             with naming_point(plan, at):           # a use at a point of a sweep is refused naming it
                 site, kept = cast(Site, read.site), read.kept
                 f = agreeing_point(plan.featurizers[name], at)
@@ -321,6 +323,11 @@ def write_widths(engine: Engine, plan: Plan) -> None:
         for f in step.train if step.kind == "fit" else []:
             if f not in out:
                 raise ValueError(f"{name}: {f!r} is trained but used at no site, so its width is unknown")
+            if not any(all(at.get(k) == i for k, i in step.at.items()) for at in used_at[f]):
+                with naming_point(plan, step.at):
+                    raise ValueError(f"{name}: {f!r} is trained but used at no site at this point, where a sweep in "
+                                     "the body names another featurizer, so it would train on no gradient; write one "
+                                     "fit per featurizer it trains, or sweep featurizers the fit does not train")
     for name, width in out.items():
         for f in points(plan.featurizers[name]):
             f.width, f.kept = width, laid.get(name, {})

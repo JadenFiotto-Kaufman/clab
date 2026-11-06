@@ -368,6 +368,7 @@ Each row quotes a message's first clause without its `<where>:`. `<x>` stands fo
 | `'<s>' is over the coordinates the body reads of '<f>', an encode no decode closes` | an SAE's scalar in the objective of a body with no open `encode` of it | [fit.md](../usage/fit.md#the-objective) |
 | `an sae's scalars are over what the body's encodes of it saw; this body has none` | an SAE's scalar with no `encode` to measure | [fit.md](../usage/fit.md#the-objective) |
 | `'<f>' is trained but used at no site, so its width is unknown` | a trained featurizer the body never reaches | [fit.md](../usage/fit.md#the-objective) |
+| `'<f>' is trained but used at no site at this point` | a sweep in the body over the featurizers the fit trains: each point trains every one and uses one | [featurizers.md](../usage/featurizers.md#a-sweep-over-featurizers) |
 | `dataset '<a>' is read as '<b>', and their templates differ` | an eval replaces a dataset with one of another `template` | [fit.md](../usage/fit.md#evals) |
 | `the body uses '<x>', made before the fit with a row per example of '<d>', which no forward of the body reads` | a harvest whose dataset no body forward reads | [fit.md](../usage/fit.md#the-body) |
 | `the body's datasets have {…} rows` | body datasets of different lengths; a body pairs them row by row | [fit.md](../usage/fit.md#the-body) |
