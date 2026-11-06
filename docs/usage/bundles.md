@@ -39,7 +39,10 @@ The loading document declares the featurizer with `file_path` and uses it by its
 
 `das_apply.json`'s `iia` equals `das.json`'s `held_iia`, which `das.json` scores after its fit through `fit.rot`: the same test rows through the same rotation (`tests/test_fit.py` `test_das_apply_scores_the_saved_rotation_as_das_scored_it_held_out`). The corpus has three more pairs written the same way: `documents/pca_harvest.json` and `documents/pca_control.json` (`basis`), `documents/sae_train.json` and `documents/sae_train_ablation.json` (`fit.dictionary`), `documents/lora_train.json` and `documents/lora_apply.json` (`fit.lora`).
 
-`--out` writes the training run's whole output directory there, `manifest.json` included. A second training run into the same directory replaces the manifest but leaves the other bundles.
+`--out` writes the training run's whole output directory there, `manifest.json` included. A second training run into the same directory replaces the manifest but leaves the other bundles:
+
+- **The first run can no longer be read back.** After `documents/pca_harvest.json` runs into `das.json`'s `--out`, `clab table <out> held_iia` is refused with `'held_iia' was not saved; add it to saves`, though `held_iia.safetensors` is still there.
+- **Give each training run its own `--out`.** Copy each bundle file to where the loading document's `file_path` points, or run each training document into its own directory once and point `file_path` there.
 
 ## `file_path`
 

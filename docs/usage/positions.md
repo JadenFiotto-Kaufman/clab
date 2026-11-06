@@ -31,7 +31,7 @@ for row, where in enumerate(patch.positions["pairs"]):
 3 [4] ['▁Sunday']
 ```
 
-For a saved value, `clab table OUT NAME` prints the same thing as its `pos` and `pos_token` columns. In a generation a position past the prompt indexes the generated tokens, `plan.run.tokens[<prompt input>][row] + plan.run.tokens[<step>][row]`. A row the entry did not reach holds `"alignment_missing"` instead of a list. The run record's other fields are in [output.md](output.md#the-run-record).
+The positions are absolute, counted from each row's BOS. On prompts of different lengths a read and a write at the same `-1` print different numbers on one row (`[8]` and `[10]` on row 0 of `documents/patching.json`), so compare their tokens, or count from each row's end. For a saved value, `clab table OUT NAME` prints the same thing as its `pos` and `pos_token` columns. In a generation a position past the prompt indexes the generated tokens, `plan.run.tokens[<prompt input>][row] + plan.run.tokens[<step>][row]`. A row the entry did not reach holds `"alignment_missing"` instead of a list. The run record's other fields are in [output.md](output.md#the-run-record).
 
 ## Recipes
 

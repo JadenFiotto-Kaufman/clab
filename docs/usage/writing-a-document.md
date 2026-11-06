@@ -38,7 +38,8 @@ A clab document is one JSON object that declares a whole experiment: the checkpo
 ```
 
 - `description` is for the reader. It is copied into the manifest and changes nothing in the run.
-- `model` pins the weights: `revision` is a commit, so the document means the same model wherever it runs. `dtype` defaults to `float32`. Any other key, such as `"attn_implementation": "eager"`, goes to the engine's loader as written. Where the model runs is not the document's to say: that is `--device` at run time ([engines.md](engines.md)).
+- `model` pins the weights: `revision` is a commit hash, so the document means the same model wherever it runs. A branch name such as `main` runs too, and means whatever that branch holds when the model loads. `dtype` defaults to `float32`. Any other key, such as `"attn_implementation": "eager"`, goes to the engine's loader as written. Where the model runs is not the document's to say: that is `--device` at run time ([engines.md](engines.md)).
+- **Offline, a cached checkpoint's commit is a directory name**, the one under `$HF_HOME/hub/models--<owner>--<name>/snapshots/`. `$HF_HOME/hub/models--<owner>--<name>/refs/main` holds the commit `main` names.
 - `data.pairs` is the four rows of `data/weekdays/train.json`. Each row has an `input`, a list `counterfactual_inputs`, and the answers `base_answer` and `cf_answer`.
 - `sites.target` names the residual stream after layer 0. The read and the write below both use the name, so they land on the same place.
 

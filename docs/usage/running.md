@@ -121,21 +121,22 @@ The run records both choices (`run.padding`, `run.readout`), and `clab show` pri
 - **Readout.** `--readout at-reads` computes the head in another shape ([above](#the-head-at-the-positions-read)).
 - **Threads and machine.** A CPU's BLAS splits a matmul's reduction by thread, so another thread count can move the last bits, and its kernels differ by CPU. Compare runs made on one machine.
 
-The run records each setting: `run.batch_size`, `run.padding`, `run.readout`, `run.devices` and `run.threads`, torch's intra-op thread count (`torch.get_num_threads()`). `clab show` prints all of them but `run.threads`; read that one from the manifest's `run`. Set the thread count with `OMP_NUM_THREADS` for `clab run`, or `torch.set_num_threads` before `clab.run`, and check `run.threads` to see what the run used. The suite pins its own (`tests/conftest.py` `THREADS`). At that thread count `documents/patching.json` at `--batch-size 3` and `4` differs by 3e-8 in `logit_diff`; at another the two can be equal. Compare runs only where every setting agrees.
+The run records each setting: `run.batch_size`, `run.padding`, `run.readout`, `run.devices` and `run.threads`, torch's intra-op thread count (`torch.get_num_threads()`). `clab show` prints all of them but `run.threads`; read that one from the manifest's `run`. Set the thread count with `OMP_NUM_THREADS` for `clab run`, or `torch.set_num_threads` before `clab.run`, and check `run.threads` to see what the run used. The suite pins its own (`tests/conftest.py` `THREADS`). Compare runs only where every setting agrees.
 
 In float16 the padding can move a row's numbers well past the last bits. Compare with published numbers in float32.
 
 ### Comparing two runs
 
-Two runs give the same numbers when their value files do. Every file in the output directory but `manifest.json` holds values or, in `tokens.json`, the tokens, so compare those byte for byte. The manifest always differs, since it records the engine and the time:
+Two runs give the same numbers when their value files do. Every file in the output directory but `manifest.json` holds values or, in `tokens.json`, the tokens, so compare those byte for byte. The manifest always differs, since it records the engine and the time. The same recipe checks a second engine, hooks or ndif under `remote=local`, against nnterp:
 
 ```text
 clab run documents/patching.json --out out/nnterp
 clab run documents/patching.json --engine hooks --out out/hooks
-for f in out/nnterp/*; do [ "${f##*/}" = manifest.json ] || cmp "$f" "out/hooks/${f##*/}"; done
+clab run documents/patching.json --engine ndif -o remote=local --out out/ndif
+for e in hooks ndif; do for f in out/nnterp/*; do [ "${f##*/}" = manifest.json ] || cmp "$f" "out/$e/${f##*/}"; done; done
 ```
 
-`cmp` prints nothing where the files match, NaN rows and JSON values included. That every read and write landed alike is in the manifests' `steps`, which hold each entry's `positions` and each forward's schedule. Compare them as `clab.output.manifest`, the directory's one reader, gives them, each entry's positions in place: `manifest("out/nnterp")[0]["steps"] == manifest("out/hooks")[0]["steps"]` is `True` here.
+`cmp` prints nothing where the files match, NaN rows and JSON values included. That every read and write landed alike is in the manifests' `steps`, which hold each entry's `positions` and each forward's schedule. Compare them as `clab.output.manifest`, the directory's one reader, gives them, each entry's positions in place: `manifest("out/nnterp")[0]["steps"] == manifest("out/hooks")[0]["steps"]` is `True` here, and so is the same against `out/ndif`.
 
 ## From Python
 

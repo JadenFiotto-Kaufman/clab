@@ -31,7 +31,7 @@ Friday      2    If today is Saturday, tomorrow is  Handler substr energcalc tos
 
 This is plain generation accuracy, and no row is ever missing.
 
-- **`contains` is a substring test.** A generated `Finlandony` contains `Finland`, so `contains` scores 1 on a row that never said the word. To count whole words, read with a scope over the decode calls ([below](#where-it-said-it-reads-in-the-generated-text)), where that row is `alignment_missing`.
+- **`contains` is a substring test.** A generated `Handler` contains `Hand`, so `contains` scores 1 on a row that never said the word. To count whole words, read with a scope over the decode calls ([below](#where-it-said-it-reads-in-the-generated-text)), where that row is `alignment_missing`.
 - **Answer spellings** (`strip`, `lower`, a set of accepted answers) apply as they do for any column ([data.md](../usage/data.md#answer-columns)).
 - **The first generated token loses its leading space when decoded** on a SentencePiece tokenizer. Give the column `strip: true` ([generate.md](../usage/generate.md#the-first-generated-tokens-leading-space)).
 - **The token budget changes the result.** Swept as `{"sweep": [2, 6], "label": "n"}` on both `max_new_tokens` and `min_new_tokens`, row 1's `energcalc` is said by `n=6` and not by `n=2`.
@@ -79,7 +79,7 @@ substr      0    12   ▁substr    2     If today is Thursday, tomorrow is   Sun
 Friday      2                          If today is Saturday, tomorrow is   Friday                            true
 ```
 
-A scope matches whole words. The fraction of rows that said the word as a whole word is the fraction not missing, and a `contains` count can be higher. How missing rows pass through ops, and how to count them, is in [errors/alignment-missing.md](../errors/alignment-missing.md#count-it-prevent-it-or-refuse-it).
+A scope matches whole words. The fraction of rows that said the word as a whole word is the fraction not missing, and a `contains` count can be higher. On the shipped `data/weekdays/said.json` rows the two agree: `contains` is 0 on exactly the rows the scope misses. An inline row whose `said` is `Hand` splits them, since every row of this checkpoint generates `Handler`: `contains` scores it 1, and the scope misses it. How missing rows pass through ops, and how to count them, is in [errors/alignment-missing.md](../errors/alignment-missing.md#count-it-prevent-it-or-refuse-it).
 
 ## Confidence as it said the answer: `before`
 

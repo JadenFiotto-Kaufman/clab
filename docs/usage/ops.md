@@ -89,6 +89,7 @@ An answer column whose row is a set of strings (`[" Saturday", " Sunday"]`) is a
 | `layers, rows, pos` | `{"op": "mean", "over": ["layers", "rows", "pos"]}` | one number |
 | `rows, pos, hidden_size` | `{"op": "mean", "over": ["pos"]}` | `rows, hidden_size`: one vector per row |
 
+- A generate step's ids, and a comparison of them, are laid out `rows, new`, and the default keeps `new`: `{"op": "mean"}` gives `new`, and `"over": ["rows", "new"]` gives one number ([steering](../patterns/steering.md#through-every-generated-token)).
 - `std` is the sample standard deviation, n − 1 in the denominator, NaN where fewer than two values are there. `std` of a metric over `rows` is the spread a mean effect is read against.
 - `median` of an even count is the mean of the two middle values, as numpy's is (torch's is the lower of the two), and NaN where none is there. A steering dose set from the activations is the `median` of a `norm` ([steering](../patterns/steering.md#a-dose-set-from-the-activations)).
 - `norm` and `dot` reduce over `hidden_size` by default; a value without one names its axis in `over`.

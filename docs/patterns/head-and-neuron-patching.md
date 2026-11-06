@@ -62,6 +62,7 @@ The counterfactual reads `every_layer` and the patch writes `target`. The two `n
 The corpus Llama has 2 layers (`plan.run.sizes["num_layers"]`) of 4 heads, each `head_dim` 4. A sweep lists its values, so every head of a layer is `[0, 1, 2, 3]` here, and on another model as many as its config's `num_attention_heads` (preflight refuses a head past them).
 
 - **Eight points**, keyed `layers=0,num_heads=0` to `layers=1,num_heads=3`. A `mean` step over `logit_diff` gives one number per point, which `clab table` lists with its `at`.
+- **Rank the heads in Python.** No op compares across points ([ops](../usage/ops.md#what-is-not-an-op)), so sort `Plan.load(out).results["<mean step>"]`, a dict keyed `(layer, head)` ([sweeps](../usage/sweeps.md#reading-swept-results)).
 - **`layers` on the patch is a sweep, not a selector** ([interventions](../usage/interventions.md#writes-across-layers)).
 - **`documents/real/head_patching.json`** is the same grid on Llama-3.2-1B, three layers by 32 heads, 96 points. It reads its counterfactual at `every_layer`, one forward for its 32 points, and runs one patched forward per point. It scores the head inside the entry (`match` and `logit_diff` in the head's `ops`; [ops](../usage/ops.md#a-step-or-an-entry)) and averages each point in a step. It needs a GPU and a gated checkpoint.
 
@@ -133,6 +134,8 @@ The freeze is the same at every point, so it needs no sweep. It is one entry at 
 - `frozen.ld` equals `clean.ld`: the freeze alone writes back what was read.
 - `path_null.ld` equals `clean.ld` at every point: the patch sourced from the clean prompt.
 - At `layers=1`, the last layer, `path.ld` equals `plain.ld`: nothing after it is frozen. At layer 0 the two differ.
+
+**Check that the patch alone moved.** The nulls still pass when the patch lands on the wrong head, since `frozen` and `path_null` write clean values. Read `every_head` again after the writes, `"after": {"site": "every_head", "pos": {"index": "-3:"}}`, in `path` after `freeze` and the patch and in `frozen` after `freeze`. Then subtract: `"moved": {"kind": "op", "op": "sub", "of": "path.after", "with": "frozen.after"}`. At every point `moved` is nonzero only at the patched layer, the last position and head h, and `path.after` there equals `counterfactual.v_cf`. Read a window of static width: a read at every position pairs with no other forward's value ([positions](../usage/positions.md#static-width-or-ragged)).
 
 **To a later head's queries.** The path-patched forward reads the receiving head's query and a fresh forward on the clean prompt takes it in, so only the query moves. With the model block given `"attn_implementation": "eager"` ([attention](attention.md)), `one_head` at a layer before the receiver's, and `"receiver": {"component": "attention_queries", "layers": 1, "select": {"num_heads": [2]}}`:
 

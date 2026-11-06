@@ -50,7 +50,9 @@ The two give the same logits: a window is its positions patched together. An eff
 
 ## By content, not by count
 
-Counted positions pair in order ([interventions](../usage/interventions.md#operands)). When a pair's prompts tokenize to different lengths (" Thursday" is three tokens on this tokenizer, " Saturday" one), the same count can name different words. The run refuses it before any forward: `operand 'counterfactual.v_cf' was read on pairs.counterfactual_inputs[0], row 0 of which is 9 tokens`. `documents/entity_patch.json` names the token by what it says, on each side its own entity:
+Counted positions pair in order ([interventions](../usage/interventions.md#operands)). A negative count counts from each row's own end. So a read and a write at the same negative `pos` (`-1`, `{"index": "-3:"}`) pair on prompts of different lengths wherever the prompts end alike. The prompts of `data/weekdays/train.json` are 9 and 11 tokens (" Thursday" is three tokens on this tokenizer, " Saturday" one), and `-1` to `-4` fall in the `, tomorrow is` they all end with.
+
+A count that reaches past the tokens both prompts share at their start or their end can name different words. The run refuses it before any forward (`pos: 5`, or `-6`, on that data): `operand 'counterfactual.v_cf' was read on pairs.counterfactual_inputs[0], row 0 of which is 9 tokens`. `documents/entity_patch.json` names the token by what it says, on each side its own entity:
 
 ```json
 "v_cf": {"site": "target", "pos": {"scope": {"column": "pairs.counterfactual_inputs_variables[0].entity"}, "index": -1}},
@@ -89,13 +91,24 @@ Counted positions pair in order ([interventions](../usage/interventions.md#opera
 }
 ```
 
-`data/weekdays_aligned/data.json` holds the pairs whose prompts tokenize to the same length, so every count names the same word on both sides. Eight points: `counterfactual` writes nothing, so its eight reads share one forward, and `patched` runs one forward per point ([sweeps](../usage/sweeps.md#what-a-sweep-costs)). `clab table <out> mean_ld`:
+`data/weekdays_aligned/data.json` holds the pairs whose prompts tokenize to the same length, so every count names the same word on both sides. The same document over the ragged `weekdays/train` runs too, since its four counts fall in the `, tomorrow is` every prompt ends with ([above](#by-content-not-by-count)). Eight points: `counterfactual` writes nothing, so its eight reads share one forward, and `patched` runs one forward per point ([sweeps](../usage/sweeps.md#what-a-sweep-costs)). `clab table <out> mean_ld`:
 
 ```text
 at                     value
 ...
 {"layers":1,"pos":-1}  0.0026958249509334564
 {"layers":1,"pos":-2}  -0.002695823786780238
+```
+
+The map's null is a self-swap swept like the patch: a read of the base prompt in the clean forward at the swept site and `pos`, and a `null` forward that swaps it back in. A read's points share one forward (`clab show` prints `all 8 points` beside it), so the null's read adds no forward and its writes add one per point. Its scores equal the clean run's at every point ([interventions](../usage/interventions.md#the-null-control) has the one-point document):
+
+```json
+"clean": {"kind": "forward", "input": "pairs.input", "interventions": {
+  "v_self": {"site": "target", "pos": {"sweep": [-1, -2, -3, -4]}},
+  "logits": {"site": "head", "pos": -1}}},
+"null": {"kind": "forward", "input": "pairs.input", "interventions": {
+  "patch": {"site": "target", "pos": {"sweep": [-1, -2, -3, -4]}, "ops": [{"op": "swap", "with": "clean.v_self"}]},
+  "logits": {"site": "head", "pos": -1}}}
 ```
 
 Read the corners before the middle. At the last layer, a patch at the last position reproduces the counterfactual run's logits. A patch at any earlier position there leaves the base run's logits as they were, since nothing after the last block carries one position to another. So a layer sweep at the last position always ends at full effect: it measures how late the answer can still be swapped in, not where it is computed. The earlier layers at the other positions are where a map localizes. `documents/real/layer_sweep.json` is this experiment on a real checkpoint (it needs a GPU and a gated model).

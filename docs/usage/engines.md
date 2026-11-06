@@ -33,7 +33,7 @@ The hooks engine reaches the model another way: `register_forward_hook` and `reg
 
 - **Only `readout` differs.** Positions, edits and ops are clab's own on both engines. `readout` is each engine's own: on nnterp the model's `project_on_vocab`; on hooks the final norm, the head, then the text config's `final_logit_softcapping` as `cap * tanh(logits / cap)`. The two agree on the corpus and on the suite's softcapped tiny Gemma-2. They differ on a family that does more after the head, as the suite's tiny Cohere does by scaling its logits.
 - **Where they agree.** `documents/patching.json`, `attention_premix` in `documents/head_patching.json` and the generation in `documents/generated_answer.json` give equal values on both, NaN rows in the same places (`tests/test_documents.py` and `tests/test_generate.py`, `test_the_engines_agree_to_the_bit`).
-- **Compare their value files** to check that two runs gave the same numbers: the `cmp` recipe is in [running.md](running.md#when-two-runs-give-the-same-numbers).
+- **Compare their value files** to check that two runs gave the same numbers. The `cmp` recipe in [running.md](running.md#comparing-two-runs) compares nnterp with hooks and with ndif under `-o remote=local` in one loop.
 - **Compare under one attention implementation.** Switching a model between `sdpa` and `eager` moves the last bits of everything downstream.
 
 ### Values inside a module's forward

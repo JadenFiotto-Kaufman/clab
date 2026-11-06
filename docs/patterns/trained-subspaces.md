@@ -55,7 +55,7 @@ The apply half, `documents/das_apply.json`, loads the saved `fit.rot` and runs t
 A trained subspace is evidence only where it beats subspaces nobody trained, at the same `k`, on the same rows, scored by the same op. Each control's value is per row (`held_iia` is `[2, 1]` per point), so take a `mean` of it per point, `{"kind": "op", "op": "mean", "of": "held_iia"}`, before comparing.
 
 - **Random subspaces, in the training document.** A subspace drawn from a seed is uniformly random, and a fit at `epochs: 0` scores exactly that draw ([fit.md](../usage/fit.md#epochs-0-is-a-null-control)). In `das.json`, set `rot`'s `k` to the rank you compare at, and sweep two values of the fit, `"epochs": {"sweep": [0, 10]}` and `"seed": {"sweep": [0, 1, 2]}`. The spread across seeds at `epochs=0` is the null each trained point has to clear.
-- **The untrained draw beside one saved fit.** A swept fit writes one bundle per point, which `das_apply.json` cannot load ([bundles.md](../usage/bundles.md#swept-training-runs)). To save the rotation and carry its control, leave the fit unswept, give `rot` the fit's seed (`{"kind": "subspace", "k": 8, "seed": 0}`), and score the held-out split again with the bare `rot`, the declared draw ([fit.md](../usage/fit.md#members)). Its `ctl_iia` equals the swept document's `held_iia` at `epochs=0,seed=0`.
+- **The untrained draw beside one saved fit.** A swept fit writes one bundle per point, which `das_apply.json` cannot load ([bundles.md](../usage/bundles.md#swept-training-runs)). To save the rotation and carry its control, leave the fit unswept, give `rot` the fit's seed (`{"kind": "subspace", "k": 8, "seed": 0}`), and score the held-out split again with the bare `rot`, the declared draw ([fit.md](../usage/fit.md#members)). Its `ctl_iia` equals the swept document's `held_iia` at `epochs=0,seed=0`, so the unswept document carries its own `epochs: 0` point, and a separate `epochs: 0` run is optional.
 - **Random subspaces without a fit.** `documents/random_subspace.json` is a declared subspace with its `seed` swept.
 - **Principal directions.** `documents/pca_harvest.json` reduces layer 0's output at every token after BOS to its top-4 directions. `documents/pca_control.json` loads them as a `pca` featurizer and runs `das_apply.json`'s interchange through them, under the same name `rot`, so the two documents differ only in what that featurizer is. A `pca` coordinate is centred on the harvest's mean, and the swap moves the counterfactual's centred coordinates in.
 
@@ -87,7 +87,7 @@ at                      value
 {"epochs":10,"seed":2}  0.000816836953163147
 ```
 
-The corpus documents are not matched as they stand: `das.json` is rank 8, `pca_control.json` and `random_subspace.json` are rank 4, and `random_subspace.json` scores all four rows of `weekdays/train` while the others score the test split of `weekdays/data`. Set one `k` (the fit's `k`, or the `pca` op's), one dataset and one metric before comparing.
+The corpus documents are not matched as they stand: `das.json` is rank 8, `pca_control.json` and `random_subspace.json` are rank 4, and `random_subspace.json` scores all four rows of `weekdays/train` while the others score the test split of `weekdays/data`. Set one `k` in each document (`rot`'s `k` in `das.json` and `das_apply.json`, the `pca` op's in `pca_harvest.json`), one dataset and one metric before comparing. Add the `mean` step to each document as well: `das_apply.json` and `pca_control.json` save the per-row `iia` and `ce`, and no mean.
 
 ## Pitfalls
 

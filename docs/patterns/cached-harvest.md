@@ -38,6 +38,7 @@ Run it with `--out out/prompts_l0` inside the corpus. A later document that uses
 }
 ```
 
+- **`from` is relative to the corpus root**, the nearest directory above the document that holds `data/` ([running.md](../usage/running.md#the-corpus-root)), whatever directory the run starts in. `--out` is relative to the working directory, so run the harvest from the corpus root.
 - **The step's value is named by the step,** `harvest`, as an op step's is.
 - **`basis` equals pca_harvest.json's basis** ([running.md](../usage/running.md#when-two-runs-give-the-same-numbers)). Its bundle's header names the site, layer and width of the read the load carries, so `documents/pca_control.json` loads it as it loads the original.
 - **A probe or a dictionary fits the same way.** A fit's body takes the loaded value's rows by id, as it takes a harvest made in its own document ([fit.md](../usage/fit.md)). `sae_train.json` with its harvest loaded trains an equal dictionary.

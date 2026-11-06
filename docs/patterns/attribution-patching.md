@@ -77,7 +77,9 @@ A gradient check compares `grad` with a central difference of the metric: two fo
 }
 ```
 
-A central difference's own error falls as the step squared. So a gap that falls about 100 times when the step falls 10 times says the gradient is right. A `grad` of the wrong entry runs without a refusal and maps that entry, so run this check once on each new document. A gap that does not shrink with the step is that case: check that `of` names the entry you meant. On the corpus model in float32 (`tests/test_grad.py` `test_the_gradient_is_the_central_difference_of_the_metric`):
+A central difference's own error falls as the step squared. So above float32's rounding, a gap that falls about 100 times when the step falls 10 times says the gradient is right. At a small step the two forwards' rounding, divided by twice the step, takes over, and the ratio degrades. So set a tolerance before the run, and pass the check where the gap is below a small fraction of the largest gradient.
+
+A `grad` of the wrong entry runs without a refusal and maps that entry, so run this check once on each new document. A gap far above the tolerance that does not shrink with the step is that case: check that `of` names the entry you meant. On the corpus model in float32 (`tests/test_grad.py` `test_the_gradient_is_the_central_difference_of_the_metric`):
 
 - the gradients are about ±6.8, and `gap` is at most 0.0068, a thousandth of the largest;
 - at a step of 0.01 the gap is 95 times larger;
@@ -99,7 +101,21 @@ Three nulls, each exact on both engines:
 
 ## Variations
 
-- **Every layer and position.** A site at `"layers": ":"` read at a window of static width (`{"index": "-3:"}`) gives a `[layers, rows, pos, hidden_size]` gradient from the same one backward. Each layer's slice equals a forward that takes it at that layer alone. The `difference` it is scaled by is read at the same site and positions on both prompts.
+- **Every layer and position.** A site at `"layers": ":"` read at a window of static width (`{"index": "-3:"}`) gives a `[layers, rows, pos, hidden_size]` gradient from the same one backward. Each layer's slice equals a forward that takes it at that layer alone. The `difference` it is scaled by is read at the same site and positions on both prompts. With `resid` that site, `target` layer 0, and `counterfactual` reading `z` as `base` does:
+
+  ```json
+  "base": {"kind": "forward", "input": "pairs.input", "interventions": {
+    "z": {"site": "resid", "pos": {"index": "-3:"}},
+    "dz": {"site": "resid", "pos": {"index": "-3:"}, "ops": [{"op": "grad", "of": "metric"}]},
+    "g": {"site": "target", "pos": -1, "ops": [{"op": "grad", "of": "metric"}, {"op": "sum", "over": ["hidden_size"]}]},
+    "metric": {"site": "head", "pos": -1, "ops": [{"op": "logit_diff", "a": "pairs.cf_answer", "b": "pairs.base_answer"}]}}},
+  "difference": {"kind": "op", "op": "sub", "of": "counterfactual.z", "with": "base.z"},
+  "term": {"kind": "op", "op": "scale", "of": "difference", "factor": "base.dz"},
+  "per_row": {"kind": "op", "op": "sum", "of": "term", "over": ["hidden_size"]},
+  "map": {"kind": "op", "op": "mean", "of": "per_row", "over": ["rows"]}
+  ```
+
+  `map` is `[layers, pos]`. `g` is the gradient check's point entry, in the map's own forward: it shares the one backward and equals the map's slice at layer 0, the last position, summed over `hidden_size`. So the check above tests the map's own gradient. The constant's null (`zero` and `g0`) may sit in this forward too.
 - **Heads.** On `attention_premix` the gradient keeps the `num_heads` and `head_dim` axes; sum over `head_dim` (and `pos`) for one number per head. A `select` on `num_heads` keeps the gradient of the heads it picks.
 - **Several sites, one backward.** Every `grad` entry naming the same `of` is served by one backward, so the residual stream and the heads of a model come from one forward together.
 

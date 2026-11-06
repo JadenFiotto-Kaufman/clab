@@ -173,7 +173,7 @@ An `sae` reads a published safetensors file with no clab header, holding `W_enc`
 ```
 
 - `activation`: `jumprelu` when the file holds a `threshold`, else `relu`, or `topk` with `k` (and `k` only with `topk`).
-- `centered`: whether the encoder subtracts `b_dec` first. Gemma Scope's do not (`false`).
+- `centered`: whether the encoder subtracts `b_dec` first. A release whose encoder "subtracts the decoder bias before encoding" is `true`, `(h - b_dec) @ W_enc + b_enc`. `false` encodes `h @ W_enc + b_enc`, as Gemma Scope's do.
 - `site`: where the release says it was trained, `{"component": "layer_output", "layers": 12}` with one layer, or a name from `sites`. Every use is checked against it, component and layer, before any forward.
 
 Refused by name:

@@ -78,6 +78,8 @@ assert not missing, f"rows {missing} never said their word"
 AssertionError: rows [2, 3] never said their word
 ```
 
+Inside the document, a `count` of the scoped read over `rows` and `pos` is the number of rows it reached: `{"kind": "op", "op": "count", "of": "answer.at_said", "over": ["rows", "pos"]}` is 2 on `documents/generated_answer.json`.
+
 A swept step is a list of points, each holding its own records, so count each point. For a dose sweep (`"scale": {"sweep": [0.0, 8.0, 32.0], "label": "dose"}`) of a steered generation with a read scoped to the word:
 
 ```python

@@ -24,7 +24,7 @@ The format is everything a document can write: the records and their fields, the
 - **The corpus runs unchanged.** The documents under `documents/` are the format's semantics, and their pinned numbers say what each means ([testing.md](testing.md)). A change never edits a corpus document to make it pass. A change that would need one rewritten is a format change; a pin that moves is a change of meaning, made on purpose and visible in the snapshot diff. New behavior gets a new document or a new test.
 - **FORMAT.md is regenerated in the same commit.** It is rendered from the code's docstrings and registries (`clab/docs.py` `markdown`), and `tests/test_format.py` fails when it drifts. Run `uv run --no-sync clab describe --markdown`. It writes `FORMAT.md` at the repo root itself, from any directory, and prints nothing (`--verbose` prints the path it wrote), so nothing is redirected into the file.
 
-Adding an op, a featurizer kind, a component or a step kind is [extending.md](extending.md).
+Adding an op, a featurizer kind, a component or a step kind is a format change, held to the rules above; how to build one is [extending.md](extending.md).
 
 ## Before a pull request
 

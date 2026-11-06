@@ -60,7 +60,7 @@ A dictionary loaded at the wrong layer, with the wrong `centered`, or a TopK fil
 ```
 
 - **What it counts.** `active` is 1 where a latent is above zero and 0 where it is not, so `l0` is each row and position's count. `clab table <out> l0` gives 10 on every row of `sae_published_jumprelu.json` and 4 on `sae_published_topk.json`.
-- **Read every token after BOS for a dictionary-wide number** (`"pos": {"index": "1:"}`). Positions past a row's own stay missing through these steps, and `mean_l0` averages the rest: 9.94 on the JumpReLU fixture, as counting the saved latents in Python gives.
+- **Read every token after BOS for a dictionary-wide number** (`"pos": {"index": "1:"}`). Positions past a row's own stay missing through these steps, and `mean_l0` averages the rest: 9.94 on the JumpReLU fixture, as counting the saved latents in Python gives. Save `mean_l0` and print it with `clab table OUT mean_l0`, one row holding `value`; `clab show` takes no name.
 - **Compare that mean with the release's, not one token's count.** Stated `centered: true`, the JumpReLU fixture still gives 10 at the last token of every row, while the mean after BOS moves to 10.65.
 - **A recomputation outside clab can differ on a tie.** A pre-activation that ties its JumpReLU threshold at float precision can count differently; check a recomputation against the mean, not token by token.
 
@@ -78,7 +78,13 @@ On its dictionary, latents 1 and 3 are zero at the last position of every row, s
 "clean_ld": {"kind": "op", "op": "logit_diff", "of": "base.logits", "a": "prompts.cf_answer", "b": "prompts.base_answer"}
 ```
 
-The first is an entry of `base`, the second a step. Other edits go where the `swap` is: `{"op": "scale", "factor": 5.0}` on a selected latent amplifies it, `{"op": "add", "with": 1.0}` adds to it.
+The first is an entry of `base`, the second a step. Each point's change from the clean forward is one more step, zero at the points of latents 1 and 3:
+
+```json
+"delta": {"kind": "op", "op": "sub", "of": "logit_diff", "with": "clean_ld"}
+```
+
+Other edits go where the `swap` is: `{"op": "scale", "factor": 5.0}` on a selected latent amplifies it, `{"op": "add", "with": 1.0}` adds to it.
 
 **Rank, then ablate.** `select` takes indices written in the document, never a value a step computed (`'top.ids' is not a selector`). So rank the latents in one run and write the ids you read into the next. On `sae_published_jumprelu.json`'s `base.latents`:
 
@@ -101,7 +107,7 @@ A latent's max-activating examples are a `top_k` step over `["rows", "pos"]` of 
 "top": {"kind": "op", "op": "top_k", "of": "base.latents", "k": 3, "over": ["rows", "pos"]}
 ```
 
-`clab table` prints each pick's row, position and token:
+`features` indexes the `select` list: 0, 1 and 2 are latents 19, 24 and 31. `clab table` prints each pick's row, position and token:
 
 ```text
 clab table out/maxact top
@@ -117,7 +123,7 @@ features  k  row  pos  pos_token  input                              value
 2         2  1    3    ▁is        If today is Friday, tomorrow is    0.05251988023519516
 ```
 
-`features` indexes the `select` list: 0, 1 and 2 are latents 19, 24 and 31. A position past a row's own is missing, and `top_k` ranks it below every entry that is there.
+A position past a row's own is missing, and `top_k` ranks it below every entry that is there.
 
 ## Train a dictionary
 

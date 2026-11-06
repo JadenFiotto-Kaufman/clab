@@ -8,7 +8,7 @@ sources: [clab/ops/__init__.py, clab/format/registry.py, clab/featurizers/__init
 
 # Extending clab
 
-clab's vocabulary is read off the code: an op's signature is what a document may write for it, a featurizer kind's constructor is its fields, and [FORMAT.md](../../FORMAT.md) is generated from both. So extending clab means adding a function or a class in the right place, registering it, and regenerating FORMAT.md. Adding an engine is [engines.md](engines.md).
+clab's vocabulary is read off the code: an op's signature is what a document may write for it, a featurizer kind's constructor is its fields, and [FORMAT.md](../../FORMAT.md) is generated from both. So extending clab means adding a function or a class in the right place, registering it, and regenerating FORMAT.md. A new op, featurizer kind, component or step kind is a format change: propose it with before-and-after JSON, and it lands when the owner ratifies it ([contributing.md](contributing.md#changing-the-format)). Adding an engine is [engines.md](engines.md).
 
 ## The signature is the document's contract
 
@@ -21,13 +21,16 @@ clab's vocabulary is read off the code: an op's signature is what a document may
 
 ## Adding an op
 
-1. Write a plain function over tensors in its group's module (`clab/ops/metrics.py`, `reductions.py`, `edits.py` or `transforms.py`), its first parameter `of`, the value it acts on.
+1. Write a plain function over tensors in its group's module (`clab/ops/metrics.py`, `reductions.py`, `edits.py` or `transforms.py`), its first parameter `of`, the value it acts on. The function's `__name__` is the op's name in a document.
+   - **A builtin's name shadows the builtin in the whole module.** `clab/ops/reductions.py` `sum`, `min` and `max` already do, and so do `clab/ops/transforms.py` `abs` and `pow`. Call the builtin there as `builtins.<name>`, or pick another name.
 2. Decorate it with `@op(group, ...)` (`clab/ops/__init__.py` `op`), declaring its axes and checks:
    - `needs`, the axes the value must carry; `removes` and `adds`, the axes it takes away and puts on.
    - `layout=`, a function of the value's axes, the arguments and the featurizer kind, where the axes depend on the arguments.
+   - A reduction that takes `over` declares `layout=reduced` (`clab/ops/reductions.py` `reduced`). It removes the axes `over` names, by default `rows` and `pos`, and refuses a reduction that removes none. Name `dims` in the signature to receive the value's axes.
    - `bundle=<kind>`, marking a value a featurizer of that kind loads.
    - `check=`, raising on arguments the types accept but the op cannot mean.
    - `positionwise=True`, where its value at each position comes from that position's vector alone, with the same bits however many other positions the value holds. A generation then runs it at each call it reads ([usage/generate.md](../usage/generate.md#a-read-at-every-call)). That holds for a gather, a softmax over one axis, a rank, and arithmetic IEEE rounds exactly (`+`, `*`, `/`, `sqrt`, a comparison).
+   - On a reduction, `positionwise=True` says each position's result over the feature axes it removes has the same bits whatever the value's shape. `max`, `min`, `median` and `count` declare it; `mean`, `sum` and `std` do not. A generation runs it at each call only while the result keeps `rows` and `pos`, so a reduction over `pos` runs after the generation.
    - Leave `positionwise` off an op that multiplies matrices or sums over an axis. Their reduction order follows the value's shape, so on a call's `[rows, 1, ...]` they can differ in the last bits from the same op on the whole read. Without it, the op runs after the generation.
 3. **Add the function to the ordered list at the end of `clab/ops/__init__.py`.** `@op` declares the op; the list registers it. `import clab` fails with `AssertionError: every declared op is listed once` until the list has it. Within a group, that list's order is the tables' order. The prose FORMAT.md prints names the edits group from that list (`clab/ops/__init__.py` `listed`, written into `ABOUT` and the `Intervention` docstring in `clab/plan.py`), so a new edit joins it there with nothing written by hand.
 
@@ -45,6 +48,8 @@ def negate(of: Tensor) -> Tensor:
 ```text
 steps.flipped.interventions.neg.ops[0]: 'negate' takes no 'factor'; its arguments: none
 ```
+
+To see such a refusal without a run, compile a scratch document from Python: `Plan("scratch.json").compile()` raises it ([running.md](../usage/running.md#check-before-you-run)).
 
 A metric over next-token logits declares the vocabulary axis it scores:
 
@@ -120,10 +125,12 @@ A step kind is the widest change: the kind is dispatched in each stage.
 
 | change | tests |
 |---|---|
-| an op | `tests/test_ops.py`: the op on plain tensors; the two tests that list every op and its group fail until the new one is in them. A metric or reduction joins the list in `tests/test_findings.py` `test_every_metric_and_reduction_is_float32_on_a_bf16_model_and_an_edit_stays_bf16`, which names the ops it checks |
+| an op | `tests/test_ops.py`: the op on plain tensors. Its two listing tests, `test_every_op_is_listed_once_in_order_under_its_own_name` and `test_each_op_declares_its_group_and_bundle`, fail until the new op is in their lists. A metric or reduction joins `tests/test_findings.py` `test_every_metric_and_reduction_is_float32_on_a_bf16_model_and_an_edit_stays_bf16` in two places: a step in its `steps`, and the step's name in its `names` |
 | a featurizer kind | `tests/test_featurizers.py` `every_kind`, so the device and autocast tests cover it; `tests/test_featurizer_ops.py`, whose test of each kind's ops lists every kind and fails until updated; a kind with both `encode` and `decode` joins the parameters of its identity-to-the-bit test |
 | a component | a corpus document that uses it, run on both engines; a row in `tests/test_engines.py`, since a component means one thing on every engine |
 | a step kind | a corpus document that uses it, run on both engines |
 | a corpus document | pins for its numbers and its compiled form, and the README's corpus count, which `tests/test_plan.py` checks. One that trains or loads a featurizer is named in `tests/conftest.py` `FIT`, one that generates in `GENERATE`, and one the hooks engine refuses in `INSIDE`; any other runs as a forward in `tests/test_documents.py` |
+
+A new op also changes the docs ([contributing.md](contributing.md#what-a-pull-request-carries)). It gets a when-to-use bullet in its group's section of `docs/usage/ops.md`, and joins every list of its group's ops under `docs/`, for a reduction in `docs/usage/ops.md` and `docs/reference/glossary.md`. Grep a sibling's name to find them.
 
 An op, a kind, a component or a step kind changes FORMAT.md, which `clab/docs.py` `markdown` renders from the registries: regenerate it with `uv run --no-sync clab describe --markdown`, or `tests/test_format.py` fails ([contributing.md](contributing.md#changing-the-format)). Pinning a new document is [testing.md](testing.md); what lands with the change is [contributing.md](contributing.md).

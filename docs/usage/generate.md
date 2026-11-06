@@ -8,7 +8,7 @@ sources: [clab/steps/generate.py, clab/steps/batches.py, clab/plan.py, clab/comp
 
 # Generation
 
-A `generate` step runs the model's `generate` on every row of its input. Its value is the new token ids, `[rows, new]`. Its entries read and write at the forward calls that `pos`'s `frame` names: call 0 is the prefill, and call k ≥ 1 is decode call k. The step's fields are in [FORMAT.md#generate](../../FORMAT.md#generate) and the frame stage is in [FORMAT.md#pos](../../FORMAT.md#pos). Why a generation is a timeline of calls is explained in [concepts/positions.md](../concepts/positions.md).
+A `generate` step runs the model's `generate` on every row of its input. Its value is the new token ids, `[rows, new]`; a reduction of them names `new` in `over`, since the default removes only `rows` and `pos` ([ops.md](ops.md#reductions-and-over)). Its entries read and write at the forward calls that `pos`'s `frame` names: call 0 is the prefill, and call k ≥ 1 is decode call k. The step's fields are in [FORMAT.md#generate](../../FORMAT.md#generate) and the frame stage is in [FORMAT.md#pos](../../FORMAT.md#pos). Why a generation is a timeline of calls is explained in [concepts/positions.md](../concepts/positions.md).
 
 `detokenize` turns each row's ids into text, stopped before the row's first EOS ([ops.md](ops.md)). Scoring that text (`contains`, a whole-word count, the text after a marker, a reasoning trace's length, teacher forcing) is [patterns/generation-experiments.md](../patterns/generation-experiments.md).
 

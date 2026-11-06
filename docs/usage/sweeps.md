@@ -34,7 +34,7 @@ iia         iia         rows, pos  pos   3 points, each [4,1]
 A sweep can stand in these places ([FORMAT.md#sweeps](../../FORMAT.md#sweeps) has the full rule):
 
 - a field FORMAT.md types as "or a sweep": a site's `layers` and `select`, an entry's `pos` (its `frame`, its `index` or a scope's `occurrence`), and a fit's `epochs`, `seed`, objective weights and `lr`;
-- an op's arguments, inside an entry or on an op step (`scale`'s `factor`, `top_k`'s `k`);
+- an op's arguments, inside an entry or on an op step (`add`'s `scale`, a steering dose; `scale`'s `factor`; `top_k`'s `k`);
 - a featurizer's fields (`k`, `seed`);
 - a generate step's options (`max_new_tokens`).
 

@@ -82,9 +82,14 @@ How to read and choose the doses:
 - **Dose 0 is the null** ([interventions](../usage/interventions.md#the-null-control)). `add` at `"scale": 0.0` leaves every logit equal to the unsteered run's, so its `drift` is exactly 0 and its `effect` is the baseline.
 - **Doses are lengths against the activation's norm.** `base.resid` is saved so the norm can be read back: about 0.075 here, so the doses run from about a quarter of the activation's length to four times it. A dose far below the norm does nothing; one far above it replaces the activation. To set the doses from the norm in the document, see [below](#a-dose-set-from-the-activations).
 - **`effect` is the target, `drift` the cost.** `kl` against the unsteered logits measures how far the whole distribution moved. The useful band is where the target metric moves while the drift stays small; past it the model is being broken, not steered. On a real model, generate at each dose and read the text as well.
-- **Check the difference before using it.** Save `difference` and read its norm before trusting a dose curve.
-- **A difference over the same prompts is noise.** Two prompt sets that are the same prompts in another order (the base and counterfactual columns of `data/weekdays/train.json` are) give a difference of rounding noise. `normalize` turns it into a unit vector pointing nowhere in particular.
+- **Check the difference before using it.** Save `difference` and compare its norm with the site's typical norm (`typical`, [below](#a-dose-set-from-the-activations)) before trusting a dose curve. A difference orders of magnitude below that norm is rounding, not a direction.
+- **A difference over the same prompts is noise.** Two prompt sets that are the same prompts in another order (the base and counterfactual columns of `data/weekdays/train.json` are) give a difference of rounding noise, orders of magnitude below `typical`. `normalize` turns it into a unit vector pointing nowhere in particular.
 - **`normalize` leaves a zero vector as it is.** A difference of exactly zero (two harvests that agree) steers nothing at any dose, and the sweep looks flat.
+- **A dose by layer grid is two labelled sweeps, which cross** ([sweeps](../usage/sweeps.md#labels-zip-or-cross)). Sweep the site's `layers` under its own label beside the `dose`. Every read of `target` then follows the layer, so each layer steers along its own difference. The document above gives eight points, keyed `{"layer":0,"dose":0.0}` on; both dose-0 points equal the unsteered run:
+
+```json
+"target": {"component": "layer_output", "layers": {"sweep": [0, 1], "label": "layer"}}
+```
 
 ### A dose set from the activations
 
@@ -116,6 +121,8 @@ A dose written as a fraction of the activation's own length needs no number copi
 
 `norm` is the difference's length, its L2 norm over `hidden_size` ([ops](../usage/ops.md#reductions-and-over)). `noise` on a value with no rows is one Gaussian draw from its `seed`, `normalize` makes it unit length, and `scale` gives it the difference's norm: on the corpus, `random`'s norm equals `difference`'s at seeds 7, 8 and 9. Add `random` at the same doses as `difference` in a forward of its own, and sweep `seed` for the spread a real direction has to clear. Steering with the unit `direction`, as the document above does, the matched control is `random_unit`.
 
+Steering with `unit_dose`, a dose set from the activations, the matched control is `random_unit` scaled the same way, a random direction as long as `typical`: `{"kind": "op", "op": "scale", "of": "random_unit", "factor": "typical"}`.
+
 ## Clamping
 
 `documents/clamp_write.json` bounds every element of layer 1's residual stream at every token, BOS included, and reads the result back after the write:
@@ -139,11 +146,24 @@ In a `generate` step a write's `pos` names forward calls by its `frame` ([genera
 
 `{"frame": ":"}` is every prompt token in the prefill and each generated token at its decode call; `{"frame": "1:"}` is the generated tokens alone. Score the text with `detokenize` and `contains` ([generation experiments](generation-experiments.md)). Keep `do_sample: false` so the steered and unsteered runs differ by the write alone.
 
-To steer the prompt's last token and every generated token, and no other prompt token, write two entries, `{"frame": 0, "index": -1}` and `{"frame": "1:"}` ([generate](../usage/generate.md#writes-during-generation)). `documents/generated_steer.json` does this: at `"scale": 4.0` every row's generation changes from its third token on, and at 0 every value is the unsteered one. To sweep the dose on that pair, give both entries the same labelled sweep. One label is one axis, so the two move together, three doses in three generations ([sweeps](../usage/sweeps.md#labels-zip-or-cross)):
+To steer the prompt's last token and every generated token, and no other prompt token, write two entries: one at `pos: -1` and one at `{"frame": "1:"}` ([generate](../usage/generate.md#writes-during-generation)). In a `generate` step `pos: -1` is the prefill's last token, the same as `{"frame": 0, "index": -1}`. `documents/generated_steer.json` does this: at `"scale": 4.0` every row's generation changes from its third token on, and at 0 every value is the unsteered one. Its two sweeps carry no `label`, so both take the default label `scale`, one axis: the two entries move together, two doses in two generations ([sweeps](../usage/sweeps.md#labels-zip-or-cross)):
 
 ```json
-"prompt": {"site": "target", "pos": {"frame": 0, "index": -1},
-           "ops": [{"op": "add", "with": "direction", "scale": {"sweep": [0.0, 0.08, 0.32], "label": "dose"}}]},
-"decode": {"site": "target", "pos": {"frame": "1:"},
-           "ops": [{"op": "add", "with": "direction", "scale": {"sweep": [0.0, 0.08, 0.32], "label": "dose"}}]}
+"steer_prefill": {"site": "resid", "pos": -1,
+                  "ops": [{"op": "add", "with": "direction", "scale": {"sweep": [0.0, 4.0]}}]},
+"steer_decode": {"site": "resid", "pos": {"frame": "1:"},
+                 "ops": [{"op": "add", "with": "direction", "scale": {"sweep": [0.0, 4.0]}}]}
 ```
+
+Give both sweeps one `label` of their own when another `scale` in the document must not move with them.
+
+To count the generated tokens a write changed, generate once more without the write and compare the ids, which are `[rows, new]`:
+
+```json
+"clean": {"kind": "generate", "input": "pairs.input", "max_new_tokens": 6, "do_sample": false},
+"changed": {"kind": "op", "op": "ne", "of": "steered", "with": "clean"},
+"changed_per_row": {"kind": "op", "op": "sum", "of": "changed", "over": ["new"]},
+"changed_frac": {"kind": "op", "op": "mean", "of": "changed", "over": ["rows", "new"]}
+```
+
+Name `new` in `over`: a reduction's default removes `rows` and `pos`, so a bare `mean` of `changed` is `[new]` ([ops](../usage/ops.md#reductions-and-over)). On `documents/generated_steer.json`, `changed_per_row` is 0 on every row at the dose-0 point, the null, and 4 at `"scale": 4.0`.
