@@ -214,13 +214,14 @@ def input_batches(engine: Engine, step: Forward, state: ChainMap, findings: Find
         yield ids, data.pad(engine.tokenizer, tokens, width), [width - len(x) for x in tokens]
 
 
-def in_run_order(state: ChainMap, value: Any, ids: list[int], axis: int = 0) -> Any:
-    """`value`, whose rows along `axis` are dataset row `ids` in the order a step's batches ran them (`input_batches`),
-    in the order of the rows the run is over (`scope_ids`; every row of the dataset, in order): as it is where the
-    batches ran in that order, else taken by id (`data.by_id`), which puts `sorted` padding's rows back."""
+def in_run_order(state: ChainMap, value: Any, ids: list[int], axis: int = 0, dataset: str | None = None) -> Any:
+    """`value`, whose rows along `axis` are dataset row `ids` of `dataset` in the order a step's batches ran them
+    (`input_batches`), in the order of the rows the run is over (`scope_ids`; every row of the dataset, in order): as
+    it is where the batches ran in that order, else taken by id (`data.by_id`), which puts `sorted` padding's rows
+    back."""
     run_ids = scope_ids(state)
     run_ids = run_ids if run_ids is not None else sorted(ids)
-    return value if ids == run_ids else data.by_id(value, run_ids, ids, axis)
+    return value if ids == run_ids else data.by_id(value, run_ids, ids, axis, dataset)
 
 
 def stop_ids(engine: Engine, step: Generate) -> list[int]:
@@ -512,7 +513,7 @@ def join_batches(state: ChainMap, name: str, record: Intervention, at: dict[str,
                 dtype=v.dtype, device=v.device)], pos) for v in parts]
         return torch.cat([v.to(parts[0].device) for v in parts], dims.index("rows"))
     value = cat(values) if isinstance(values[0], Tensor) else {k: cat([v[k] for v in values]) for k in values[0]}
-    put(state, name, at, value if ids is None else in_run_order(state, value, ids, dims.index("rows")))
+    put(state, name, at, value if ids is None else in_run_order(state, value, ids, dims.index("rows"), record.dataset))
 
 
 def value_in_prefill(engine: Engine, plan: Plan, record: Intervention, value: Tensor, bound_record: dict,

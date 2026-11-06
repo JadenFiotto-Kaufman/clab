@@ -97,8 +97,9 @@ def generate(engine: Engine, plan: Plan, name: str, step: Generate, state: Chain
         new.append(tokens)
     width = max(x.shape[1] for x in new)
     tokens = in_run_order(state, torch.cat([torch.nn.functional.pad(x, (0, width - x.shape[1]), value=min(eos))
-                                            for x in new]), batched_ids)
-    beyond_positions = {k: in_run_order(state, v, batched_ids) for k, v in beyond_positions.items()}
+                                            for x in new]), batched_ids, dataset=step.dataset)
+    beyond_positions = {k: in_run_order(state, v, batched_ids, dataset=step.dataset)
+                        for k, v in beyond_positions.items()}
     for k, (record, own, _) in values_read.items():
         join_batches(state, f"{name}.{k[0]}", record, own, parts[k], batched_ids)
     put(state, name, projection(step.at, step.axes), tokens)
