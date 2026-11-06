@@ -180,6 +180,26 @@ def test_an_answer_the_input_says_with_its_space_is_written_as_the_input_says_it
                                               r"answer as the input says it, ' signs'$")
 
 
+def test_an_answer_that_tokenizes_alone_as_the_input_says_it_names_its_whitespace_token_instead(engines):
+    """On the tiny Llama's SentencePiece `42` and ` 42` alone are both `▁`, `4`, `2`, and a scope under strip covers
+    `4`, `2` alone, so writing the answer as the input says it would change nothing: the refusal names the answer's
+    whitespace-only token 0, which the read misses. ` 42` scoped without strip lines up."""
+    def scored(answer: str, strip: bool) -> Plan:
+        column = {"column": "days.answer", "strip": True} if strip else "days.answer"
+        return doc({"read": {"kind": "forward", "input": "days.input", "interventions": {"logits": {
+                        "site": HEAD, "pos": {"scope": {"column": column, "before": True}}}}},
+                    "p": {"kind": "op", "op": "cross_entropy", "of": "read.logits", "target": "days.answer"}},
+                   ["p", "read.logits"], rows=[{"input": "The answer is 42 today", "answer": answer}])
+    refused_before_any_forward(engines, scored(" 42", True), r"; its token 0, ' ', is whitespace only, which an "
+                                                             r"answer keeps and a scope under strip does not cover: "
+                                                             r"scope the column without strip$")
+    refused_before_any_forward(engines, scored("42", True), r"; its token 0, ' ', is whitespace only, which '42' "
+                                                            r"gains when tokenized alone and the read does not "
+                                                            r"cover: write the answer with the space the input has "
+                                                            r"before it, and scope the column without strip$")
+    assert placed(run(engines, scored(" 42", False)))["read.logits"] == [[3, 4, 5]]
+
+
 def test_an_answer_of_several_tokens_needs_a_pos_axis(engines):
     plan = doc(forced({"column": "days.answer", "before": True}, {
         "avg": {"kind": "op", "op": "mean", "of": "forced.logits", "over": ["pos"]},
