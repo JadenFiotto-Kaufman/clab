@@ -12,10 +12,11 @@ from clab.featurizers import bundles
 from clab.compile import positions
 from clab.compile.answers import check_column_ref, check_text_ref, is_literal
 from clab.compile.state import Compiling
+from clab.compile.uses import tensor_refusal
 from clab.format import address, data, registry, selectors
 from clab.format.sweeps import points
 from clab.plan import (Featurizer, Intervention, Labelled, Load, Op, OpStep, Plan, arguments, fail, kind_of, member_of,
-                       produced, record_of, top_k_members, top_k_of, trained_featurizers)
+                       produced, record_of, tensor_of, top_k_members, top_k_of, trained_featurizers)
 
 
 def narrowed_readout_refusal(what: str) -> str:
@@ -172,10 +173,17 @@ def kept_labels(of: Labelled, dims: list[str]) -> tuple[list[int] | None, dict[s
 def value_record(cx: Compiling, ref: str, path: str, at: dict[str, int],
                  live: Mapping[str, Labelled] | None = None) -> Labelled:
     """The record of a named value produced before this point, at the consumer's point `at`, noted as used (`used`);
-    an entry of the forward being compiled, among `live`, as it is, noted as a live operand instead (`live`)."""
+    an entry of the forward being compiled, among `live`, as it is, noted as a live operand instead (`live`); a
+    featurizer's tensor (`plan.tensor_of`) as its first use before this point lays it out (`uses.tensor_refusal`
+    says what it refuses)."""
     if live and ref in live:
         cx.live.add(ref)
         return live[ref]
+    if tensor_of(cx.steps, cx.featurizers, ref) is not None:
+        if why := tensor_refusal(cx.steps, cx.featurizers, ref, at, True):
+            fail(path, why)
+        cx.used.add(ref)
+        return record_of(cx.steps, ref, at, cx.featurizers)
     if ref.partition(".")[0] in cx.featurizers or ref in trained_featurizers(cx.steps):
         fail(path, f"{ref!r} is a featurizer, not a value; an op reaches it ({{'op': 'encode', 'featurizer': "
              f"{ref!r}}} gives a value's coordinates, 'apply' its version of the value), and the value that entry "

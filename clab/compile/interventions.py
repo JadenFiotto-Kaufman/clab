@@ -364,7 +364,7 @@ def check_operands(engine: Engine, plan: Plan, where: str, o: Op, step: Forward 
         value = args.get(key)
         if p.annotation != ops.Value or not isinstance(value, str):
             continue
-        theirs = record_of(plan.steps, value, step.at)
+        theirs = record_of(plan.steps, value, step.at, plan.featurizers)
         if not isinstance(theirs, Intervention):
             continue                                # a step's value: no site, no positions of its own
         producer, read = entry_of(plan.steps, value, step.at)

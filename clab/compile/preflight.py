@@ -108,7 +108,7 @@ def prepare(engine: Engine, plan: Plan, steps: dict, classes: dict[str, list], f
                         raise ValueError(f"{name}.{e}") from None
                     continue
                 if step.kind == "op":
-                    args, of = arguments(step), record_of(plan.steps, step.of, step.at)
+                    args, of = arguments(step), record_of(plan.steps, step.of, step.at, plan.featurizers)
                     assert step.dims is not None and of.dims is not None
                     compiled = dict(step.kept)
                     step.layers, step.kept, step.width = kept_labels(of, step.dims)     # completed from its producer's
@@ -330,7 +330,7 @@ def preflight_resolver(plan: Plan, at: dict[str, int]) -> Callable[[str, Any, in
     (`arguments.resolver`), a featurizer to nothing."""
     def resolve(key: str, value: Any, p: inspect.Parameter) -> Labelled | None:
         if p.annotation == ops.Value:
-            return record_of(plan.steps, value, at)
+            return record_of(plan.steps, value, at, plan.featurizers)
         if p.annotation == ops.Featurizer:
             return None
         if data.literal_of(value) is not None:

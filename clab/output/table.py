@@ -13,8 +13,8 @@ from clab.compile import dataset_rows, positions
 from clab.format import data
 from clab.format.sweeps import agreeing_point, coordinate, coordinate_text, projection
 from clab.output import run_record, shape_or_dtype
-from clab.plan import (Intervention, Labelled, OpStep, Plan, arguments, entries, entry_of, made_by, points, projections,
-                        record_of, runnable)
+from clab.plan import (Intervention, Labelled, OpStep, Plan, arguments, entries, entry_of, made_by, points, producer,
+                       projections, record_of, runnable)
 
 # The column a value's example and token axes are tabled under.
 COLUMNS = {"rows": "row", "layers": "layer", "pos": "pos", "key": "key"}
@@ -55,7 +55,7 @@ def table(plan: Plan, names: tuple[str, ...], columns: list[str] | None) -> list
             raise ValueError(f"{name!r} was not saved; add it to saves")
         if name not in plan.results:
             raise ValueError(f"{name!r} has no result: the run stopped before its step; {run.stopped}")
-        record = record_of(plan.steps, name, points(plan.steps[name.partition(".")[0]])[0].at)
+        record = record_of(plan.steps, name, points(producer(plan, name))[0].at, plan.featurizers)
         if len(names) > 1 and ranks_rows(record):
             raise ValueError(f"{name!r} is a top_k over rows, whose rows are its picks, and a top_k over rows tables "
                              "alone; table it by itself")
@@ -87,8 +87,8 @@ def row_keys(plan: Plan, name: str) -> tuple[list[str], list[str], str | None]:
     those axes; for one without, each of its axes under the same names. With a token axis, also what its `pos` and
     `key` count: the positions of the input its read was made on, or, with no rows axis or no read (a permuted value's
     rows hold other rows' positions), a plain index along it."""
-    first = points(plan.steps[name.partition(".")[0]])[0]
-    record = record_of(plan.steps, name, first.at)
+    first = points(producer(plan, name))[0]
+    record = record_of(plan.steps, name, first.at, plan.featurizers)
     dims = record.dims or []
     axes = [COLUMNS.get(a, a) for a in dims if "rows" not in dims or a in COLUMNS]
     counts = None
@@ -170,14 +170,14 @@ def by_point(plan: Plan, name: str) -> list[tuple[dict[str, Any], Any]]:
 
 def rows_of(plan: Plan, name: str, columns: list[str] | None) -> list[dict[str, Any]]:
     thing, _, member = name.partition(".")
-    step = points(plan.steps[thing])[0]
+    step = points(producer(plan, name))[0]
     fitted = step.kind == "fit" and member.partition(".")[0] in ("history", *step.train)
     if fitted and member in step.train:
         raise ValueError(f"{name!r} is a trained featurizer's bundle, which has no rows to table; read it "
                          "from plan.results")
     out = []
     for (_, p), (at, value) in zip(projections(plan, name), by_point(plan, name)):
-        record = record_of(plan.steps, name, p.at)
+        record = record_of(plan.steps, name, p.at, plan.featurizers)
         dims = record.dims or []
         if fitted:              # a fit's history, over each point's own epochs
             out += value_rows(value, dims, None, at, [], [])
@@ -189,7 +189,9 @@ def rows_of(plan: Plan, name: str, columns: list[str] | None) -> list[dict[str, 
             out += picks(plan, cast(OpStep, record), value, at, p, columns if columns is not None else used)
             continue
         examples = dataset_rows(plan, record.dataset) if record.dataset else []
-        place = read_labels(plan, record, p.at) if record.read else None
+        place = read_labels(plan, record, p.at) if record.read else None if "rows" in dims else {"indices": {
+            **{a: v for a, v in record.kept.items() if isinstance(v, list)},       # a select's, as a read's are
+            **({"layers": record.layers} if "layers" in dims else {})}}
         out += value_rows(value, dims, place, at, examples, columns if columns is not None else used)
     return out
 
@@ -212,7 +214,7 @@ def picks(plan: Plan, record: OpStep, value: dict[str, Any], at: dict[str, Any],
     over = arguments(record)["over"]
     axes = over if isinstance(over, list) else [over]
     ids = value["ids"] if isinstance(over, list) else {over: value["ids"]}
-    ranked = record_of(plan.steps, record.of, point.at)
+    ranked = record_of(plan.steps, record.of, point.at, plan.featurizers)
     examples = dataset_rows(plan, ranked.dataset) if ranked.dataset else []
     place = read_labels(plan, ranked, point.at) if ranked.read else None
     indices = place["indices"] if place else {}
@@ -442,6 +444,8 @@ def columns_used(plan: Plan, name: str, at: dict[str, int]) -> list[str]:
     steps = runnable(plan.steps)
     while True:
         made = made_by(plan, name)          # an eval's member's: its eval step
+        if made not in steps or points(steps[made])[0].kind == "fit":     # a featurizer's tensor, a fit's member
+            return list(dict.fromkeys(used))
         step, member = agreeing_point(steps[made], at), name[len(made) + 1:]
         if step.kind == "op":
             used += argument_columns(plan, arguments(step))

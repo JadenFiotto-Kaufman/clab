@@ -12,6 +12,7 @@ class Linear(Kind):
     those values, as it scores logits against a column of tokens. It has no way back into the value, so it is
     read by `encode` and never decoded."""
     saves = trains = ("W", "b")
+    laid = {"W": ("width", "classes"), "b": ("classes",)}
     axis, header = "classes", ("classes",)
 
     def __init__(self, width: int, classes: str, labels: list, file_path: str | None = None,

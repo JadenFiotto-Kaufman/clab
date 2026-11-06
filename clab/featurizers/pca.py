@@ -11,6 +11,7 @@ class Pca(Kind):
     coordinates are centred on the mean. A document always loads one (`file_path`); without a bundle it is zeros,
     `[width, k]` and `[width]`, the shapes compile holds a loaded bundle to (`uses.check_bundle_shapes`)."""
     saves, header, counts = ("basis", "mean"), ("k",), ("k",)
+    laid = {"basis": ("width", "features"), "mean": ("width",)}
 
     def __init__(self, width: int, file_path: str, k: int | None = None,
                  bundle: dict[str, Tensor] | None = None) -> None:

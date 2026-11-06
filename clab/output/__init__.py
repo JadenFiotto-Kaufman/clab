@@ -132,7 +132,7 @@ def saved_value_layout(plan: Plan, name: str) -> dict[str, Any]:
     coordinate, as the manifest records a result's `shape`."""
     per = {}
     for at, p in projections(plan, name):
-        record = record_of(plan.steps, name, p.at)
+        record = record_of(plan.steps, name, p.at, plan.featurizers)
         per[coordinate_text(plan, at)] = {"dims": record.dims, **{k: v for k in LABELS
                                                                   if (v := getattr(record, k)) not in (None, {}, [])}}
     if list(per) == [""]:
@@ -205,7 +205,7 @@ def load(out: str) -> Plan:
         if d["axes"]:
             value = {coordinate(plan, at): value[coordinate_text(plan, at)] for at, _ in projections(plan, name)}
         for at, p in projections(plan, name):   # a top_k's ids over a list of axes in its order, which the file sorts
-            record = record_of(plan.steps, name, p.at)
+            record = record_of(plan.steps, name, p.at, plan.featurizers)
             over = arguments(record).get("over") if isinstance(record, OpStep) and record.op == "top_k" else None
             if isinstance(over, list):
                 point = value[coordinate(plan, at)] if d["axes"] else value

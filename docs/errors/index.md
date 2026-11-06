@@ -156,6 +156,7 @@ Each row quotes a message's first clause without its `<where>:`. `<x>` stands fo
 | `'<n>' is swept over '<l>', […] in <out>, and this document sweeps '<l>' over […]` | this document sweeps a label the value depends on over other values | [cached-harvest.md](../patterns/cached-harvest.md#what-the-load-checks) |
 | `'<n>' is a bundle, which a featurizer of its kind loads, with 'file_path'` | a `pca`'s value or a trained featurizer named in a `load` | [cached-harvest.md](../patterns/cached-harvest.md#what-the-load-checks) |
 | `'<n>' is in the coordinates of '<f>'` | a value inside a featurizer's encode; load the value it encodes, and encode it here | [cached-harvest.md](../patterns/cached-harvest.md#what-the-load-checks) |
+| `'<n>' is a tensor of <out>'s featurizer '<f>', as drawn or loaded there`; `'<n>' is a tensor of '<f>', which <out>'s fit trained` | a featurizer's tensor named in a `load`; declare the featurizer here, or load the trained one's bundle with `file_path`, and name its tensor | [featurizers.md](../usage/featurizers.md#its-tensors-as-values) |
 | `'<n>' is a generation's value or holds its positions` | a generation's ids, or a read at its decode calls | [cached-harvest.md](../patterns/cached-harvest.md#what-the-load-checks) |
 | `'<l>' loads '<x>.tokens', a top_k's tokens` | an op over a loaded `top_k` member that is text; save `<x>.ids` in the run that made it and load that | [ops.md](../usage/ops.md#transforms) |
 | `'<l>' loads '<x>.ids', a top_k's ids over a list of axes` | an op over a loaded `ids` of a `top_k` over a list of axes, one tensor per axis; save the axis's (`<x>.ids.rows`) and load that | [ops.md](../usage/ops.md#transforms) |
@@ -300,6 +301,11 @@ Each row quotes a message's first clause without its `<where>:`. `<x>` stands fo
 | Message | Cause | Page |
 |---|---|---|
 | `'<x>' is a featurizer, not a value` | a featurizer named where a value goes; reach it with an op (`encode`, `apply`) | [featurizers.md](../usage/featurizers.md) |
+| `'<x>' names no tensor of '<f>', a <kind>, whose tensors are …` | `<featurizer>.<tensor>` or `<fit>.<featurizer>.<tensor>` with a name the kind does not hold | [featurizers.md](../usage/featurizers.md#its-tensors-as-values) |
+| `'<x>' is a tensor of '<f>', laid out on the last axis of the site it is used at, and no step before this one encodes or applies '<f>' at a site` | a featurizer's tensor named before any step uses the featurizer (in a save or an `init`: no step at all) | [featurizers.md](../usage/featurizers.md#its-tensors-as-values) |
+| `'<x>' is laid out […], two of its axes under one name, which no op tells apart` | an `affine`'s `W`, or a basis inside another's coordinates; save the fit's featurizer whole | [featurizers.md](../usage/featurizers.md#its-tensors-as-values) |
+| `'<x>' is a tensor of '<f>', which this fit trains` | the fit's body names a tensor of what it trains; name it in a step after the fit | [fit.md](../usage/fit.md#members) |
+| `'<x>' is a tensor of '<f>', which is itself drawn from a value` | a constant's `init` naming a tensor of a featurizer drawn from a value | [featurizers.md](../usage/featurizers.md#its-tensors-as-values) |
 | `'<x>' names no featurizer here` | a featurizer name `featurizers` does not declare | [featurizers.md](../usage/featurizers.md) |
 | `'<f>' is a '<kind>' featurizer, which has no <op>` | an op the featurizer's kind does not serve, a point of a sweep over featurizers included (the path names it); the message lists the ones it does | [featurizers.md](../usage/featurizers.md#a-sweep-over-featurizers) |
 | `a <kind>'s apply takes no 'with'` | `with` on an `apply` of a kind that is not an adapter or a gate | [featurizers.md](../usage/featurizers.md) |
