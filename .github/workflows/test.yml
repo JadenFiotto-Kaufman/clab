@@ -133,8 +133,7 @@ jobs:
               elif "tokenizer only" in what:
                   snapshot_download(repo, revision=revision, allow_patterns=["*.json", "*.txt"])
               else:
-                  snapshot_download(repo, revision=revision, ignore_patterns=["onnx/*", "*.onnx", "*.h5", "*.msgpack",
-                                                                              "*.ot", "*.tflite"])
+                  snapshot_download(repo, revision=revision, ignore_patterns=["onnx/*", "*.onnx", "*.h5", "*.msgpack"])
               # The cache's `main` is the pinned revision, as in the cache of the host that pins the suite: the hooks
               # engine's meta load reads the tokenizer at `main`, whatever revision it is given.
               kind = "datasets" if "a dataset" in what else "models"

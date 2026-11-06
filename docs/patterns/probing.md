@@ -163,7 +163,7 @@ Saved from the swept document, the file holds one probe per layer, which no feat
 
 ## Use a probe's direction
 
-A trained probe's tensors are values ([featurizers.md](../usage/featurizers.md#its-tensors-as-values)): `fit.probe.W`, `[hidden_size, classes]`, and `fit.probe.b`, `[classes]`, as the fit left them. A two-class probe's direction is `W[:, 1] - W[:, 0]`, the direction along which its second class's score grows against its first's. `documents/probe_direction.json` fits one on GPT-2 and projects that direction out of the stream it read, in one document:
+A trained probe's tensors are values ([featurizers.md](../usage/featurizers.md#its-tensors-as-values)): `fit.probe.W`, `[hidden_size, classes]`, and `fit.probe.b`, `[classes]`, as the fit left them. A two-class probe's direction is `W[:, 1] - W[:, 0]`, the direction along which its second class's score grows against its first's. `documents/probe_direction.json` fits one on the corpus's tiny GPT-2 and projects that direction out of the stream it read, in one document:
 
 ```json
 "positive": {"kind": "op", "op": "select", "of": "fit.probe.W", "select": {"classes": 1}},
@@ -181,7 +181,7 @@ A trained probe's tensors are values ([featurizers.md](../usage/featurizers.md#i
 - **The classes sort**, so `negative` is class 0 and `positive` class 1. Check the order in the bundle's header or the scores' table before naming a column.
 - **The null is the direction scaled to zero.** `project_out` leaves every vector as it is along a zero direction, so `null`'s numbers equal the clean run's ([running.md](../usage/running.md#when-two-runs-give-the-same-numbers)).
 
-On `openai-community/gpt2` at revision `607a30d783dfa663caf39e06633721c8d4cfcd7e`, float32 on the CPU, the probe reads the sentiment of twenty reviews off layer 10 at accuracy 0.85 after one epoch and 1.0 after fifty. `ld` is each row's logit for the word that matches its review less the other's, and its mean, `clean_margin`, is 1.340. With the probe's direction projected out of layer 10 at every position, `projected_margin` is 0.427; `null_margin` is the clean 1.340. The probe is trained and tested on the same rows, so this shows the mechanics and the size of one direction's share, not a held-out effect.
+The tiny GPT-2's weights are random: its probe classifies 13 of the 20 reviews (0.65), and the margins are 0.0051 clean and 0.0158 projected, `null_margin` the clean 0.0051, so the document shows the mechanism and the null. With its `model` block swapped for `openai-community/gpt2` at revision `607a30d783dfa663caf39e06633721c8d4cfcd7e`, the `stream` site at layer 10 and the answers ` good` and ` bad` (one token each there), the same document, run in float32 on the CPU, reads the sentiment at accuracy 0.85 after one epoch and 1.0 after fifty. Its `clean_margin` is then 1.340, `projected_margin` 0.427 with the direction projected out of layer 10 at every position, and `null_margin` the clean 1.340. The probe is trained and tested on the same rows, so this shows the mechanics and the size of one direction's share, not a held-out effect.
 
 A probe over more than two classes has a span of directions, not one. Take the class differences the question needs, a `select` pair and a `sub` each, or train a `subspace` of the rank you want instead ([trained subspaces](trained-subspaces.md)).
 
