@@ -83,7 +83,17 @@ assert not missing, f"rows {missing} never said their word"
 AssertionError: rows [2, 3] never said their word
 ```
 
-Inside the document, a `count` of the scoped read over `rows` and `pos` is the number of rows it reached: `{"kind": "op", "op": "count", "of": "answer.at_said", "over": ["rows", "pos"]}` is 2 on `documents/generated_answer.json`.
+Inside the document, `count` counts positions. Over `rows` and `pos` it is every position the read holds on every row, which is the number of rows it reached only where it holds one position per row. On `documents/generated_answer.json`, whose `at_said` takes `"index": -1`, `{"kind": "op", "op": "count", "of": "answer.at_said", "over": ["rows", "pos"]}` is 2. A scope read whole holds a position per token of its word on each row.
+
+To count the rows a read reached whatever its width, count each row's positions, mark the rows that hold any, and sum the marks:
+
+```json
+"per_row": {"kind": "op", "op": "count", "of": "g.at_said"},
+"reached": {"kind": "op", "op": "gt", "of": "per_row", "with": 0},
+"rows_reached": {"kind": "op", "op": "sum", "of": "reached"}
+```
+
+On GPT-2 (`openai-community/gpt2` at `607a30d783dfa663caf39e06633721c8d4cfcd7e`, CPU, float32), a greedy generation of 8 tokens over four prompts was read at `{"frame": "1:", "scope": {"column": "p.said"}}`, each `said` two tokens. Three rows said theirs and one did not: `count` over `rows` and `pos` gave 6.0, the positions, and `rows_reached` 3.0.
 
 A swept step is a list of points, each holding its own records, so count each point. For a dose sweep (`"scale": {"sweep": [0.0, 8.0, 32.0], "label": "dose"}`) of a steered generation with a read scoped to the word:
 
