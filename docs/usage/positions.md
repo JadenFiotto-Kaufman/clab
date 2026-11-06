@@ -37,7 +37,7 @@ The positions are absolute, counted from each row's BOS. On prompts of different
 
 Row 0's prompt is `<s> ▁If ▁today ▁is ▁Th urs day , ▁tom orrow ▁is`, positions 0 to 10. `documents/chat_turn.json` holds the chat around it, and `documents/forced_answer.json` has rows of its own, so its row names two landings. A row that names a corpus document gives that document's record; the others are the same prompt read at that `pos`.
 
-The last column says whether a read at that `pos` pairs, position by position, with a value of another forward: yes; no; or where rows agree, which means where every row's scope holds as many tokens ([static width or ragged](#static-width-or-ragged)).
+The last column says whether a read at that `pos` pairs, position by position, with a value of another read, of this forward or another: yes; no; or where rows agree, which means where every row's scope holds as many tokens ([static width or ragged](#static-width-or-ragged)).
 
 | you mean | `pos` | lands on row 0 (document) | pairs |
 |---|---|---|---|
@@ -78,7 +78,7 @@ A `scope` names text, and `index` then counts that text's tokens. `{"column": "<
 - **The scope searches its frame only.** Over `"frame": "2:"`, a word fed as an input at call 1 is not found, and the row gets the whole frame.
 - **With `before`, it is the positions that predict those tokens**: in a generation, the calls that chose them.
 - **`until` with `before` takes a frame of decode calls** (`"1:"`). Over a frame that holds the prompt it is refused at compile: `frame ':' holds the prompt, and until with before starts before the frame's first token, …`.
-- **An `until` scope has no static width** and pairs with no other forward's value.
+- **An `until` scope has no static width**, and two values of different reads pair only at a fixed width, whether one forward or two made them.
 - **A write beyond the prefill cannot take an `until` scope**: `a write's positions beyond the prefill are decided call by call, …`. A read can, and so can a write in the prefill.
 - **A `count` over `pos` of an `until` read is a length in tokens.** A thinking trace's length is that recipe ([generation experiments](../patterns/generation-experiments.md#a-reasoning-traces-length-count-of-an-until-read)).
 
@@ -88,7 +88,7 @@ A `scope` names text, and `index` then counts that text's tokens. `{"column": "<
 - **Read the head with `before` to score a word.** Each position is scored against the next token ([ops.md](ops.md#metrics)).
 - **Teacher-force an answer by appending it** (`"input": ["days.input", "days.base_answer"]`) and scoping it with `"occurrence": -1`, so a prompt that also says the word is not picked. `documents/forced_answer.json` does this; its landings are the table's row.
 - **A scope whose first token is position 0 has nothing before it.** In the prefill that is refused; beyond it the row is `alignment_missing`.
-- **One occurrence of a `before` scope in the prefill pairs** with another forward's value where every row holds as many tokens, as the scope without `before` does.
+- **One occurrence of a `before` scope in the prefill pairs** with another read's value where every row holds as many tokens, as the scope without `before` does.
 
 ## Chat turns
 
@@ -105,9 +105,9 @@ In a `generate` step, `frame` picks forward calls; which token each call holds i
 
 ## Static width or ragged
 
-A read pairs, position by position, with a value of another forward only where its width is fixed: by the `pos` at compile, or by the rows of one scope occurrence in preflight. Which `pos` forms fix it:
+Two values of different reads pair, position by position, only at a fixed width, whether one forward or two made them. The width is fixed by the `pos` at compile, or by the rows of one scope occurrence in preflight. A write's operand from its own forward is compared row by row instead. Which `pos` forms fix it:
 
-| `pos` form | its width | pairs with another forward's value |
+| `pos` form | its width | pairs with another read's value |
 |---|---|---|
 | a static index over a frame of a fixed number of calls: an int, picks, or a slice whose two ends count from one side (`-1`, `[-1, 0]`, `"-4:-1"`, `"-3:"`, `{"frame": -1, "index": -1}`, `{"frame": 3, "index": 0}`) | static: the `pos` fixes it, and compile writes it | yes |
 | such an index on one occurrence of a scope in the prefill, not `until` (`{"scope": {"column": "pairs.entity"}, "index": -1}`) | static | yes |
@@ -117,6 +117,7 @@ A read pairs, position by position, with a value of another forward only where i
 | a frame of no fixed number of calls (`"1:"`, `":"`), or a decode call with an open index (`{"frame": 3}`) | open | no |
 
 - **Preflight records an open width where the rows agree.** In the prefill it resolves every row's positions before any forward and writes the count they share as the record's `width`. That recorded width pairs with nothing: `{"index": ":"}` over prompts of one length is refused at compile all the same.
+- **Two entries of one forward are two reads.** An op step `{"op": "sub", "of": "f.a", "with": "f.b"}` over two `{"index": ":"}` reads of one forward is refused at compile, as reads of two forwards are. A write's operand from its own forward is compared with the write row by row instead ([operand-does-not-fit.md](../errors/operand-does-not-fit.md#an-operand-from-the-same-forward)).
 - **A read is ragged where its rows hold different numbers of positions**, such as an entity of one token on one row and three on another.
 - **A ragged value is as wide as its widest row.** Row r's j-th position sits at index j, and past a row's own positions the value is NaN; `clab table` leaves those out.
 - **Index j along `pos` is the read's j-th position on that row**, not position j. Index 0 of `{"index": "-4:-1"}` is a different absolute position on rows of different lengths ([values-and-layout.md](../concepts/values-and-layout.md#an-index-counts-along-the-value)).
@@ -125,4 +126,8 @@ A read pairs, position by position, with a value of another forward only where i
 - **A static index that does not fit a row** is refused in the prefill (`row 1: index 0:10 does not fit the row's 9 positions at this frame`) and is `alignment_missing` beyond it.
 - **An open index takes what each row has**, which can be nothing. A read with nothing on a row is `alignment_missing` there (`{"index": "10:"}` on a 9-token row, [alignment-missing](../errors/alignment-missing.md#causes)); a write is refused ([position-not-in-row.md](../errors/position-not-in-row.md#the-writes-positions-hold-no-token-of-this-row)).
 
-How an operand pairs with a write on prompts of different lengths is [interventions.md](interventions.md).
+**A position pairs across prompts of different lengths only where every token between it and the end it is counted from is the same on both**: every token before it, counted from the start, or every token after it, counted from the end. The two tokens it pairs may differ. It applies to an unscoped `pos` read on one input and written on another, which preflight checks row by row (`clab/compile/interventions.py` `check_window`).
+
+- **Measured on GPT-2** (`openai-community/gpt2` at `607a30d783dfa663caf39e06633721c8d4cfcd7e`): `The Eiffel Tower is in the city of`, 10 tokens, against `The Golden Gate Bridge is in the city of`, 9, which share ` is in the city of` at the end and `The` at the start. `-6` pairs ` Tower` with ` Bridge` and runs; `-7` is refused. From the start, `1` pairs ` E` with ` Golden` and runs; `2` is refused.
+- **Matching tokens are not enough.** On `The Eiffel Tower is in Paris` against `The Golden Gate Bridge is in Rome`, `-1` pairs ` Paris` with ` Rome` and runs, and `-2` pairs ` in` with ` in` and is refused, since ` Paris` and ` Rome` lie between it and the end.
+- **To pair a token by what it says**, scope each side to it ([operand-does-not-fit.md](../errors/operand-does-not-fit.md#two-inputs-of-different-lengths)). How an operand pairs with a write is [interventions.md](interventions.md).

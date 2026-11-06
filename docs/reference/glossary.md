@@ -35,7 +35,7 @@ Each word as clab uses it, in one sentence, with the page that explains it. Exac
 | component | A named value of the model that a site reads or writes (`layer_output`, `attention_premix`, `logits`, ...), nnterp's name for it, with a fixed layout. | [sites.md](../usage/sites.md#choosing-a-component) |
 | coordinate | A point's values on its sweep axes (`pos=-1`, `src=0,dst=1`), which key swept results, files, the run record and tables. | [sweeps.md](../usage/sweeps.md#reading-swept-results) |
 | corpus | The documents under `documents/`, which run on CPU and whose pinned numbers are the format's semantics. | [contributing.md](../developing/contributing.md#changing-the-format) |
-| corpus root | The nearest directory above a document that holds `data/`; data paths and bundle files resolve against it. | [running.md](../usage/running.md#the-corpus-root) |
+| corpus root | The nearest directory holding `data/`, from a document's own directory up, else the directory above the document's own; data paths, bundle files and a `load`'s `from` resolve against it. | [running.md](../usage/running.md#the-corpus-root) |
 | costs | `plan.run.costs`: what each run of each step cost, keyed by the point that ran it: seconds, peak CUDA memory, model calls (`forwards`), tokens fed (`tokens`), the rows' own share of them (`real`), and the points it `serves`. | [output.md](../usage/output.md#the-run-record) |
 | dataset | A named list of rows under `data`, read from a file, written inline, or loaded from the hub. | [data.md](../usage/data.md) |
 | decode | The op that closes the entry's most recent open `encode` of the same featurizer and writes the change of coordinates back as a delta. | [featurizers.md](../usage/featurizers.md#the-canonical-entry) |

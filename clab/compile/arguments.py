@@ -374,16 +374,18 @@ def mismatch(ours: Labelled, theirs: Labelled, name: str, key: str, written: str
             read = reads(side.read) if side.read is not None else None
             if read is None or not positions.pending_width(positions.parse(read.pos)):
                 return (f"{ragged} has no width compile can fix (an open index, an `until` scope, several "
-                        "occurrences), so it pairs with no other forward's value; read both at a static index without a "
-                        "scope ('index': -1, or '-3:'), at one "
+                        "occurrences), and two values of different reads pair only at a fixed width, whether one "
+                        "forward or two made them; read both at a static index without a scope ('index': -1, or "
+                        "'-3:'), at one "
                         "occurrence of a scope in the prefill, not until, whose rows give its width, or over decode "
                         "calls at a frame of a static number of them with an index of static width ({'frame': '1:4', "
                         "'index': ':3'})")
             resolved = read.positions.get(cast(str, read.dataset))
             if resolved is not None:                # the rows are known (preflight's, a load's), and they disagree
-                return (f"{counted} holds {row_counts(resolved)}; a scoped read pairs with another forward's value "
-                        "when every row's scope holds the same number of tokens: pick one with 'index' (-1, or '-2:'), "
-                        "or reduce it")
+                return (f"{counted} holds {row_counts(resolved)}; two values of different reads pair only at a "
+                        "fixed width, whether one forward or two made them, which a scoped read has where every "
+                        "row's scope holds the same number of tokens: pick one with 'index' (-1, or '-2:'), or "
+                        "reduce it")
         if theirs.width is not None and ours.width is not None and theirs.width != ours.width:
             return (f"{written!r} holds {theirs.width} position(s) per row and the value {name!r} {verb} holds "
                     f"{ours.width}; position i {'scores against' if group == 'metrics' else 'meets'} position i, so "

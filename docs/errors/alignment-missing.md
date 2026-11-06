@@ -10,7 +10,7 @@ sources: [clab/compile/positions.py, clab/steps/generate.py, clab/output/table.p
 
 A row is `alignment_missing` when a read or write names a position the row does not have. Beyond a generation's prefill that is a call the row did not make or text it did not generate; in the prefill too, an index with an open end that picks none of the row's tokens.
 
-- **A read there is not refused.** The run finishes, the row is recorded as missing, and every value computed from it on that row is NaN.
+- **A read there is not refused.** The run finishes, the row is recorded as missing, and every value computed from it on that row is NaN, but a `count`, which is 0 ([below](#how-it-propagates)).
 - **A write beyond the prefill is not refused either.** The row is not written, its `positions` say `alignment_missing`, and nothing else in the run says so.
 - **A write in the prefill whose positions hold no token of a row is refused** ([position-not-in-row.md](position-not-in-row.md#the-writes-positions-hold-no-token-of-this-row)).
 - **A later write whose operand is missing on a row it lands on is refused**, naming the row and the call ([below](#how-it-propagates)).
@@ -61,8 +61,8 @@ A frame and index of static widths that can never meet are refused at compile, b
 - **Compile refuses it where no row makes the call**, a decode call at or past the generation's `max_new_tokens`: `'g.v' is read at decode call 3, and 'g' makes calls 0 to 2 (max_new_tokens 3)`.
 - **In a fit's body a generation records no positions**, so a write there with such an operand still writes NaN. The fit's evals, which run as root steps, refuse it.
 - **Reductions skip holes**, an id's -1 as a NaN. A `mean` over rows averages the rows that were reached: a `mean` of `documents/generated_answer.json`'s `p_answer` is the mean of the 2 rows of 4 that said their word. An accuracy computed this way is the accuracy on the rows that got there, with nothing in the number to say so.
-- **A `sum` or `min` over `pos` of a row with no value is NaN, and its `count` 0.** So `count` over `rows` of a scored read is the number of rows it scored.
-- **Tables** give a missing row one line with `alignment_missing` true and no value; when several names are tabled together, the row carries the flag. A read that no row reached tables to one flagged line per row too, and `clab show` prints its positions as `— on all 4 rows`. Its saved shape is `[4,0,32000]`, in the prefill as in a generation. Positions past a row's own on a ragged read are a different hole: they are left out of the table, with no flag.
+- **A `sum` or `min` over `pos` of a row with no value is NaN, and its `count` 0 in the saved tensor.** So `count` over `rows` of a scored read is the number of rows it scored. `clab table` still prints that row of the `count` flagged `alignment_missing` with no value, as it prints the row in every value made from the read.
+- **Tables** give a missing row one line with `alignment_missing` true and no value, whatever the tensor holds there: a `count` of the read is 0 in its file and has no value in the table. When several names are tabled together, the row carries the flag. A read that no row reached tables to one flagged line per row too, and `clab show` prints its positions as `— on all 4 rows`. Its saved shape is `[4,0,32000]`, in the prefill as in a generation. Positions past a row's own on a ragged read are a different hole: they are left out of the table, with no flag.
 
 What a hole is, and where the others come from (keys and ragged positions), is [values-and-layout.md](../concepts/values-and-layout.md#missing-entries).
 
@@ -83,7 +83,26 @@ assert not missing, f"rows {missing} never said their word"
 AssertionError: rows [2, 3] never said their word
 ```
 
-Inside the document, a `count` of the scoped read over `rows` and `pos` is the number of rows it reached: `{"kind": "op", "op": "count", "of": "answer.at_said", "over": ["rows", "pos"]}` is 2 on `documents/generated_answer.json`.
+Inside the document, `count` counts positions. Over `rows` and `pos` it is every position the read holds on every row, which is the number of rows it reached only where it holds one position per row. On `documents/generated_answer.json`, whose `at_said` takes `"index": -1`, `{"kind": "op", "op": "count", "of": "answer.at_said", "over": ["rows", "pos"]}` is 2. A scope read whole holds a position per token of its word on each row.
+
+To count the rows a read reached whatever its width, count each row's positions, mark the rows that hold any, and sum the marks:
+
+```json
+"per_row": {"kind": "op", "op": "count", "of": "answer.at_said"},
+"reached": {"kind": "op", "op": "gt", "of": "per_row", "with": 0},
+"rows_reached": {"kind": "op", "op": "sum", "of": "reached"}
+```
+
+On GPT-2 (`openai-community/gpt2` at `607a30d783dfa663caf39e06633721c8d4cfcd7e`, CPU, float32), `answer` was a `generate` step of 8 tokens (`max_new_tokens` and `min_new_tokens` 8, `do_sample: false`) over four inline rows, each `said` two tokens:
+
+```json
+"p": {"rows": [{"input": "The capital of Japan is", "said": " United States"},
+                {"input": "If today is Thursday, tomorrow is", "said": " next day"},
+                {"input": "My favourite fruit is the", "said": " very sweet"},
+                {"input": "The Eiffel Tower is located in the city of", "said": " Tokyo"}]}
+```
+
+Its `at_said` read `layer_output` layer 5 at `{"frame": "1:", "scope": {"column": "p.said"}}`. The first three rows said theirs and the last did not: `count` over `rows` and `pos` gave 6.0, the positions, and `rows_reached` 3.0.
 
 A swept step is a list of points, each holding its own records, so count each point. For a dose sweep (`"scale": {"sweep": [0.0, 8.0, 32.0], "label": "dose"}`) of a steered generation with a read scoped to the word:
 

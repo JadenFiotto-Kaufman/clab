@@ -72,7 +72,8 @@ Through the pattern, zero the keys, then rescale each row back to the sum it had
 ```
 
 - **Both remove BOS for every head here**, and give the same pattern up to float32 rounding.
-- **`renormalize` must say `"norm": "sum"`.** Its default rescales to the L2 norm, and the rows then sum to less than 1.
+- **`renormalize` must say `"norm": "sum"`.** Its default, `l2`, rescales each row to the L2 norm the clean row had, not its sum, so the rows are no longer distributions. A rescaled row sums to the clean row's L2 norm times its kept weights' sum over their L2 norm, a ratio from 1 (one key) to √n (n equal keys). It sums to more than 1 where the clean row was peaked on the knocked keys and the rest is spread, and to less where the clean row was spread already.
+- **Measured on GPT-2** (`openai-community/gpt2` at `607a30d783dfa663caf39e06633721c8d4cfcd7e`, CPU, float32, `"attn_implementation": "eager"`): the `knock` and `restore` entries above at layer 5, over the four `pairs.input` prompts of `weekdays/train`, in one batch. GPT-2 adds no BOS, so key 0 is each prompt's first token, `If`. A later entry `{"site": {"component": "attention_probabilities", "layers": 5}, "pos": -1}` reads the rows back, and a `sum` over `key` gives each one's total. Under the default the 48 rows (4 prompts, 12 heads) summed to between 0.758 and 1.701, 23 of them above 1. Under `"norm": "sum"` each summed to 1 within 2.4e-7.
 - **A `key` selector names the same token on every row only where the rows share it at that place**, as BOS or a common prefix. A write past a row's own keys changes nothing.
 - **A write selects on one axis**, so a key knocked out through `select: {"key": 0}` is knocked out for every head. To knock it out for one head, restore the other heads with a second write at the same site, from a clean read of their scores at the same `pos`:
 

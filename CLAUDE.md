@@ -52,7 +52,7 @@ Each mistake below runs without a refusal and costs a conclusion.
 - **Carry an `epochs: 0` point beside every fit**: a trained featurizer means something only where it beats its own draw on the same rows. See [fit](docs/usage/fit.md#epochs-0-is-a-null-control).
 - **Write `do_sample: false` on every generate step**: options a step leaves out come from the checkpoint's generation config, which may sample, and nothing seeds sampling. See [generate](docs/usage/generate.md#options).
 - **Count `alignment_missing` rows before reading a mean over a generation**: reductions skip them, and the number does not say so. See [alignment missing](docs/errors/alignment-missing.md#count-it-prevent-it-or-refuse-it).
-- **State a published SAE's `centered`, `activation` and layer, inline in `site`, from its release.** A wrong `centered`, a TopK file stated as `relu`, a wrong layer, or a `site` naming the entries' site is not refused. Compare its mean L0 over every token after BOS with the release's. See [featurizers](docs/usage/featurizers.md#loading-a-published-sparse-autoencoder).
+- **State a published SAE's `centered`, `activation` and layer, inline in `site`, from its release.** A wrong `centered`, a TopK file stated as `relu`, a wrong layer, or a `site` naming the entries' site is not refused. Compare its mean L0 over every token after the first with the release's, and for a TopK release count the tokens whose L0 exceeds its `k`. See [featurizers](docs/usage/featurizers.md#loading-a-published-sparse-autoencoder).
 - **Recompute a few points in float32 before reading small effects from a bfloat16 run**: a null that equals the clean run in bfloat16 certifies the wiring, not small effects. See [ops](docs/usage/ops.md#the-float32-rule).
 
 ## Before changing clab

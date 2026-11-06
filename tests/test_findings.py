@@ -415,12 +415,37 @@ def test_s5_positions_past_where_two_prompts_differ_in_length_are_refused(engine
     for index in ("1:15", 4):
         refused_before_any_forward(engines, window(index), r"patched\.w: operand 'abc\.v' was read on d\.abc, row 0 "
                                    r"of which is \d+ tokens; d\.input has \d+, so d\.abc's position \d+ \('.*'\) pairs with "
-                                   r"d\.input's position \d+ \('.*'\); "
-                                   r"use a scope to name the token in each row$")
+                                   r"d\.input's position \d+ \('.*'\), and a position pairs across prompts of "
+                                   r"different lengths only where every token between it and the end it is counted "
+                                   r"from is the same on both; use a scope to name the token in each row$")
     filled = run(engines, window("-4:-1"))
     assert placed(filled)["patched.w"] != placed(filled)["abc.v"]      # the same tokens, from the end
     run(engines, window("1:4"))
     run(engines, window(4, read=-1))
+
+
+def test_sk2_a_position_pairs_where_every_token_between_it_and_its_end_is_the_same(engines):
+    """skills wave: the docs said a pair lies within the tokens both prompts share, which reads as the two paired
+    tokens matching. The check pairs a position where every token between it and the end it is counted from is the
+    same on both, whatever the two tokens: ` Tower` with ` Bridge` at -6, and the first tokens past `<s> The` at 2;
+    one further is refused, and so is ` in` with ` in` at -2 where the last tokens differ."""
+    landmarks = {"rows": [{"input": "The Eiffel Tower is in the city of",
+                            "abc": "The Golden Gate Bridge is in the city of"}]}
+    ends = {"rows": [{"input": "The Eiffel Tower is in Paris", "abc": "The Golden Gate Bridge is in Rome"}]}
+
+    def at(rows: dict, pos: int) -> Plan:
+        return plan(data={"d": rows}, steps={
+            "abc": {"kind": "forward", "input": "d.abc", "interventions": {"v": {"site": LAYER0, "pos": pos}}},
+            "patched": forward({"w": {"site": LAYER0, "pos": pos, "ops": [{"op": "swap", "with": "abc.v"}]},
+                                "logits": {"site": HEAD, "pos": -1}})}, saves=["patched.logits"]).compile()
+    for rows, pos, pair in ((landmarks, -7, r"3 \(' ?Gate'\) pairs with d\.input's position 4 \('el'\)"),
+                            (landmarks, 3, r"3 \(' ?Gate'\) pairs with d\.input's position 3 \('iff'\)"),
+                            (ends, -2, r"6 \(' ?in'\) pairs with d\.input's position 7 \(' ?in'\)")):
+        refused_before_any_forward(engines, at(rows, pos), r"d\.abc's position " + pair + r", and a position pairs "
+                                   r"across prompts of different lengths only where every token between it and the "
+                                   r"end it is counted from is the same on both; use a scope")
+    for rows, pos in ((landmarks, -6), (landmarks, 2), (ends, -1)):
+        run(engines, at(rows, pos))
 
 
 def test_s8_a_metric_refuses_an_operand_of_another_pos_width():
@@ -1060,8 +1085,9 @@ def test_m1_two_sweeps_of_one_label_zip_and_the_refusal_names_label():
 
 def test_m2_a_metric_over_two_reads_without_a_static_width_says_to_read_at_a_static_index():
     with pytest.raises(PlanError, match=r"steps\.kl\.against: 'f\.logits' has no width compile can fix \(an open "
-                                        r"index, an `until` scope, several occurrences\), so it pairs with no other "
-                                        r"forward's value; read both at a static index"):
+                                        r"index, an `until` scope, several occurrences\), and two values of different "
+                                        r"reads pair only at a fixed width, whether one forward or two made them; "
+                                        r"read both at a static index"):
         plan(data={"d": DAYS}, steps={
             "f": forward({"lens": {"site": {"component": "layer_output", "layers": -1}, "pos": {"index": ":"},
                                    "ops": [{"op": "readout"}]}, "logits": {"site": HEAD, "pos": {"index": ":"}}}),
@@ -1085,12 +1111,41 @@ def test_m4_an_operand_without_a_static_width_into_such_a_write_says_what_differ
     """trial-01, trial-02: the two layouts print the same, so the message says the difference is where the
     positions come from."""
     with pytest.raises(PlanError, match=r"with: 'abc\.v' has no width compile can fix \(an open index, an `until` "
-                                        r"scope, several occurrences\), so it pairs with no other forward's value; "
-                                        r"read both at a static index"):
+                                        r"scope, several occurrences\), and two values of different reads pair only "
+                                        r"at a fixed width, whether one forward or two made them; read both at a "
+                                        r"static index"):
         plan(data={"d": PAIR}, steps={
             "abc": {"kind": "forward", "input": "d.abc", "interventions": {"v": {"site": LAYER0, "pos": {"index": ":"}}}},
             "patched": forward({"w": {"site": LAYER0, "pos": {"index": ":"},
                                       "ops": [{"op": "swap", "with": "abc.v"}]}})}).compile()
+
+
+def test_sk2_two_open_reads_of_one_forward_in_an_op_step_are_refused_as_two_reads():
+    """skills wave: an op step over two `{"index": ":"}` reads of one forward was refused as pairing "with no other
+    forward's value"; the message names two reads, whichever forward made them, and a static index serves."""
+    def two(pos) -> Plan:
+        return plan(data={"d": DAYS}, steps={
+            "f": forward({"a": {"site": LAYER0, "pos": pos}, "b": {"site": {**LAYER0, "layers": 1}, "pos": pos}}),
+            "diff": {"kind": "op", "op": "sub", "of": "f.a", "with": "f.b"}}, saves=["diff"])
+    with pytest.raises(PlanError, match=r"^steps\.diff\.with: 'f\.b' has no width compile can fix \(an open index, an "
+                                        r"`until` scope, several occurrences\), and two values of different reads "
+                                        r"pair only at a fixed width, whether one forward or two made them; "):
+        two({"index": ":"}).compile()
+    assert points(two({"index": "-3:"}).compile().steps["diff"])[0].width == 3
+
+
+def test_sk2_two_scoped_reads_of_one_forward_whose_rows_disagree_are_refused_as_two_reads(engines):
+    """skills review: an op step over two whole-entity reads of one forward was refused as a scoped read pairing
+    "with another forward's value"; preflight names the rows that differ and the two reads, whichever forward made
+    them."""
+    scope = {"scope": {"column": "d.entity"}}
+    compiled = plan(data={"d": {"path": "weekdays/train"}}, steps={
+        "f": forward({"a": {"site": LAYER0, "pos": scope}, "b": {"site": {**LAYER0, "layers": 1}, "pos": scope}}),
+        "diff": {"kind": "op", "op": "sub", "of": "f.a", "with": "f.b"}}, saves=["diff"]).compile()
+    refused_before_any_forward(engines, compiled, r"^diff: operand 'f\.b' holds 3 positions on row 0 and 1 position "
+                               r"on rows 1-3; two values of different reads pair only at a fixed width, whether one "
+                               r"forward or two made them, which a scoped read has where every row's scope holds the "
+                               r"same number of tokens: ")
 
 
 def test_m5_o2_argmax_ranks_the_axis_over_names_and_one_the_value_lacks_is_refused():

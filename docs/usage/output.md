@@ -110,7 +110,7 @@ Saturday    3                          If today is Sunday, tomorrow is     Satur
 | `key`, `key_token` | an attention pattern | each key position and its token, the row's own keys only |
 | dataset columns | always, with rows | the columns the value's chain of steps used: the input, the answers; `plan.table(..., columns=[...])` chooses others |
 | `value` | one name | the element, or the remaining axes as nested lists; with several names, one column per name |
-| `alignment_missing` | some row was not reached | `true` on a row a read beyond the prefill never reached, with no value ([alignment-missing.md](../errors/alignment-missing.md)) |
+| `alignment_missing` | some row was not reached | `true` on a row a read beyond the prefill never reached, with no value, in every value made from the read; a `count` of it holds 0 there in its file ([alignment-missing.md](../errors/alignment-missing.md#how-it-propagates)) |
 | `k` | a `top_k` over `rows` | the pick's rank, from 0 (below) |
 
 - **Several names join on the keys they share** (the sweep coordinates, `row`, `layer`, `pos`, `key`) and broadcast over the rest, as [FORMAT.md](../../FORMAT.md#saves-and-the-output) states. A value with fewer axes repeats beside every row it agrees with: a per-layer `mean` beside a per-row metric repeats on every row of its layer. Values swept over different axes cross: `iia` over `pos` beside a match over `layers` gives a row per example at every pair of points. A map swept over `layers` and `pos` and a map read as one wider value (`"layers": ":"`, `{"index": "-4:"}`) share no key either, so they cross: table them one at a time, or compare them in Python. Two `fit.history` values pair by epoch.

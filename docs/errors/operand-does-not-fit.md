@@ -31,22 +31,24 @@ The operand has an axis the value does not: here it was read at the head and is 
 ## `… has no width compile can fix`
 
 ```text
-steps.patched.interventions.patch.ops[0].with: 'counterfactual.v_cf' has no width compile can fix (an open index, an `until` scope, several occurrences), so it pairs with no other forward's value; read both at a static index without a scope ('index': -1, or '-3:'), at one occurrence of a scope in the prefill, not until, whose rows give its width, or over decode calls at a frame of a static number of them with an index of static width ({'frame': '1:4', 'index': ':3'})
+steps.patched.interventions.patch.ops[0].with: 'counterfactual.v_cf' has no width compile can fix (an open index, an `until` scope, several occurrences), and two values of different reads pair only at a fixed width, whether one forward or two made them; read both at a static index without a scope ('index': -1, or '-3:'), at one occurrence of a scope in the prefill, not until, whose rows give its width, or over decode calls at a frame of a static number of them with an index of static width ({'frame': '1:4', 'index': ':3'})
 steps.patched.interventions.patch.ops[0].with: the value 'swap' acts on has no width compile can fix (an open index, an `until` scope, several occurrences), …
 ```
 
-In the first the operand's width is open, in the second the write's. A side whose `pos` leaves its width open pairs with no value of another forward, whatever the prompts; [positions.md](../usage/positions.md#static-width-or-ragged) lists which `pos` forms do. One occurrence of a scope in the prefill is the exception, since its rows say its width ([the next section](#-a-scoped-read-pairs-with-another-forwards-value-when-every-rows-scope-holds-the-same-number-of-tokens)). The fixes:
+In the first the operand's width is open, in the second the write's. A side whose `pos` leaves its width open pairs with no value of another read, whatever the prompts; [positions.md](../usage/positions.md#static-width-or-ragged) lists which `pos` forms do. One occurrence of a scope in the prefill is the exception, since its rows say its width ([the next section](#-which-a-scoped-read-has-where-every-rows-scope-holds-the-same-number-of-tokens)). The fixes:
 
 - read both at a static index without a scope (`"index": -1`, `"index": "-3:"`);
 - read at one occurrence of a scope in the prefill;
 - reduce the operand to one vector first: a `mean` step's vector has no `pos` axis, so it broadcasts over a write of any width.
 
+**Two entries of one forward are two reads.** An op step over them, `{"kind": "op", "op": "sub", "of": "f.a", "with": "f.b"}` with both read at `{"index": ":"}`, is refused with the first message, though both hold the same positions on every row. Read both at a static index, as above. A write's operand from its own forward is the exception: preflight compares it with the write row by row ([below](#an-operand-from-the-same-forward)).
+
 A read at a decode call holds 0 or 1 positions per row, since a row may stop before that call. So it pairs with nothing: `kl` or `js` with it on either side is refused with the first message. Score a decode read on its own, with `argmax` or a metric against a one-token answer column.
 
-## `… a scoped read pairs with another forward's value when every row's scope holds the same number of tokens`
+## `… which a scoped read has where every row's scope holds the same number of tokens`
 
 ```text
-patched.patch: operand 'counterfactual.v_cf' holds 1 position on rows 0-1, 3 and 3 positions on row 2; a scoped read pairs with another forward's value when every row's scope holds the same number of tokens: pick one with 'index' (-1, or '-2:'), or reduce it
+patched.patch: operand 'counterfactual.v_cf' holds 1 position on rows 0-1, 3 and 3 positions on row 2; two values of different reads pair only at a fixed width, whether one forward or two made them, which a scoped read has where every row's scope holds the same number of tokens: pick one with 'index' (-1, or '-2:'), or reduce it
 patched.patch: operand 'counterfactual.v_cf' meets the value 'swap' acts on, which holds 3 positions on row 0 and 1 position on rows 1-3; …
 steps.patched.interventions.patch.ops[0].with: 'counterfactual' holds 1 position on rows 0-1, 3 and 3 positions on row 2; …
 ```
@@ -142,11 +144,11 @@ Inside a `generate` step an entry of the same step is no operand (`… is an ent
 ## Two inputs of different lengths
 
 ```text
-patched.patch: operand 'counterfactual.v_cf' was read on pairs.counterfactual_inputs[0], row 0 of which is 9 tokens; pairs.input has 11, so pairs.counterfactual_inputs[0]'s position 5 (',') pairs with pairs.input's position 5 ('urs'); use a scope to name the token in each row
+patched.patch: operand 'counterfactual.v_cf' was read on pairs.counterfactual_inputs[0], row 0 of which is 9 tokens; pairs.input has 11, so pairs.counterfactual_inputs[0]'s position 5 (',') pairs with pairs.input's position 5 ('urs'), and a position pairs across prompts of different lengths only where every token between it and the end it is counted from is the same on both; use a scope to name the token in each row
 patched.look_there at num_heads=0: operand 'counterfactual.their_pattern' was read on pairs.counterfactual_inputs[0], row 0 of which is 9 tokens; pairs.input has 11 there, so their key axes do not line up
 ```
 
-A read and a write at the same unscoped `pos` on two inputs pair position i with position i. The first message is `pos: 5` on both; it names each input's position, counted along its row, and the token there. On a row whose two prompts tokenize to different lengths, every pair must lie within the tokens both prompts begin with alike, counted from the start, or end with alike, counted from the end (`clab/compile/interventions.py` `check_window`). The fix is a scope on each side that names the token in its own row, as `documents/entity_patch.json` does:
+A read and a write at the same unscoped `pos` on two inputs pair position i with position i. The first message is `pos: 5` on both; it names each input's position, counted along its row, and the token there. On a row whose two prompts tokenize to different lengths, a position pairs across prompts of different lengths only where every token between it and the end it is counted from is the same on both, whatever the two tokens it pairs (`clab/compile/interventions.py` `check_window`). On `weekdays/train`'s first row, `-5` pairs `day` with `▁Saturday` and runs, and `5` and `-6` are refused ([positions.md](../usage/positions.md#static-width-or-ragged)). The fix is a scope on each side that names the token in its own row, as `documents/entity_patch.json` does:
 
 ```json
 {"v_cf": {"site": "target", "pos": {"scope": {"column": "pairs.counterfactual_inputs_variables[0].entity"}, "index": -1}}}

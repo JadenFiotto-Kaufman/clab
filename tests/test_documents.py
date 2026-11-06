@@ -631,8 +631,8 @@ def test_a_metrics_operand_is_laid_out_as_the_value_it_scores():
                                                           r"'pos', 'hidden_size'\]"),
                                ({"component": "layer_output", "layers": 0}, {"index": ":"},
                                 r"has no width compile can fix \(an open index, an `until` scope, several "
-                                r"occurrences\), so it pairs with no other forward's value; read both at a static "
-                                r"index")):
+                                r"occurrences\), and two values of different reads pair only at a fixed width, "
+                                r"whether one forward or two made them; read both at a static index")):
         def one(d, site=site, pos=pos):
             d["sites"]["stream"]["layers"] = 2
             change(d, "cosine", site, pos)
@@ -837,7 +837,8 @@ def test_a_ragged_permuted_value_is_refused_as_another_forwards_operand_and_may_
         d["steps"]["harvest"]["interventions"]["acts"]["pos"] = {"scope": {"column": "prompts.entity"}, "index": ":"}
     with pytest.raises(PlanError, match=r"^steps\.resampled\.interventions\.abl\.ops\[0\]\.with: 'donor' has no "
                                         r"width compile can fix \(an open index, an `until` scope, several "
-                                        r"occurrences\), so it pairs with no other forward's value"):
+                                        r"occurrences\), and two values of different reads pair only at a fixed "
+                                        r"width"):
         resampled(ragged)
 
     def reduced(d):
@@ -871,7 +872,7 @@ def permuted_pair(width: int | dict | None, ragged: bool = False) -> Plan:
          r"position i"),
     ({"index": "-2:"}, r"'donor_other' holds 2 position\(s\) per row and the value 'sub' acts on holds 3"),
     (None, r"'donor_other' has no width compile can fix \(an open index, an `until` scope, several occurrences\), "
-           r"so it pairs with no other forward's value"),
+           r"and two values of different reads pair only at a fixed width"),
 ], ids=["one", "two", "ragged"])
 def test_two_permuted_values_pair_positions_by_width_and_a_ragged_one_with_none(width, message):
     """Neither has a read, so no read's positions are common to both: they meet position by position at one static

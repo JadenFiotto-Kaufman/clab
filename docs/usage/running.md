@@ -73,15 +73,20 @@ clab: steps.logit_diff: out of CUDA memory at batch size 8 (CUDA out of memory. 
 
 ## The corpus root
 
-Data paths and bundle files resolve against the document's corpus root: the nearest directory above the document that holds a `data/` folder. `"path": "weekdays/train"` reads `data/weekdays/train.json` there, and `documents/real/` shares `data/` with `documents/`. The manifest records the document's path relative to the root (`documents/patching.json`).
+Data paths (`path`), bundle files (`file_path`) and a `load`'s `from` resolve against the document's corpus root (`clab/plan.py` `corpus_root`). The manifest records the document's path relative to it (`documents/patching.json`). The root is:
 
-A document copied to a scratch directory with no `data/` above it is refused:
+- **The nearest directory holding a `data/` folder**, from the document's own directory up. `"path": "weekdays/train"` reads `data/weekdays/train.json` there, and `documents/real/` shares `data/` with `documents/`.
+- **Where none does, the directory above the document's own**, whatever the working directory.
+- **The working directory**, for a plan built from fields, `Plan(**fields)` ([python-api.md](../reference/python-api.md#clabplan)), or loaded from a run.
+
+A document alone in a scratch directory, with no `data/` above it, is refused where it names a file. A bundle beside it, `run/basis.safetensors`, is looked for in the directory above, so it is refused from every working directory, as a `from` of `run` is:
 
 ```text
 clab: data.pairs.path: no file data/weekdays/train.json under the corpus root
+clab: featurizers.pc.file_path: run/basis.safetensors does not exist under the corpus root; run the document that writes it first
 ```
 
-Give the scratch directory a `data/` (a copy or a link to the repo's) and put the document below it, as `scratch/data/` beside `scratch/documents/my_experiment.json`. A document with inline `rows` and no bundles needs no root. A plan built in Python from fields, `Plan(**fields)`, resolves against the working directory ([python-api.md](../reference/python-api.md#clabplan)).
+Give the scratch directory a `data/` folder beside the document: empty where the rows are inline, else a copy or a link of the repo's. The root is then the scratch directory, and `file_path` and `from` name what is beside the document. A document with inline `rows` and no bundle or `load` needs no root.
 
 Reading a run back resolves against the working directory too: `clab table` reads a file dataset from `data/` there, and `clab show` and `clab table` read a loaded bundle from its `file_path` there. Run them from the corpus root the document ran under ([output.md](output.md#tabling-needs-the-rows)).
 
@@ -118,7 +123,7 @@ The run records both choices (`run.padding`, `run.readout`), and `clab show` pri
 
 - **Batch size and padding.** A batch of another size or width is a matmul of another shape, which sums in another order. With N rows, every batch size of N or more is one batch.
 - **Regrouped rows.** Under `batch` and `sorted` a row's width is its batch's, so a reordered or reshuffled dataset can move a row's numbers. Under the default it is the step's longest row whatever batch the row lands in, though at some thread counts the batch's other rows can still move its last bits.
-- **Readout.** `--readout at-reads` computes the head in another shape ([above](#the-head-at-the-positions-read)).
+- **Readout.** `--readout at-reads` computes the head in another shape ([above](#the-head-at-the-positions-read)). So does a `readout` op inside an entry, one batch at one layer, against a `readout` step over the whole saved read ([logit lens](../patterns/logit-lens.md#the-document)).
 - **Threads and machine.** A CPU's BLAS splits a matmul's reduction by thread, so another thread count can move the last bits, and its kernels differ by CPU. Compare runs made on one machine.
 
 The run records each setting: `run.batch_size`, `run.padding`, `run.readout`, `run.devices` and `run.threads`, torch's intra-op thread count (`torch.get_num_threads()`). `clab show` prints all of them but `run.threads`; read that one from the manifest's `run`. Set the thread count with `OMP_NUM_THREADS` for `clab run`, or `torch.set_num_threads` before `clab.run`, and check `run.threads` to see what the run used. The suite pins its own (`tests/conftest.py` `THREADS`). Compare runs only where every setting agrees.

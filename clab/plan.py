@@ -513,8 +513,9 @@ class Pos(Record):
     is each row's generated inputs through its first `</think>`, and `count` of a read there is the thinking's
     length in tokens (all its inputs on a row that never closes it). The scope is the frame's: an occurrence that
     holds none of the frame's tokens is not one of its own, so over `"2:"` a text said at call 1 is not found and
-    until is the whole frame, as on a row that never says it. An until scope has no width compile can fix, so it
-    pairs with no other forward's value. With `before` its frame is decode calls: over a frame that holds the prompt it would start before
+    until is the whole frame, as on a row that never says it. An until scope has no width compile can fix, and
+    two values of different reads pair only at a fixed width, whether one forward or two made them. With `before`
+    its frame is decode calls: over a frame that holds the prompt it would start before
     the frame's first token (position 0, or at a generation's head the prompt's last, before which its prefill
     computes no head) and name no position on any row, so compile refuses it. A write's positions beyond the
     prefill are decided call by call, as each runs, and until names positions up to an occurrence not yet seen
@@ -541,16 +542,19 @@ class Pos(Record):
     `"-3:"`, `"2:5"`; see `selectors.fixed`), and a scope, if it has one, is one occurrence in the prefill and not
     `until`; compile writes it. Any other record's width is open at compile, and a prefill record's is the number
     every row's positions hold where preflight resolves them and they agree; where rows hold different numbers the
-    value is as wide as the widest row, NaN past a row's own. Only pairing with another forward's value needs the
-    width to be one number: compile refuses the pair wherever the `pos` leaves it open, except for a scope of one
+    value is as wide as the widest row, NaN past a row's own. Only pairing with another read's value needs the
+    width to be one number, since two values of different reads pair only at a fixed width, whether one forward or
+    two made them: compile refuses the pair wherever the `pos` leaves it open, except for a scope of one
     occurrence in the prefill, not `until` (the whole scope, or an index of no static width over it), which its rows
     decide; where they disagree it is refused by name, with each count's rows, in preflight, or at compile for a
     loaded read, which carries its rows' positions. In the prefill (`frame: 0`) an occurrence a row does not have,
     or a static index that does not fit, is refused by name before any forward: the data decided. Anywhere else it
     is a result, as is a call the row never reached, and as is an index that picks none of a row's tokens (`"5:"`
-    on a shorter row), in the prefill too: the row is `alignment_missing`, NaN all the way, and a write there is
-    refused by name, since it has no token to write. So is a later step's write that would take such a value as its
-    operand on a row it lands on (a read at `{"frame": 3, "index": 0}` on a row whose generation made three calls, or
+    on a shorter row), in the prefill too: the row is `alignment_missing`, NaN all the way but in a `count`, which
+    is 0 there (`clab table` prints the row flagged, with no value, for the read and every value made from it, the
+    `count` included), and a write there is refused by name, since
+    it has no token to write. So is a later step's write that would take such a value as its operand on a row it
+    lands on (a read at `{"frame": 3, "index": 0}` on a row whose generation made three calls, or
     an op step's value that takes it as any named value: `of`, `with`, a `factor`), which would write NaN there:
     refused by name, at compile where the read's frame is a decode call at or past its generation's
     `max_new_tokens`, which no row makes, and otherwise in the run, naming the row and the call, a forward's write
@@ -627,7 +631,7 @@ class Labelled(Record):
                                       "positions hold once they are resolved (a prefill read's by preflight, a "
                                       "loaded read's by its run), where they agree. Null where rows hold different "
                                       "numbers of positions, where none are resolved yet, or there is no `pos` "
-                                      "axis. Only pairing with another forward's value needs it to be one number")
+                                      "axis. Only pairing with another read's value needs it to be one number")
     kept: dict[str, selectors.Kept] = derived({}, "the indices a site's `select` keeps on each axis it selects, in "
                                                   "their order (`key`: the keys it picks, or `{\"offset\": [...]}`, "
                                                   "those relative to each query). An op step's are those of the "
@@ -688,10 +692,10 @@ class Intervention(Labelled):
     at this entry's site or at one the forward reaches before it, at each layer this entry is made at: it is that
     entry's value in this batch, at its positions, and so an entry whose ops all write (none after its last
     edit), in the coordinates the operand meets (`space`). An operand read on another input at the write's own
-    positions, with no scope, pairs its i-th position with the write's i-th, which on rows whose prompts differ
-    in length is checked conservatively before any forward: each pair sits at one distance from the start within
-    the tokens both prompts begin with alike, or from the end within those they end with alike (the first token
-    past either counted in); any other is refused, and a scope names the token in each row. What an operand's
+    positions, with no scope, pairs its i-th position with the write's i-th. On rows whose prompts differ in
+    length that is checked before any forward: a position pairs across prompts of different lengths only where
+    every token between it and the end it is counted from is the same on both, whatever the two tokens it pairs.
+    Any other is refused, and a scope names the token in each row. What an operand's
     layout and labels must be is Ops' one rule. A
     bundle at the root is a dict of entries pulled into a step by name, a template whose names resolve in the
     step that pulls it in: an operand naming one of the bundle's own entries bare (`"with": "premix"`) means that

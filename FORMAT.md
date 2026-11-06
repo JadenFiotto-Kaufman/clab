@@ -191,10 +191,10 @@ name are refused. An operand may name an earlier entry of the same forward (`pat
 at this entry's site or at one the forward reaches before it, at each layer this entry is made at: it is that
 entry's value in this batch, at its positions, and so an entry whose ops all write (none after its last
 edit), in the coordinates the operand meets (`space`). An operand read on another input at the write's own
-positions, with no scope, pairs its i-th position with the write's i-th, which on rows whose prompts differ
-in length is checked conservatively before any forward: each pair sits at one distance from the start within
-the tokens both prompts begin with alike, or from the end within those they end with alike (the first token
-past either counted in); any other is refused, and a scope names the token in each row. What an operand's
+positions, with no scope, pairs its i-th position with the write's i-th. On rows whose prompts differ in
+length that is checked before any forward: a position pairs across prompts of different lengths only where
+every token between it and the end it is counted from is the same on both, whatever the two tokens it pairs.
+Any other is refused, and a scope names the token in each row. What an operand's
 layout and labels must be is Ops' one rule. A
 bundle at the root is a dict of entries pulled into a step by name, a template whose names resolve in the
 step that pulls it in: an operand naming one of the bundle's own entries bare (`"with": "premix"`) means that
@@ -287,8 +287,9 @@ and the record says per row where it ended. So `{"frame": "1:", "scope": {"text"
 is each row's generated inputs through its first `</think>`, and `count` of a read there is the thinking's
 length in tokens (all its inputs on a row that never closes it). The scope is the frame's: an occurrence that
 holds none of the frame's tokens is not one of its own, so over `"2:"` a text said at call 1 is not found and
-until is the whole frame, as on a row that never says it. An until scope has no width compile can fix, so it
-pairs with no other forward's value. With `before` its frame is decode calls: over a frame that holds the prompt it would start before
+until is the whole frame, as on a row that never says it. An until scope has no width compile can fix, and
+two values of different reads pair only at a fixed width, whether one forward or two made them. With `before`
+its frame is decode calls: over a frame that holds the prompt it would start before
 the frame's first token (position 0, or at a generation's head the prompt's last, before which its prefill
 computes no head) and name no position on any row, so compile refuses it. A write's positions beyond the
 prefill are decided call by call, as each runs, and until names positions up to an occurrence not yet seen
@@ -315,16 +316,19 @@ index has a static width (an int, picks, or a slice whose two ends count from th
 `"-3:"`, `"2:5"`; see `selectors.fixed`), and a scope, if it has one, is one occurrence in the prefill and not
 `until`; compile writes it. Any other record's width is open at compile, and a prefill record's is the number
 every row's positions hold where preflight resolves them and they agree; where rows hold different numbers the
-value is as wide as the widest row, NaN past a row's own. Only pairing with another forward's value needs the
-width to be one number: compile refuses the pair wherever the `pos` leaves it open, except for a scope of one
+value is as wide as the widest row, NaN past a row's own. Only pairing with another read's value needs the
+width to be one number, since two values of different reads pair only at a fixed width, whether one forward or
+two made them: compile refuses the pair wherever the `pos` leaves it open, except for a scope of one
 occurrence in the prefill, not `until` (the whole scope, or an index of no static width over it), which its rows
 decide; where they disagree it is refused by name, with each count's rows, in preflight, or at compile for a
 loaded read, which carries its rows' positions. In the prefill (`frame: 0`) an occurrence a row does not have,
 or a static index that does not fit, is refused by name before any forward: the data decided. Anywhere else it
 is a result, as is a call the row never reached, and as is an index that picks none of a row's tokens (`"5:"`
-on a shorter row), in the prefill too: the row is `alignment_missing`, NaN all the way, and a write there is
-refused by name, since it has no token to write. So is a later step's write that would take such a value as its
-operand on a row it lands on (a read at `{"frame": 3, "index": 0}` on a row whose generation made three calls, or
+on a shorter row), in the prefill too: the row is `alignment_missing`, NaN all the way but in a `count`, which
+is 0 there (`clab table` prints the row flagged, with no value, for the read and every value made from it, the
+`count` included), and a write there is refused by name, since
+it has no token to write. So is a later step's write that would take such a value as its operand on a row it
+lands on (a read at `{"frame": 3, "index": 0}` on a row whose generation made three calls, or
 an op step's value that takes it as any named value: `of`, `with`, a `factor`), which would write NaN there:
 refused by name, at compile where the read's frame is a decode call at or past its generation's
 `max_new_tokens`, which no row makes, and otherwise in the run, naming the row and the call, a forward's write
@@ -527,7 +531,7 @@ document that loads more is refused by name before anything is sent.
 
 Fields a document leaves out, which compile (or, for `run`, the engine) fills. Compile writes what the document decides; preflight, with the model in hand, completes the same records in place (a `layers` or `kept` a slice or a negative selector leaves to the model, every read's and write's `positions`), so the manifest holds the records as the run completed them.
 
-- A value's record (`Intervention`, `OpStep`, `Load`, and a `Generate`'s own value): `dims` (the layout of the value: its axes, in order), `dataset` (the dataset whose rows the step's values are aligned to), `layers` (the model layers the value is from, in the order its site picks them: the labels of its `layers` axis where it has one, the one layer it was read at where not. Null for a value from no layer (a model's own, or one reduced over its layers). `[]` until preflight resolves a slice or a layer counted from the last), `read` (the entry whose value this is, or descends from through op steps, whose positions it holds where it has a `pos` axis; null for a value no read made, and for one whose rows hold other rows' values (a `permute`'s and what descends from it)), `width` (how many positions the value holds on every row, where it has a `pos` axis and that is one number. Compile writes the static width its read's `pos` names. Where the `pos` leaves it open, it is the number every row's positions hold once they are resolved (a prefill read's by preflight, a loaded read's by its run), where they agree. Null where rows hold different numbers of positions, where none are resolved yet, or there is no `pos` axis. Only pairing with another forward's value needs it to be one number), `kept` (the indices a site's `select` keeps on each axis it selects, in their order (`key`: the keys it picks, or `{"offset": [...]}`, those relative to each query). An op step's are those of the value it is over, on the axes its own still has. An unselected axis is whole. `[]` stands until preflight resolves a slice or a negative pick), `space` (the coordinates the value is in: the encodes left open around it, outermost first, each its `featurizer` and `select`; none for the site's own layout, and none once an op changed the last axis they lie on (a sum over features)), `axes` (the sweep axes the value depends on, in axis order: the sweeps on its own entry (its site, its positions, an op's literal argument), those of every value or featurizer its ops name, and, for an entry of a forward, the forward's (`schedule`); an op step's are its `of`'s and its operands'; a fit member's are the fit's. The value is one per distinct point on these axes, and its result is keyed by them)
+- A value's record (`Intervention`, `OpStep`, `Load`, and a `Generate`'s own value): `dims` (the layout of the value: its axes, in order), `dataset` (the dataset whose rows the step's values are aligned to), `layers` (the model layers the value is from, in the order its site picks them: the labels of its `layers` axis where it has one, the one layer it was read at where not. Null for a value from no layer (a model's own, or one reduced over its layers). `[]` until preflight resolves a slice or a layer counted from the last), `read` (the entry whose value this is, or descends from through op steps, whose positions it holds where it has a `pos` axis; null for a value no read made, and for one whose rows hold other rows' values (a `permute`'s and what descends from it)), `width` (how many positions the value holds on every row, where it has a `pos` axis and that is one number. Compile writes the static width its read's `pos` names. Where the `pos` leaves it open, it is the number every row's positions hold once they are resolved (a prefill read's by preflight, a loaded read's by its run), where they agree. Null where rows hold different numbers of positions, where none are resolved yet, or there is no `pos` axis. Only pairing with another read's value needs it to be one number), `kept` (the indices a site's `select` keeps on each axis it selects, in their order (`key`: the keys it picks, or `{"offset": [...]}`, those relative to each query). An op step's are those of the value it is over, on the axes its own still has. An unselected axis is whole. `[]` stands until preflight resolves a slice or a negative pick), `space` (the coordinates the value is in: the encodes left open around it, outermost first, each its `featurizer` and `select`; none for the site's own layout, and none once an op changed the last axis they lie on (a sum over features)), `axes` (the sweep axes the value depends on, in axis order: the sweeps on its own entry (its site, its positions, an op's literal argument), those of every value or featurizer its ops name, and, for an entry of a forward, the forward's (`schedule`); an op step's are its `of`'s and its operands'; a fit member's are the fit's. The value is one per distinct point on these axes, and its result is keyed by them)
 - `Plan`: `document` (the document file the plan was read from; written relative to its corpus root, where data paths and bundles resolve), `compiled` (whether this is the compiled plan), `sweeps` (each sweep axis by label, in axis order, with its values), `results` (each saved value by name; a swept one is a dict keyed by coordinate), `run` (how the plan ran, set by `execute`)
 - `Data`: `sha256` (the digest of the rows, which a re-materialization must match), `n_rows` (how many rows the dataset has)
 - `Intervention`: `gathered` (whether the run takes the entry's value off the model: `saves` names it, a later entry or step uses it, or a gathered `grad` entry is its gradient), `per_call` (how many of the ops after the entry's last edit a generation runs at each call it reads the entry beyond its prefill, on that call's own value. The rest run once the calls are arranged by position. Those counted are the leading ops that are positionwise (Ops), keep the `pos` axis and take no operand that has one, up to the first that scores an answer of several tokens, which preflight finds. 0 in a forward and in the prefill), `positions` (the positions the entry resolved to, per row, under the dataset whose rows they are. A position counts as `pos` does: an index into the row's prompt tokens, BOS first, then its generated ones. `alignment_missing` stands for a row it does not reach. Preflight sets the prefill's, and the run a generation's decode calls')

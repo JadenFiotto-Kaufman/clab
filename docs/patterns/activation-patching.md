@@ -52,7 +52,7 @@ The two give the same logits: a window is its positions patched together. An eff
 
 Counted positions pair in order ([interventions](../usage/interventions.md#operands)). A negative count counts from each row's own end. So a read and a write at the same negative `pos` (`-1`, `{"index": "-3:"}`) pair on prompts of different lengths wherever the prompts end alike. The prompts of `data/weekdays/train.json` are 9 and 11 tokens (" Thursday" is three tokens on this tokenizer, " Saturday" one), and `-1` to `-4` fall in the `, tomorrow is` they all end with.
 
-A count that reaches past the tokens both prompts share at their start or their end can name different words. The run refuses it before any forward (`pos: 5`, or `-6`, on that data): `operand 'counterfactual.v_cf' was read on pairs.counterfactual_inputs[0], row 0 of which is 9 tokens`. `documents/entity_patch.json` names the token by what it says, on each side its own entity:
+A position pairs across prompts of different lengths only where every token between it and the end it is counted from is the same on both, whatever the two tokens it pairs. So `-5` runs, pairing `day` with `▁Saturday` on row 0, and `4` pairs `▁Th` with `▁Saturday`. One further, `5` or `-6` on that data, has a token between it and its end that differs on the two prompts (`▁Th` against `▁Saturday` at 4, before `5`; `day` against `▁Saturday` at `-5`, after `-6`), and the run refuses it before any forward: `operand 'counterfactual.v_cf' was read on pairs.counterfactual_inputs[0], row 0 of which is 9 tokens`. `documents/entity_patch.json` names the token by what it says, on each side its own entity:
 
 ```json
 "v_cf": {"site": "target", "pos": {"scope": {"column": "pairs.counterfactual_inputs_variables[0].entity"}, "index": -1}},
