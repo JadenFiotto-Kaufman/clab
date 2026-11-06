@@ -29,7 +29,8 @@ saying what made them: the kind and its `header` fields, the model, the site it 
 selects, `select`: the indices it kept on each axis it selects, a JSON object), its `width` and the document's
 name, and for a gate over named axes the indices it keeps on each of them but `layers` (`kept.<axis>`). Both a
 `pca` op's value and a fit's trained featurizer are saved as one. A document that loads one is checked against
-it key by key: the tensors and the kind, its fields and the model when the plan compiles, the site at every use
+it key by key: the tensors (their names, and their shapes against those of one drawn from its header, every
+kind's) and the kind, its fields and the model when the plan compiles, the site at every use
 (each layer it picks one that `layer` names, its selection the one `select` records, none for a header without
 one, which was made at the whole component, and a gate's selection on each axis it is over the one
 `kept.<axis>` names), and `width` against the model's size before any forward. A file is clab's when its

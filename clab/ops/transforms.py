@@ -192,10 +192,24 @@ def ranking_k(dims: list[str], args: dict, kind: str | None) -> list[str]:
     return ranking(dims, args) + ["k"]
 
 
+# The axes a row holds a number of entries of its own along (a read's positions where its rows hold different numbers
+# of them, a pattern's keys): along one, a pick past the entries there is -1, however large `k` is. Compile and
+# preflight refuse a `k` past the entries of an axis whose number they know (`arguments.k_past`, which names them).
+RAGGED = ("pos", "key")
+
+
+def past(x: Tensor, k: int) -> Tensor:
+    """`x` with its last axis as long as `k` at least, the entries added missing (NaN; in ids, -1)."""
+    n = k - x.shape[-1]
+    return x if n <= 0 else torch.nn.functional.pad(x, (0, n), value=math.nan if x.is_floating_point() else -1)
+
+
 def picked(x: Tensor, k: int) -> tuple[Tensor, Tensor]:
-    """The ids of the `k` largest of the entries of `x`'s last axis that are there, a missing one (NaN) ranked
-    below every other, and which of them pick no entry that is there: past a vector's own along a ragged axis,
-    or every one of a vector that is missing whole."""
+    """The ids of the `k` largest of the entries of `x`'s last axis that are there, a missing one (NaN; in ids, an
+    integer value, the hole -1, ranked as float64, which holds an id exactly below 2^53) ranked below every other,
+    and which of them pick no entry that is there: past a vector's own along a ragged axis, or every one of a vector
+    that is missing whole."""
+    x = x if x.is_floating_point() else x.double().masked_fill(x == -1, math.nan)
     ids = ranked(x.masked_fill(x.isnan(), -math.inf), k)
     return ids, x.gather(-1, ids).isnan()
 
@@ -205,10 +219,18 @@ def top_k(of: Tensor, k: int, dims: list[str], over: str | list[str] = RANKED
           ) -> dict[str, Tensor | dict[str, Tensor]]:
     """The `k` largest along the axis `over` names, the largest first. `ids` holds their indices along it. Over a
     vocabulary (`vocab_size`, a probe's `classes`) `probs` holds their float32 softmax over it, and over another
-    axis `values` holds the ranked values as the value has them. By default the most likely tokens, ranked by their logits
-    (as a step, its value also holds their `tokens`, decoded); over `features`, a featurizer's coordinates after
-    an `encode`. Along a ragged axis (a pattern's `key`) the entries that are there are ranked, and a pick past
-    them is id -1. An exact tie goes to the lower index (`ranked`), so `top_k`'s first is `argmax`'s.
+    axis `values` holds the ranked values as the value has them. By default the most likely tokens, ranked by their
+    logits (as a step, its value also holds their `tokens`, decoded); over `features`, a featurizer's coordinates
+    after an `encode`. Along a ragged axis (a pattern's `key`, a `pos` whose rows hold different numbers of
+    positions) the entries that are there are ranked, and a pick past them is id -1, however large `k` is. A `k`
+    below 1 is refused by name at compile. So is one past the entries of a ranked axis whose number compile knows: a
+    `select`'s indices, the layers picked from the first, a static width of `pos`, the dataset's rows (in a fit's
+    body, those its fewest-row run holds), a probe's classes, the coordinates of a featurizer that counts them (a
+    subspace's or a pca's `k`, an sae's `latents`, a loaded bundle's) and an earlier `top_k` step's `k`. Preflight
+    refuses one past the model's size of the axis (`vocab_size`, `hidden_size`, `num_heads`, ...), the layers a
+    slice or a count from the last picks, or a width the rows confirm. Along an axis neither knows the number of (a
+    drawn gate's coordinates, a generation's `new`, a fit's `epochs`, a load's `k`), torch's error stops the op at
+    the run. An exact tie goes to the lower index (`ranked`), so `top_k`'s first is `argmax`'s.
 
     Over a list of axes (`["rows", "pos"]`), as a step, the `k` largest of all their entries together, every one
     of those axes removed. `ids` is then an object of each axis's index of each pick, by the axis's name (`{"rows":
@@ -216,21 +238,32 @@ def top_k(of: Tensor, k: int, dims: list[str], over: str | list[str] = RANKED
     one of the axes is a vocabulary: each pick's softmax over it, and, over `vocab_size`, the `tokens`, decoded. It
     ranks the entries as one axis laid out in the order the list names them, so an exact tie goes to the lower index
     along the first, then the next. A missing (NaN) entry is ranked below every other, and a pick past those there
-    is -1 on every axis."""
+    is -1 on every axis.
+
+    Its value is several tensors, which no op takes whole: an op step over a top_k's value, an operand naming one, and
+    an op after a top_k in its entry are refused by name at compile. A later step names a `top_k` step's members as
+    it names a fit's, each a value laid out as the step's value is, with its labels: `<step>.ids` (an integer value,
+    its hole -1), `<step>.probs` (float32) or `<step>.values` (the value's dtype), and over `vocab_size`
+    `<step>.tokens`, which is text, as the op that takes a tensor refuses it. Over a list of axes `<step>.ids` is one
+    tensor per axis, which an op takes by axis, `<step>.ids.rows`. Ids below 2^53 rank as the integers they are (an
+    `argmax` of `<step>.ids`), their hole below every id."""
     axes = over if isinstance(over, list) else [over]
     x = of.movedim([dims.index(a) for a in axes], list(range(of.dim() - len(axes), of.dim())))
     sizes = x.shape[of.dim() - len(axes):]
     flat = x.reshape(*x.shape[:of.dim() - len(axes)], -1)
-    ids, gone = picked(flat, k)
+    ragged = bool(set(axes) & set(RAGGED))
+    ids, gone = picked(past(flat, k) if ragged else flat, k)
     vocabulary = next((a for a in axes if a in VOCABULARY), None)
     if vocabulary is not None:
         logits = x.float().masked_fill(x.isnan(), -math.inf).softmax(axes.index(vocabulary) - len(axes))
-        second = {"probs": logits.reshape(flat.shape).gather(-1, ids)}
+        probs = logits.reshape(flat.shape)
+        second = {"probs": (past(probs, k) if ragged else probs).gather(-1, ids)}
     else:
-        second = {"values": flat.gather(-1, ids)}
+        second = {"values": (past(flat, k) if ragged else flat).gather(-1, ids)}
     picks = {a: (ids // math.prod(sizes[j + 1:]) % sizes[j]).masked_fill(gone, -1) for j, a in enumerate(axes)} \
         if isinstance(over, list) else ids.masked_fill(gone, -1)
-    return {"ids": picks, **{k: v.masked_fill(gone, float("nan")) for k, v in second.items()}}
+    return {"ids": picks, **{k: v.masked_fill(gone, float("nan") if v.is_floating_point() else -1)
+                             for k, v in second.items()}}
 
 
 @op("transforms", layout=ranking, positionwise=True)
@@ -238,7 +271,8 @@ def argmax(of: Tensor, dims: list[str], over: str = RANKED) -> Tensor:
     """The index of the largest along the axis `over` names: by default the id of the most likely token, ranked
     by its logit. Along a ragged axis the largest of the entries that are there; -1 where none is (a missing
     value). An exact tie goes to the lower index, as in `top_k`."""
-    ids, gone = picked(of.movedim(dims.index(over), -1), 1)
+    x = of.movedim(dims.index(over), -1)
+    ids, gone = picked(past(x, 1) if over in RAGGED else x, 1)
     return ids[..., 0].masked_fill(gone[..., 0], -1)
 
 

@@ -113,12 +113,14 @@ def parse_input(text: str) -> tuple[str, str, int | None]:
     return match.group(1), match.group(2), None if match.group(3) is None else int(match.group(3))
 
 
-def by_id(table: Any, ids: list[int] | None, among: list[int] | None = None, axis: int = 0) -> Any:
+def by_id(table: Any, ids: list[int] | None, among: list[int] | None = None, axis: int = 0,
+          dataset: str | None = None) -> Any:
     """The rows of a per-row table for dataset row ids `ids` (None: every row, the table as it is), in their order:
     a list's, a tensor's along `axis` (on its device), each of a dict's. The one way per-row data is indexed: a
     dataset's rows, an input's encoded rows, a read's positions, an answer's tokens, a column's texts and a value's
     rows. A table holds every row of its dataset in order, or the rows `among`, in that order (a value a run of a
-    fit's body made holds the rows that run was over: `batches.value_at`)."""
+    fit's body made holds the rows that run was over: `batches.value_at`); an id that is not among them is refused by
+    name, with the table's `dataset`."""
     if ids is None:
         return table
     if among is None:
@@ -127,13 +129,19 @@ def by_id(table: Any, ids: list[int] | None, among: list[int] | None = None, axi
         where: dict[int, int] = {}
         for j, i in enumerate(among):           # each id's first place, in one pass over `among`
             where.setdefault(i, j)
-        at = [where[i] for i in ids]
+        try:
+            at = [where[i] for i in ids]
+        except KeyError as e:
+            of = f"dataset {dataset!r}" if dataset is not None else "its dataset"
+            raise ValueError(f"row {e.args[0]} of {of} is not among the {len(among)} rows this value holds "
+                             f"({among[:8]}{', ...' if len(among) > 8 else ''}); a value made over some rows (a fit "
+                             "body's minibatch) is read at those rows alone") from None
     if isinstance(table, dict):
-        return {k: by_id(v, ids, among, axis) for k, v in table.items()}
+        return {k: by_id(v, ids, among, axis, dataset) for k, v in table.items()}
     if isinstance(table, torch.Tensor):            # onto a GPU from pinned memory, which the host does not wait for
         return table.index_select(axis, torch.tensor(at, dtype=torch.long, pin_memory=table.is_cuda)
                                   .to(table.device, non_blocking=True))
-    return [table[i] for i in at] if axis == 0 else [by_id(v, ids, among, axis - 1) for v in table]
+    return [table[i] for i in at] if axis == 0 else [by_id(v, ids, among, axis - 1, dataset) for v in table]
 
 
 def input_columns(input: str | list[str | TextPart]) -> list[str]:

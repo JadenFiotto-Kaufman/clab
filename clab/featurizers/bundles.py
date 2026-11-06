@@ -47,6 +47,14 @@ def header(kind: str, fields: dict[str, Any], model: Model, labels: list | None,
     return found
 
 
+def value(text: str) -> Any:
+    """A header field's value as a draw takes it: the JSON it holds (`8`, `true`, a list), else the text (`relu`)."""
+    try:
+        return json.loads(text)
+    except ValueError:
+        return text
+
+
 def recorded(layer: str | None) -> list[int | None]:
     """The layers a header's `layer` (or `with.layer`) says a bundle was made at: its one int, or its list's; None
     for a model's own value. A header that says neither records none."""

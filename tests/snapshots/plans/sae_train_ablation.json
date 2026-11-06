@@ -22,6 +22,7 @@
     "document": "sae_train",
     "format": "clab/1",
     "kind": "sae",
+    "latents": "32",
     "layer": "0",
     "model.dtype": "float32",
     "model.key": "hf-internal-testing/tiny-random-LlamaForCausalLM",

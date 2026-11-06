@@ -28,11 +28,12 @@ from typing import Any, Callable, cast
 from clab import featurizers, ops
 from clab.compile.answers import check_column_ref
 from clab.compile.arguments import (featurizer_kind, kept_labels, layout, mismatch, narrowed_readout_refusal,
-                                    references, resolver, space_of, value_record)
+                                    k_past, known_counts, references, resolver, space_of, value_record,
+                                    whole_top_k)
 from clab.compile.interventions import bundles_of, compile_entry, entries_with_paths
 from clab.compile.schedule import share_forwards
 from clab.compile.state import Compiling
-from clab.compile.uses import check_bundle_sites, check_gate_axes, check_named_values
+from clab.compile.uses import check_bundle_shapes, check_bundle_sites, check_gate_axes, check_named_values
 from clab.featurizers import KINDS, article, bundles, labels
 from clab.format import data, registry
 from clab.format.sweeps import agreeing_point, coordinate_spelling, find_sweeps
@@ -109,6 +110,7 @@ def compile(plan: Plan) -> Plan:
                    "data": {n: {**doc["data"][n], **({} if plan.data[n].hf is not None else {"rows": rows[n]}),
                                 "sha256": data.digest(rows[n]), "n_rows": len(rows[n])} for n in rows}})
     check_bundle_sites(done)
+    check_bundle_shapes(done)
     check_gate_axes(done)
     check_named_values(done)
     share_forwards(done)
@@ -346,7 +348,9 @@ def compile_step(cx: Compiling, path: str, name: str, spec: Entry, plan: Plan, a
 
     A reference is "thing, then member", split at the first dot: `counterfactual.v_cf` is step
     `counterfactual`'s entry `v_cf`; `mean` is an op step's value; `pairs.cf_answer` is a dataset's column; `rot`
-    is a declared featurizer and `mask.mask` its scalar; `fit.rot` is a fit's member. Values are produced in
+    is a declared featurizer and `mask.mask` its scalar; `fit.rot` is a fit's member; `top3.ids` is a `top_k` step's
+    member (`ids`, `probs` or `values`, `tokens`, and over a list of axes `top.ids.rows`, each laid out as the step's
+    value). Values are produced in
     document order and referenced only after they exist. A fit's body is a scope of its own: it sees every
     value produced before the fit, and nothing leaves it except through `<fit>.<member>`. A bundle of entries
     is a template, so the names inside it resolve where a step pulls it in. Under a sweep, a name means the
@@ -357,7 +361,8 @@ def compile_step(cx: Compiling, path: str, name: str, spec: Entry, plan: Plan, a
     assert not isinstance(spec, list), "a point holds one step under each name"
     derived = set(type(spec).model_fields) - set(documented(type(spec)))     # compile writes them over what was set
     for key in sorted(spec.model_fields_set & derived):
-        fail(f"{path}.{key}", f"{key!r} is a derived field, which compile writes; a step sets none")
+        fail(f"{path}.{key}", ops.supplied(key) if spec.kind == "op" and key in ops.SUPPLIED else
+             f"{key!r} is a derived field, which compile writes; a step sets none")
     return {"forward": compile_forward, "generate": compile_forward, "op": compile_op, "fit": compile_fit,
             "load": compile_load}[spec.kind](cx, path, name, spec, plan, at)
 
@@ -488,6 +493,10 @@ def compile_op(cx: Compiling, path: str, name: str, spec: OpStep, plan: Plan, at
              "encode and the edits of its coordinates; as a step there is none to close (detokenize turns a "
              "generation's ids into text)")
     of, args = value_record(cx, spec.of, f"{path}.of", at), arguments(spec)
+    if spec.op != "permute" and (why := whole_top_k(cx, spec.of, of, at, repr(spec.op))):    # permute's own, below
+        fail(f"{path}.of", why)
+    if why := k_past(spec.op, args, of, None, known_counts(cx, of, spec.of, at)):
+        fail(f"{path}.k", why)
     text = isinstance(of, OpStep) and of.op == "detokenize" and not arguments(of).get("tokens")
     if spec.op == "contains" and not text:
         fail(f"{path}.of", f"contains reads text, a detokenize's value (without tokens); {spec.of!r} is not one")
@@ -794,6 +803,17 @@ def compile_fit(cx: Compiling, path: str, name: str, spec: Fit, plan: Plan, at: 
             fail(f"{path}.steps.{n}", f"a derangement moves every row to another, and over {total} rows in minibatches "
                  f"of {size} {'every minibatch' if size == 1 else 'the last of each epoch'} holds one row: give the "
                  "fit a batch_size that leaves every minibatch two rows or more")
+    # A top_k over rows ranks the rows of each run of the body: a minibatch, the last of each epoch the fewest, and the
+    # run that scores every training row.
+    fewest = (total % size or size) if spec.epochs else total
+    for n, s in body.items():
+        over = arguments(s).get("over") if isinstance(s, OpStep) and s.op == "top_k" else None
+        if over == "rows" or isinstance(over, list) and "rows" in over:
+            assert isinstance(s, OpStep)
+            of = record_of(within.steps, s.of, at)
+            held = (fewest, f"those the fewest-row run of the body holds, of {total} rows in minibatches of {size}")
+            if why := k_past(s.op, arguments(s), of, None, {**known_counts(within, of, s.of, at), "rows": held}):
+                fail(f"{path}.steps.{n}.k", why)
     # The rows a minibatch's ids are: of the datasets the body's forwards read, or, with none, its first harvest's.
     rows = {s.dataset for s in body.values() if s.kind != "op"} or \
         {record_of(cx.steps, r, at).dataset for r in list(harvests)[:1]}

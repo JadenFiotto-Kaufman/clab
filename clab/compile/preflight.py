@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Any, cast
 from clab import featurizers, ops
 from clab.compile import positions
 from clab.compile.answers import answer, check_classes, check_tokens
-from clab.compile.arguments import kept_labels, mismatch, references
+from clab.compile.arguments import k_past, kept_labels, mismatch, references
 from clab.compile.interventions import check_operands, read_positions, refuse_unserved
 from clab.compile.positions import prefill_positions
 from clab.compile.schedule import write_schedule
@@ -19,7 +19,7 @@ from clab.compile.state import Findings
 from clab.compile.uses import check_named_widths, write_widths
 from clab.format import address, data, selectors
 from clab.format.selectors import Selector, picked, selected
-from clab.format.sweeps import coordinate_spelling
+from clab.format.sweeps import coordinate_text
 from clab.plan import (
     Forward,
     Generate,
@@ -30,6 +30,7 @@ from clab.plan import (
     adapts,
     arguments,
     body_view,
+    declared,
     entries,
     entry_of,
     gathers,
@@ -99,7 +100,7 @@ def prepare(engine: Engine, plan: Plan, steps: dict, classes: dict[str, list], f
     alike: dict[tuple, list] = {}           # each distinct prefill resolution, which records alike share
     for name, entry in runnable(steps).items():
         for step in points(entry):
-            with at_point(plan, step.at):
+            with naming_point(plan, step.at):
                 if step.kind == "fit":
                     try:
                         prepare(engine, body_view(plan, name, step.at), step.steps, classes, findings)
@@ -110,6 +111,8 @@ def prepare(engine: Engine, plan: Plan, steps: dict, classes: dict[str, list], f
                     args, of = arguments(step), record_of(plan.steps, step.of, step.at)
                     assert step.dims is not None and of.dims is not None
                     step.layers, step.kept, step.width = kept_labels(of, step.dims)     # completed from its producer's
+                    if why := k_past(step.op, args, of, sizes, probe_of(plan, of, classes)):
+                        raise ValueError(f"{at_point(plan, name, step.at)}: {why}")
                     for key, (written, theirs) in references(step.op, args, preflight_resolver(plan, step.at)).items():
                         why = mismatch(of, theirs, step.op, key, written, repr(step.of), False, False,
                                        adapts(plan, step), lambda read: entry_of(plan.steps, read, step.at)[1])
@@ -194,6 +197,8 @@ def prepare(engine: Engine, plan: Plan, steps: dict, classes: dict[str, list], f
                                         layers=record.layers, read=record.read,
                                         width=record.width if "pos" in dims else None,
                                         kept={a: v for a, v in record.kept.items() if a in dims})
+                        if why := k_past(o.op, arguments(o), ours, sizes, probe_of(plan, ours, classes)):
+                            raise ValueError(f"{at_point(plan, where, step.at)}: {why}")
                         for k, (written, theirs) in references(o.op, arguments(o),
                                                                preflight_resolver(plan, step.at)).items():
                             forward = written.rpartition(".")[0] == name
@@ -209,23 +214,37 @@ def prepare(engine: Engine, plan: Plan, steps: dict, classes: dict[str, list], f
                         dims = o.dims or dims
         if points(entry)[0].kind in ("forward", "generate"):
             for step, served in cast("list[tuple[Forward, list[Forward]]]", serving(plan, name)):
-                with at_point(plan, step.at):
+                with naming_point(plan, step.at):
                     write_schedule(engine, plan, name, step, served)
                     check_last_only(engine, name, step, findings)
 
 
 @contextmanager
-def at_point(plan: Plan, at: dict[str, int]) -> Iterator[None]:
-    """A refusal at one point of a sweep names the point after its path (` at <label>=<value>`), as compile's do;
-    one whose path names it already (a fit body's step at the fit's point) is left as it is."""
+def naming_point(plan: Plan, at: dict[str, int]) -> Iterator[None]:
+    """A refusal at one point of a sweep names the point after its path (`at_point`), as compile's do; one whose
+    path names it already (a fit body's step at the fit's point) is left as it is."""
     try:
         yield
     except ValueError as e:
         path, sep, why = str(e).partition(": ")
         if not at or not sep or " at " in path or type(e) not in (ValueError, PlanError):
             raise
-        values = {label: plan.sweeps[label].values for label in at}
-        raise type(e)(f"{path} at {coordinate_spelling(values, at)}: {why}") from None
+        raise type(e)(f"{at_point(plan, path, at)}: {why}") from None
+
+
+def at_point(plan: Plan, where: str, at: dict[str, int]) -> str:
+    """A refusal's `where` at one point of a sweep, named by its coordinate (`<where> at max_new_tokens=2`), as the run
+    names a step's out-of-memory refusal; `where` alone at a point on no axis."""
+    return where + (f" at {coordinate_text(plan, at)}" if at else "")
+
+
+def probe_of(plan: Plan, record: Labelled, classes: dict[str, list]) -> dict[str, tuple[int, str]]:
+    """How many classes the probe a value's `classes` axis is of holds (the last encode left open around it), among
+    `classes` by declared featurizer, as `arguments.k_past` takes it; none for a value with no `classes` axis."""
+    if "classes" not in (record.dims or []) or not record.space:
+        return {}
+    held = classes.get(declared(plan, record.space[-1]["featurizer"]))
+    return {} if held is None else {"classes": (len(held), "the probe's")}
 
 
 def check_last_only(engine: Engine, name: str, step: Forward, findings: Findings) -> None:

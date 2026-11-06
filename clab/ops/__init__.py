@@ -139,15 +139,17 @@ not, so a class or a set of more than one is refused there. A missing row (a sco
 stays missing: NaN.
 """
 
-# `engine`: the engine running the document. `original`: inside an entry, the
-# value at the site before this forward's writes. `dims`: the axis names of `of`.
-# `layers`: the layers it acts at, as `steps.batches.argument_binding` aligns an operand to
-# them (inside an entry the one it is made at; as a step the labels of `of`'s
-# `layers` axis, or its one layer; None at no layer). `eos`: the ids the
-# generation `of` came from stops on. `rows`: the dataset row of each of `of`'s
-# rows; `positions`: the token position of each of its positions (`[rows, pos]`,
-# -1 past a row's own), where the run knows them.
-SUPPLIED = ("engine", "original", "dims", "layers", "eos", "rows", "positions")
+# What the run supplies an op, by parameter name, each as a refusal of a document that gives it says what it is.
+# `layers` is aligned as `steps.batches.argument_binding` aligns an operand: inside an entry the one layer the op
+# is made at; as a step the labels of `of`'s `layers` axis, or its one layer; None at no layer. `positions` is
+# `[rows, pos]`, -1 past a row's own, where the run knows them.
+SUPPLIED = {"engine": "the engine running the document",
+            "original": "inside an entry, the value at the site before this forward's writes",
+            "dims": "the axes of the value the op acts on, in order",
+            "layers": "the layers the op acts at",
+            "eos": "the ids the generation the value came from stops on",
+            "rows": "the dataset row of each of the value's rows",
+            "positions": "the token position of each of the value's positions"}
 # A metric scores a vocabulary axis: the tokenizer's, or a probe's classes.
 VOCABULARY = ("vocab_size", "classes")
 
@@ -193,17 +195,20 @@ def parameters(name: str) -> dict[str, inspect.Parameter]:
 @functools.cache
 def _parameters(op: Callable) -> dict[str, inspect.Parameter]:
     return {k: p.replace(annotation=registry.thing(p.annotation))
-            for k, p in registry.spelled(op, SUPPLIED + ("of",)).items()}
+            for k, p in registry.spelled(op, (*SUPPLIED, "of")).items()}
 
 
 def check(name: str, args: dict) -> None:
     """Op `name` exists and `args` bind to its signature; a featurizer named where an op takes none is refused
-    with the bracket that runs the op on its coordinates."""
+    with the bracket that runs the op on its coordinates, and a name the run supplies (`SUPPLIED`) as the run's."""
     if name == "featurizer":
         raise ValueError("there is no 'featurizer' op: 'encode' gives a featurizer's coordinates of the value and "
                          "'apply' its version of it")
     if name not in OPS:
         raise ValueError(f"unknown op {name!r}; valid: {', '.join(OPS)}")
+    for key in args:
+        if key in SUPPLIED:
+            raise ValueError(supplied(key))
     takes = parameters(name)
     if "featurizer" in args and "featurizer" not in takes:
         raise ValueError(f"{name!r} takes no 'featurizer': an op runs on a featurizer's coordinates between an "
@@ -212,9 +217,15 @@ def check(name: str, args: dict) -> None:
     if "select" in args and "select" not in takes:
         raise ValueError(f"{name!r} takes no 'select': an encode keeps some of a featurizer's coordinates, "
                          "{'op': 'encode', 'featurizer': ..., 'select': {'features': <selector>}}")
-    registry.check(OPS[name], args, SUPPLIED + ("of",), repr(name))
+    registry.check(OPS[name], args, (*SUPPLIED, "of"), repr(name))
     if DECLARED[name]["check"] is not None:
         DECLARED[name]["check"](args)
+
+
+def supplied(key: str) -> str:
+    """The refusal of an op argument a document gives under a name the run supplies (`SUPPLIED`): every one of them,
+    one message, whether the op's record holds it as a derived field (`dims`, a step's `layers`) or not."""
+    return f"{key!r} is no argument a document gives: the run supplies it, {SUPPLIED[key]}; leave it out"
 
 
 def call(name: str, value: Any, args: dict[str, Any], **supplied: Any) -> Any:
