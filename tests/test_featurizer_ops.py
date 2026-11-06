@@ -12,7 +12,7 @@ from conftest import BATCH_SIZE, bundle_header, dims, edited, on_each, same
 from safetensors import safe_open
 from safetensors.torch import save_file
 from test_featurizers import every_kind
-from test_fit import TINY, corpus_copy
+from test_fit import TINY, chain, corpus_copy
 
 from clab import Plan, featurizers, ops
 from clab.docs import describe
@@ -20,7 +20,7 @@ from clab.featurizers.affine import Affine
 from clab.featurizers.constant import Constant
 from clab.featurizers.gate import Gate
 from clab.format.sweeps import points
-from clab.plan import PlanError
+from clab.plan import Fit, PlanError
 from clab.steps import batches
 
 G = torch.Generator().manual_seed(3)
@@ -472,3 +472,137 @@ def test_a_gate_over_pca_coordinates_trains_on_both_engines(engines, tmp_path):
     with safe_open(str(tmp_path / "out" / "fit.mask.safetensors"), "pt") as f:
         header = f.metadata()
     assert (header["width"], header["component"], header["layer"]) == ("4", "layer_output", "0")
+
+
+# -- a sweep over featurizers ------------------------------------------------------------------------------
+
+ROT = {"sweep": ["rot_a", "rot_b"], "label": "rot"}
+DRAWN = {"rot_a": {"kind": "subspace", "k": 4, "parametrization": "cayley", "seed": 0},
+         "rot_b": {"kind": "subspace", "k": 4, "parametrization": "cayley", "seed": 1},
+         "probe": {"kind": "linear", "classes": "pairs.cf_answer"}}
+
+
+def through(featurizer: Any, decoded: Any = None, apply: bool = False):
+    """random_subspace with its seed sweep replaced by `featurizer`, a name or a sweep over names of DRAWN's (two
+    rank-4 subspaces, seeds 0 and 1, and a probe), each declared: the counterfactual read encoded with it, and the
+    patch an encode-swap-decode bracket of it (the decode of `decoded` where given), or, `apply`, its apply alone."""
+    def change(d):
+        named = featurizer["sweep"] if isinstance(featurizer, dict) else [featurizer]
+        d["featurizers"] = {n: f for n, f in DRAWN.items() if n in named}
+        d["steps"]["counterfactual"]["interventions"]["v_cf"]["ops"][0]["featurizer"] = featurizer
+        patch = d["steps"]["patched"]["interventions"]["patch"]
+        patch["ops"] = [{"op": "apply", "featurizer": featurizer}] if apply else [
+            {"op": "encode", "featurizer": featurizer}, {"op": "swap", "with": "counterfactual.v_cf"},
+            {"op": "decode", "featurizer": featurizer if decoded is None else decoded}]
+    return change
+
+
+@pytest.mark.parametrize("kind", ["nnterp", "hooks"])
+@pytest.mark.parametrize("apply", [False, True], ids=["bracket", "apply"])
+def test_a_sweep_over_featurizers_gives_each_point_the_document_with_that_featurizer(engines, kind, apply):
+    """`featurizer` swept over two drawn subspaces (two seeds), in an encode-swap-decode bracket or an apply: one axis
+    keyed by the names, a forward per point for the write, one for the read that only encodes (a sweep in what it
+    reads), and each point's values those of the document written with that one featurizer, to the bit."""
+    plan = edited("random_subspace", through(ROT, apply=apply)).compile()
+    assert list(plan.sweeps) == ["rot"] and plan.sweeps["rot"].values == ["rot_a", "rot_b"]
+    assert [p.schedule.get("axes") for p in points(plan.steps["patched"])] == [["rot"]] * 2
+    assert points(plan.steps["counterfactual"])[1].schedule == {"serving": {"rot": 0}}
+    engine = engines(kind, plan.model)
+    swept = engine.execute(plan, batch_size=BATCH_SIZE)
+    assert swept.run is not None and list(swept.run.costs["patched"]) == ['rot="rot_a"', 'rot="rot_b"']
+    for name in ("rot_a", "rot_b"):
+        alone = engine.execute(edited("random_subspace", through(name, apply=apply)).compile(), batch_size=BATCH_SIZE)
+        assert same(swept.results["iia"][name], alone.results["iia"])
+        assert same(swept.results["logit_diff"][name], alone.results["logit_diff"])
+    assert not same(swept.results["logit_diff"]["rot_a"], swept.results["logit_diff"]["rot_b"])
+    assert {row["at"]["rot"] for row in swept.table("logit_diff")} == {"rot_a", "rot_b"}
+
+
+def test_a_featurizer_sweep_point_used_at_another_width_is_refused_naming_the_point(engines):
+    """rot_b also encodes the 64-wide MLP activation in an earlier step, so at the point that uses it at the 16-wide
+    residual stream it has two widths: refused before any forward, naming the point."""
+    def wider(d):
+        d["steps"] = {"wide": {"kind": "forward", "input": "pairs.input", "interventions": {"x": {
+            "site": {"component": "mlp_activation", "layers": 0}, "pos": -1,
+            "ops": [{"op": "encode", "featurizer": "rot_b"}]}}}, **d["steps"]}
+    plan = edited("random_subspace", chain(through(ROT), wider)).compile()
+    with pytest.raises(ValueError, match=r'^counterfactual\.v_cf at rot="rot_b": featurizer \'rot_b\' is used at '
+                                         r"width 16 here and 64 elsewhere; a featurizer has one width$"):
+        engines("nnterp", plan.model).execute(plan, batch_size=BATCH_SIZE)
+
+
+@pytest.mark.parametrize("decoded, message", [
+    ({"sweep": ["rot_a", "probe"], "label": "rot"},
+     r'^steps\.patched\.interventions\.patch\.ops\[2\]\.featurizer at rot="probe": \'probe\' is a \'linear\' '
+     r"featurizer, which has no decode: it serves encode; it has no way back into the value$"),
+    ("rot_a", r'^steps\.patched\.interventions\.patch\.ops\[2\] at rot="rot_b": decode of \'rot_a\', and the open '
+              r"encode is of 'rot_b' \(ops\[0\]\); close 'rot_b' first"),
+    ({"sweep": ["rot_a", "rot_b"], "label": "back"},
+     r'^steps\.patched\.interventions\.patch\.ops\[2\] at rot="rot_a",back="rot_b": decode of \'rot_b\', and the '
+     r"open encode is of 'rot_a' \(ops\[0\]\)"),
+], ids=["kind", "unswept", "crossed"])
+def test_a_featurizer_sweep_point_its_use_refuses_is_refused_at_compile_naming_the_point(decoded, message):
+    """Each point is checked as the use of that featurizer is: a probe in the sweep of a bracket has no decode; a
+    decode that does not carry the encode's sweep (one name, or another label, which crosses) closes another
+    featurizer's encode at some point."""
+    encoded = decoded if isinstance(decoded, dict) and decoded["label"] == "rot" else ROT
+    with pytest.raises(PlanError, match=message):
+        edited("random_subspace", through(encoded, decoded)).compile()
+
+
+def probe_fit(featurizer: Any, train: Any = None) -> dict:
+    """Tiny Llama: a probe of layer 1's last token trained on its coordinates in `featurizer` (a name or a sweep
+    over rot_a and rot_b), read by a forward of the fit's body as a nested encode, scored against the weekday."""
+    named = featurizer["sweep"] if isinstance(featurizer, dict) else [featurizer]
+    return {
+        "model": TINY,
+        "data": {"pairs": {"path": "weekdays/train"}},
+        "featurizers": {n: f for n, f in DRAWN.items() if n in [*named, "probe"]},
+        "steps": {"fit": {
+            "kind": "fit", "train": train or ["probe"], "objective": {"ce": 1.0}, "epochs": 3, "batch_size": 2,
+            "seed": 0, "optimizer": {"name": "adam", "lr": 0.1}, "eval": {"train": {}},
+            "steps": {
+                "read": {"kind": "forward", "input": "pairs.input", "interventions": {"scores": {
+                    "site": {"component": "layer_output", "layers": 1}, "pos": -1,
+                    "ops": [{"op": "encode", "featurizer": featurizer}, {"op": "encode", "featurizer": "probe"}]}}},
+                "ce": {"kind": "op", "op": "cross_entropy", "of": "read.scores", "target": "pairs.cf_answer"}}}},
+        "saves": ["fit.history.ce", "fit.train.ce", "fit.probe"]}
+
+
+def test_a_sweep_over_featurizers_a_fit_does_not_train_makes_the_fit_a_list_of_points(engines, tmp_path):
+    """A fit's body encoding with a sweep over two subspaces it does not train trains the probe once per point, each
+    point's history, eval and trained probe those of the fit written with that one subspace, to the bit; a sweep in
+    `train` stays refused."""
+    root = corpus_copy(tmp_path)
+    doc = os.path.join(root, "documents", "probe_fit.json")
+    plan = Plan(**probe_fit(ROT), document=doc).compile()
+    assert [p.at for p in points(plan.steps["fit"])] == [{"rot": 0}, {"rot": 1}]
+    engine = engines("nnterp", plan.model)
+    swept = engine.execute(plan, batch_size=BATCH_SIZE)
+    for name in ("rot_a", "rot_b"):
+        alone = engine.execute(Plan(**probe_fit(name), document=doc).compile(), batch_size=BATCH_SIZE)
+        for save in plan.saves:
+            assert same(swept.results[save][name], alone.results[save])
+    assert not same(swept.results["fit.history.ce"]["rot_a"], swept.results["fit.history.ce"]["rot_b"])
+    with pytest.raises(PlanError, match=r"^steps\.fit\.train\.0: a sweep cannot stand for 'train'$"):
+        Plan(**probe_fit("rot_a", train=[{"sweep": ["probe"]}]), document=doc).compile()
+
+
+def test_a_sweep_over_a_fits_draw_and_its_trained_featurizer_scores_each_as_its_own_document(engines):
+    """das's held-out steps swept over `rot` and `fit.rot`, the draw and what the fit trained from it: each point's
+    held-out logit difference is that of das written with that one name, to the bit."""
+    def held(featurizer: Any):
+        def change(d):
+            d["steps"]["held_counterfactual"]["interventions"]["v_cf"]["ops"][0]["featurizer"] = featurizer
+            for i in (0, 2):
+                d["steps"]["held_patched"]["interventions"]["patch"]["ops"][i]["featurizer"] = featurizer
+        return change
+    plan = edited("das", held({"sweep": ["rot", "fit.rot"], "label": "rot"})).compile()
+    assert plan.sweeps["rot"].values == ["rot", "fit.rot"] and isinstance(plan.steps["fit"], Fit)
+    engine = engines("nnterp", plan.model)
+    swept = engine.execute(plan, batch_size=BATCH_SIZE)
+    for name in ("rot", "fit.rot"):
+        alone = engine.execute(edited("das", held(name)).compile(), batch_size=BATCH_SIZE)
+        assert same(swept.results["held_iia"][name], alone.results["held_iia"])
+        assert same(swept.results["fit.rot"], alone.results["fit.rot"])
+    assert not same(swept.results["held_iia"]["rot"], swept.results["held_iia"]["fit.rot"])

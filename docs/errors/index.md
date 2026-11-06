@@ -293,11 +293,11 @@ Each row quotes a message's first clause without its `<where>:`. `<x>` stands fo
 |---|---|---|
 | `'<x>' is a featurizer, not a value` | a featurizer named where a value goes; reach it with an op (`encode`, `apply`) | [featurizers.md](../usage/featurizers.md) |
 | `'<x>' names no featurizer here` | a featurizer name `featurizers` does not declare | [featurizers.md](../usage/featurizers.md) |
-| `'<f>' is a '<kind>' featurizer, which has no <op>` | an op the featurizer's kind does not serve; the message lists the ones it does | [featurizers.md](../usage/featurizers.md) |
+| `'<f>' is a '<kind>' featurizer, which has no <op>` | an op the featurizer's kind does not serve, a point of a sweep over featurizers included (the path names it); the message lists the ones it does | [featurizers.md](../usage/featurizers.md#a-sweep-over-featurizers) |
 | `a <kind>'s apply takes no 'with'` | `with` on an `apply` of a kind that is not an adapter or a gate | [featurizers.md](../usage/featurizers.md) |
 | `<v> is not a name; 'with' names a value read at the positions the op acts on` | an adapter's `with` that is not a value's name | [lora.md](../patterns/lora.md#across-sites-with) |
 | `decode of '<f>' closes no encode` | a `decode` with no open `encode` of it | [featurizers.md](../usage/featurizers.md#brackets) |
-| `decode of '<f>', and the open encode is of '<g>'` | brackets closed out of order | [featurizers.md](../usage/featurizers.md#brackets) |
+| `decode of '<f>', and the open encode is of '<g>'` | brackets closed out of order, or a `decode` that does not carry its swept `encode`'s sweep (one name, or another label), at the point the path names | [featurizers.md](../usage/featurizers.md#a-sweep-over-featurizers) |
 | `the entry writes back here with the encode of '<f>' (ops[<j>]) still open` | an entry that ends inside a bracket | [featurizers.md](../usage/featurizers.md#brackets) |
 | `'<op>' of '<f>' at ops[<i>] is inside the encode of '<f>'` | the featurizer's own op inside its bracket | [featurizers.md](../usage/featurizers.md#brackets) |
 | `decode closes an encode of its own entry, so it runs inside the entry that encodes` | `decode` as a step | [featurizers.md](../usage/featurizers.md#brackets) |
@@ -329,7 +329,7 @@ Each row quotes a message's first clause without its `<where>:`. `<x>` stands fo
 | `<file>: header 'width' is '<w>'; this document uses '<f>' at <c>, whose width is <v>` | a bundle used at another width | [bundles.md](../usage/bundles.md#what-is-checked-and-when) |
 | `<file>: header records no '<field>', which a <kind> bundle records` | a hand-made clab header without its `width` or a field its kind's draw needs (a subspace's or a pca's `k`, an sae's `latents`, a lora's `rank` and `alpha`, a probe's `classes`) | [bundles.md](../usage/bundles.md#what-is-checked-and-when) |
 | `<file>: '<t>' is […], and its header lays a <kind> out at width <w>` | a bundle tensor whose shape is not a draw's from its header (a subspace's `basis` `[width, k]`, a lora's `B` `[rank, width]`, a gate's `theta` `[width]`) | [bundles.md](../usage/bundles.md#what-is-checked-and-when) |
-| `featurizer '<f>' is used at width <a> here and <b> elsewhere` | one featurizer used at two widths | [featurizers.md](../usage/featurizers.md) |
+| `featurizer '<f>' is used at width <a> here and <b> elsewhere` | one featurizer used at two widths; at a point of a sweep over featurizers, that point's featurizer, which the path names | [featurizers.md](../usage/featurizers.md#a-sweep-over-featurizers) |
 | `featurizer '<f>' has <field> <n>, and it is used at width <w>` | a rank or `k` larger than the width allows | [featurizers.md](../usage/featurizers.md) |
 | `<file> has no clab header and is <w> wide` | a headerless file of another width | [featurizers.md](../usage/featurizers.md) |
 | `featurizer '<f>' was trained at <c> layer <l> (its site); this use is …` | a featurizer used at another site than its `site` | [featurizers.md](../usage/featurizers.md#drawn-trained-or-loaded) |

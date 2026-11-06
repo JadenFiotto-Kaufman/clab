@@ -36,9 +36,10 @@ A sweep can stand in these places ([FORMAT.md#sweeps](../../FORMAT.md#sweeps) ha
 - a field FORMAT.md types as "or a sweep": a site's `layers` and `select`, an entry's `pos` (its `frame`, its `index` or a scope's `occurrence`), and a fit's `epochs`, `seed`, objective weights and `lr`;
 - an op's arguments, inside an entry or on an op step (`add`'s `scale`, a steering dose; `scale`'s `factor`; `top_k`'s `k`);
 - a featurizer's fields (`k`, `seed`);
+- an `encode`'s, `decode`'s or `apply`'s `featurizer`, over featurizer names ([featurizers.md](featurizers.md#a-sweep-over-featurizers));
 - a generate step's options (`max_new_tokens`).
 
-A sweep is refused on `kind`, `op`, `site`, `component`, `input`, `of`, `featurizer`, `train`, `interventions`, `saves` and `file_path`. It is refused on a featurizer's `over`, a scope's `column` and a fit's optimizer `name`, and anywhere under `model` or `data`. What to write instead:
+A sweep is refused on `kind`, `op`, `site`, `component`, `input`, `of`, `train`, `interventions`, `saves` and `file_path`. It is refused on a featurizer's `over`, a scope's `column` and a fit's optimizer `name`, and anywhere under `model` or `data`. What to write instead:
 
 - **Two datasets:** write the steps twice, one set per dataset.
 - **Two checkpoints or revisions:** a run loads one model, so write one document per revision and join their tables.
