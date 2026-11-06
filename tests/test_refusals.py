@@ -373,7 +373,7 @@ def refused(engines, plan, kind: str = "hooks"):
                                                              "base_answer": " Friday"}]}),
      r"blanked: chats.chat row 0: message 0 \(user\) '  padded  ' is not where the chat template put the messages"),
     ("patching", lambda d: d["steps"]["patched"]["interventions"]["patch"].update(pos=20),
-     r"patched.patch: row 0: tokens 20 do not fit its 11 scope tokens"),
+     r"patched.patch: row 0: index 20 does not fit the row's 11 positions at this frame"),
 ])
 def test_what_needs_the_model_is_checked_before_any_forward(engines, name, change, message):
     text, forwards = refused(engines, edited(name, change).compile())
@@ -480,7 +480,7 @@ def test_a_pattern_from_an_input_of_other_lengths_is_refused(engines):
         d["data"]["pairs"] = {"path": "weekdays/train"}
     text, forwards = refused(engines, edited("attention_pattern_patching", change).compile(), kind="nnterp")
     assert forwards == 0
-    assert text.startswith("patched.look_there: operand 'counterfactual.their_pattern' was read on "
+    assert text.startswith("patched.look_there at num_heads=0: operand 'counterfactual.their_pattern' was read on "
                            "pairs.counterfactual_inputs[0], row 0 of which is 9 tokens; pairs.input has 11 there"), text
 
 
@@ -618,8 +618,9 @@ def test_a_metric_over_decode_frame_reads_is_told_a_frame_a_decode_read_can_sati
             d["steps"]["kl"] = {"kind": "op", "op": "kl", "of": "patched.a", "against": "counterfactual.b"}
             d["saves"] = ["kl"]
         return apply
-    with pytest.raises(PlanError, match=r"steps\.kl\.against at frame=0: 'counterfactual\.b' holds a different number of "
-                                        r"positions on each row, which pair with no other value's; read both at a static "
+    with pytest.raises(PlanError, match=r"steps\.kl\.against at frame=0: 'counterfactual\.b' has no width compile can "
+                                        r"fix \(an open index, an `until` scope, several occurrences\), so it pairs "
+                                        r"with no other forward's value; read both at a static "
                                         r"index without a scope \('index': -1, or '-3:'\), at one occurrence of a scope "
                                         r"in the prefill, not until, whose rows give its width, or over decode calls at "
                                         r"a frame of a static number of them with an index of static width "

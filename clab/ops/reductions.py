@@ -94,12 +94,13 @@ def std(of: Tensor, dims: list[str], over: list[str] | None = None) -> Tensor:
 
 @op("reductions", layout=reduced, positionwise=True)
 def median(of: Tensor, dims: list[str], over: list[str] | None = None) -> Tensor:
-    """The median over the axes `over` names, as `mean` takes them, of the n values that are there: the middle one
-    of them sorted, and for an even n the mean of the two middle ones, as numpy's `median` has it (torch's is the
-    lower of the two); NaN where none is. A sort and a gather in float32, float32 out whatever the value's dtype, so
-    a bfloat16 value's two middle ones are averaged in float32 (numpy's on that float32 copy, not in bfloat16). A
-    zero comes out +0.0, as numpy gives it, by adding 0.0, which leaves every other value as it is; so the sort's
-    order among -0.0 and 0.0 changes no bit, and the bits are the same on every device."""
+    """The median over the axes `over` names, as `mean` takes them, of the n values that are there. It is the
+    middle one of them sorted, and for an even n the mean of the two middle ones, as numpy's `median` has it
+    (torch's is the lower of the two). It is NaN where none is. It is a sort and a gather in float32, float32 out
+    whatever the value's dtype, so a bfloat16 value's two middle ones are averaged in float32 (numpy's on that
+    float32 copy, not in bfloat16). A zero comes out +0.0, as numpy gives it, by adding 0.0, which leaves every
+    other value as it is. So the sort's order among -0.0 and 0.0 changes no bit, and the bits are the same on
+    every device."""
     of, axes = floated(of), [i for i, a in enumerate(dims) if a in (DEFAULT if over is None else over)]
     rest = [i for i in range(of.dim()) if i not in axes]
     flat = of.permute(*rest, *axes).flatten(len(rest))         # the axes it is over, as one last axis
@@ -122,8 +123,8 @@ def counted(dims: list[str], args: dict, kind: str | None) -> list[str]:
     for axis in over:
         if axis not in dims:
             default = " unless 'over' names the axes it counts along" if args.get("over") is None else ""
-            raise ValueError(f"count counts along {axis!r}{default}, and the value is laid out {dims}; 'over' names "
-                             f"axes the value has (\"over\": {json.dumps(dims[-1:])})")
+            fix = f"; 'over' names axes the value has (\"over\": {json.dumps(dims[-1:])})" if dims else ""
+            raise ValueError(f"count counts along {axis!r}{default}, and the value is laid out {dims}{fix}")
     if not over:
         raise ValueError(f"a reduction of a value laid out {dims} removes no axis of it: 'over' names none")
     return [a for a in dims if a not in over and a in EXAMPLE_AXES]
@@ -131,10 +132,11 @@ def counted(dims: list[str], args: dict, kind: str | None) -> list[str]:
 
 @op("reductions", layout=counted, positionwise=True)
 def count(of: Tensor, dims: list[str], over: list[str] | None = None) -> Tensor:
-    """How many positions along the axes `over` names (by default `pos`) hold the value, in float32: a position is
-    held where any of its entries is there (not NaN; in ids, not -1), its vector counted once, so a read's count is
-    each row's own number of positions (a generation's read at `{"frame": "1:"}`, the decode calls the row made) and
-    0 where it has none."""
+    """How many positions along the axes `over` names (by default `pos`) hold the value, in float32. A position is
+    held where any of its entries is there (not NaN; in ids, not -1), its vector counted once. So a read's count is
+    each row's own number of positions (a generation's read at `{"frame": "1:"}`, the decode calls the row made).
+    It is 0 on a row that holds none, a row the read never reached (`alignment_missing`) included; `clab table`
+    shows such a row as `alignment_missing`, with no value."""
     over = list(COUNTED if over is None else over)
     held = ~of.isnan() if of.is_floating_point() else of != -1
     features = [i for i, a in enumerate(dims) if a not in EXAMPLE_AXES and a not in over]
@@ -150,8 +152,9 @@ FEATURES = ["hidden_size"]
 def featured(dims: list[str], args: dict, kind: str | None) -> list[str]:
     """Removes the axes `over` names, by default `hidden_size`, which a value without one names in `over`."""
     if args.get("over") is None and FEATURES[0] not in dims:
+        fix = f"; name them in 'over' (\"over\": {json.dumps(dims[-1:])})" if dims else ""
         raise ValueError(f"it reduces over {FEATURES[0]} unless 'over' names the axes, and the value is laid out "
-                         f"{dims}; name them in 'over' (\"over\": {json.dumps(dims[-1:])})")
+                         f"{dims}{fix}")
     return reduced(dims, {**args, "over": FEATURES if args.get("over") is None else args["over"]})
 
 
@@ -193,8 +196,9 @@ def distributed(dims: list[str], args: dict, kind: str | None) -> list[str]:
     """Removes the axes `over` names, by default `vocab_size` where the value has it, else `num_experts`; a value with
     neither names them in `over`."""
     if args.get("over") is None and not set(OUTCOMES) & set(dims):
+        fix = f"; name them in 'over' (\"over\": {json.dumps(dims[-1:])})" if dims else ""
         raise ValueError(f"it takes the softmax over {' or '.join(OUTCOMES)} unless 'over' names the axes, and the "
-                         f"value is laid out {dims}; name them in 'over' (\"over\": {json.dumps(dims[-1:])})")
+                         f"value is laid out {dims}{fix}")
     over = args.get("over")
     return reduced(dims, {**args, "over": [next(a for a in OUTCOMES if a in dims)] if over is None else over})
 
@@ -202,9 +206,9 @@ def distributed(dims: list[str], args: dict, kind: str | None) -> list[str]:
 @op("reductions", layout=distributed)
 def entropy(of: Tensor, dims: list[str], over: list[str] | None = None) -> Tensor:
     """The entropy in nats of the softmax over the axes `over` names, by default `vocab_size` where the value has it,
-    else `num_experts`: `-sum(p log p)`, `p` the float32 softmax of the entries that are there (a missing one has no
-    share, and a vector with none is NaN), a `p` of 0 adding 0; routing entropy is `entropy` of `router_logits` on a
-    softmax router, ln of the experts' count where it routes evenly."""
+    else `num_experts`: `-sum(p log p)`. `p` is the float32 softmax of the entries that are there: a missing one has
+    no share, and a vector with none is NaN. A `p` of 0 adds 0. Routing entropy is `entropy` of `router_logits` on
+    a softmax router, ln of the experts' count where it routes evenly."""
     over = [next(a for a in OUTCOMES if a in dims)] if over is None else over
     axes, of = [i for i, a in enumerate(dims) if a in over], floated(of)
     rest = [i for i in range(of.dim()) if i not in axes]

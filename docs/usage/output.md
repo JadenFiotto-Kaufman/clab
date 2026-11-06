@@ -24,7 +24,7 @@ out/patching/
 - **A swept value is one file** holding one entry per point of the sweep axes the value depends on (its `axes`), keyed by coordinate: `pos=-1`, `pos=-2`, or `layers=0,pos=-1` over two axes. A value that depends on none of its step's sweeps is one tensor: `documents/generate_probe.json` sweeps its reads over three frames, and its generated ids, `patched`, are one `[4, 3]` tensor ([sweeps.md](sweeps.md)).
 - **A saved featurizer is a bundle** whose file carries the header a loading document checks ([bundles.md](bundles.md)).
 - **`manifest.json`** is the compiled plan as the run completed it, with the run record and a record of each save ([below](#the-manifest)). It holds no values.
-- **`tokens.json`** is the run record's `tokens`: each input's token strings per row and what each generation's rows said. It holds every token of every row, so it sits beside the manifest rather than in it. `Plan.load` reads it back into `plan.run.tokens`, and `clab table` labels `pos_token` from it. A directory without it is refused: `<out>/tokens.json is missing, and the manifest holds no tokens; …`.
+- **`tokens.json`** is the run record's `tokens`: each input's token strings per row and what each generation's rows said. It holds every token of every row, so it sits beside the manifest rather than in it. `Plan.load` reads it back into `plan.run.tokens`, and `clab table` labels `pos_token` from it. A directory without it is refused: `<out>/tokens.json is missing, and the manifest holds no tokens: rerun the document that wrote it`.
 
 Where the directory goes and what happens when you reuse one is [running.md](running.md#where-output-goes).
 

@@ -7,7 +7,8 @@ the plan (pure data) and the batch size; everything that needs the model, prefli
 server, and the results and the run record come home. The server holds the weights and shards the model as its
 deployment does, so on a server a quantized `dtype` is refused by name, and the engine takes no `tp`. The server's
 address and API key are nnsight's own (`nnsight.CONFIG`, or its environment variables). `remote="local"` runs
-nnsight's in-process simulation of that trip, which dispatches the shell here, on `device`, at its first trace. Its
+nnsight's in-process simulation of that trip. The shell then loads its weights here, on `device`, before the first
+step of a run that calls the model (`NnterpEngine.ready`, which `execute` calls before the session opens). Its
 forwards stop where the schedule says, under either `remote`, as the nnterp engine's do (on a server, as the clab
 installed there says), since the nnsight clab requires leaves no frame of a stopped forward behind. A `load`'s value
 travels in the request, inside the plan, as a bundle's tensors do, under either `remote`, so `remote="local"` runs

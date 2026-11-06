@@ -96,7 +96,7 @@ With `others` read in `clean` and `keep_others` after `knock` in the knocked-out
 Key k of the swapped row is weight on the counterfactual's token k, written onto the base's token k, so both prompts of a row must tokenize to the same length. Preflight checks it row by row:
 
 ```text
-patched.look_there: operand 'counterfactual.their_pattern' was read on pairs.counterfactual_inputs[0], row 0 of which is 9 tokens; pairs.input has 11 there, so their key axes do not line up
+patched.look_there at num_heads=0: operand 'counterfactual.their_pattern' was read on pairs.counterfactual_inputs[0], row 0 of which is 9 tokens; pairs.input has 11 there, so their key axes do not line up
 ```
 
 The document therefore runs on `data/weekdays_aligned/data.json`, the pairs that tokenize alike. A real-model version is `documents/real/pattern_patching.json`, which needs a GPU and a gated checkpoint.

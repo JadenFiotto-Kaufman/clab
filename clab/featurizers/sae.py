@@ -72,9 +72,10 @@ class Sae(Kind):
             activation = cls.unstated["activation"]
         if isinstance(activation, dict):
             return                          # swept: checked per point
-        if (activation == "topk") != (k is not None):
-            raise ValueError("an sae's 'k' is how many latents 'topk' keeps; it is given with activation 'topk' "
-                             "and only then")
+        if activation == "topk" and k is None:
+            raise ValueError("activation 'topk' needs 'k', how many latents it keeps")
+        if activation != "topk" and k is not None:
+            raise ValueError(f"'k' is how many latents activation 'topk' keeps; activation {activation!r} takes none")
         if activation == "jumprelu" and fields.get("file_path") is None:
             raise ValueError("a 'jumprelu' sae's threshold is a published file's; load one with 'file_path'")
         latents = fields.get("latents")

@@ -122,7 +122,7 @@ A read pairs, position by position, with a value of another forward only where i
 - **Index j along `pos` is the read's j-th position on that row**, not position j. Index 0 of `{"index": "-4:-1"}` is a different absolute position on rows of different lengths ([values-and-layout.md](../concepts/values-and-layout.md#an-index-counts-along-the-value)).
 - **To pair a ragged read**, read it at a static index (`documents/entity_patch.json`, `"index": -1`) or reduce it over `pos` first (`documents/entity_mean_ablation.json`, a `mean` over every entity token).
 - **A pairing the table says no to is refused at compile.** A whole scope whose rows disagree is refused before any forward, naming each count's rows, and a loaded one at compile, since its positions came with it. The messages and their fixes are [operand-does-not-fit.md](../errors/operand-does-not-fit.md).
-- **A static index that does not fit a row** is refused in the prefill (`row 1: tokens 0:10 do not fit its 9 scope tokens`) and is `alignment_missing` beyond it.
+- **A static index that does not fit a row** is refused in the prefill (`row 1: index 0:10 does not fit the row's 9 positions at this frame`) and is `alignment_missing` beyond it.
 - **An open index takes what each row has**, which can be nothing. A read with nothing on a row is `alignment_missing` there (`{"index": "10:"}` on a 9-token row, [alignment-missing](../errors/alignment-missing.md#causes)); a write is refused ([position-not-in-row.md](../errors/position-not-in-row.md#the-writes-positions-hold-no-token-of-this-row)).
 
 How an operand pairs with a write on prompts of different lengths is [interventions.md](interventions.md).

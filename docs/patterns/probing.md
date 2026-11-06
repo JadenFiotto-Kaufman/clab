@@ -81,7 +81,7 @@ clab: featurizers.probe.classes: classes column 'train.entity' holds str (row 0 
 And a row scored against a value that is not a class is refused before any forward. Here a probe trained on the Thursday and Friday rows alone meets the test split:
 
 ```text
-clab: fit.held_out.ce: target is 'entity' of 'test', whose row 0 is 'Monday', not one of the classes of probe 'probe': ['Friday', 'Thursday']
+clab: fit.held_out.ce at layers=0: target is 'entity' of 'test', whose row 0 is 'Monday', not one of the classes of probe 'probe': ['Friday', 'Thursday']
 ```
 
 ## The floor

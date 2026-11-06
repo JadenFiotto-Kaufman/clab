@@ -753,8 +753,9 @@ def test_an_operand_with_positions_for_a_write_over_several_decode_calls_is_refu
     split among: refused when the plan compiles, where the ragged refusal's suggestion had compiled and crashed in
     `swap`; what the refusal says instead, one call and one position, runs, and its null gives the clean ids."""
     message = r"^steps\.swapped\.interventions\.w\.ops\[1\]\.with: 'clean\.r' has a pos axis, and this write lands " \
-              r"beyond the prefill: .* write at one decode call, \{'frame': 3, 'index': 0\}, with the operand read at " \
-              r"that call the same way, an entry per call$"
+              r"beyond the prefill: .* write at one decode call, \{'frame': 3, 'index': 0\}, an entry per call, with " \
+              r"an operand of one position: a prefill read, or one read at that call under a min_new_tokens that " \
+              r"reaches it on every row$"
     for wpos in ({"frame": "1:4", "index": ":3"}, {"frame": 3}):
         with pytest.raises(PlanError, match=message):
             swapped_with_clean(wpos)

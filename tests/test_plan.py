@@ -407,6 +407,10 @@ def test_an_inline_site_and_a_named_intervention_are_inlined():
      r"^steps\.patched\.input: 'pairs' is not <dataset>\.<column> or <dataset>\.<column>\[i\]$"),
     (lambda d: d["steps"].update({"i.ia": d["steps"].pop("iia")}),
      r"^steps\.i\.ia: a name has no dots; a dot separates a thing from its member$"),
+    (lambda d: d["steps"]["patched"].update(input=["pairs.input", {"text": "x", "bogus": 1}]),
+     r"^steps\.patched\.input\[1\]: unknown field 'bogus'; valid: text$"),
+    (lambda d: d["steps"]["patched"].update(input=5),
+     r"^steps\.patched\.input: 5 should be a valid string, or a valid list$"),
 ])
 def test_a_document_error_names_the_path_and_the_choices(change, message):
     if message is None:      # the `#split` form is gone: the path names a file that does not exist

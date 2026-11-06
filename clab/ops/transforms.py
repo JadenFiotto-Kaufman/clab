@@ -132,19 +132,19 @@ def moves(args: dict) -> None:
 def permute(of: Tensor, seed: int | None, dims: list[str], derangement: bool = False,
             rows: Tensor | None = None) -> Tensor:
     """The value with its rows reordered: row i holds row π(i)'s, π a permutation of the rows the step runs over
-    (every row of the value's dataset, or a fit body's minibatch), drawn from `seed` by a CPU generator and nothing
-    else, so the same seed draws the same π on every device and in every run; with `derangement` (`true`) π leaves
-    no row where it was, and over fewer than two rows there is none. `seed` is written either way: null is the
-    identity, the null control, whose swap into another forward leaves its numbers equal to the clean run's to the
-    bit. An op step, never an op of an entry, whose ops act on each row's live value; a top_k's or a detokenize's
-    value is permuted before that op, which acts row by row. The layout, the dataset and the width are `of`'s, row
-    i still indexing the dataset; each row's positions are π(i)'s, so the value has no `read` (its record's is
-    null): its positions label no row's tokens, a table numbers them by plain index, and it meets a write or an op
-    of another read as a read of another input would, position by position at a static width, a ragged one refused
-    there (it may still be reduced). The step's record holds π (`permutation`: the dataset row whose value each row
-    holds, as the run drew it). In a fit's body each training minibatch draws π over its own rows from the seed
-    alone, so every minibatch of one size pairs its rows the same way, and the record holds the π of the body's last
-    run, the one that scores every training row, which no training step used."""
+    (every row of the value's dataset, or a fit body's minibatch). π is drawn from `seed` by a CPU generator and
+    nothing else, so the same seed draws the same π on every device and in every run. With `derangement` (`true`)
+    π leaves no row where it was; over fewer than two rows there is no such π. `seed` is written either way: null
+    is the identity, the null control, whose swap into another forward leaves its numbers equal to the clean run's
+    to the bit. `permute` is an op step, never an op of an entry, whose ops act on each row's live value. A top_k's
+    or a detokenize's value is permuted before that op, which acts row by row. The layout, the dataset and the
+    width are `of`'s, row i still indexing the dataset. Each row's positions are π(i)'s, so the value has no `read`
+    (its record's is null). Its positions label no row's tokens, and a table numbers them by plain index. It meets
+    a write or an op of another read as a read of another input would, position by position at a static width. A
+    ragged one is refused there, though it may still be reduced. The step's record holds π (`permutation`: the
+    dataset row whose value each row holds, as the run drew it). In a fit's body each training minibatch draws π
+    over its own rows from the seed alone, so every minibatch of one size pairs its rows the same way. The record
+    holds the π of the body's last run, the one that scores every training row, which no training step used."""
     n = len(rows) if rows is not None else of.shape[dims.index("rows")]
     return of.index_select(dims.index("rows"), permutation(seed, n, derangement).to(of.device))
 
@@ -152,10 +152,10 @@ def permute(of: Tensor, seed: int | None, dims: list[str], derangement: bool = F
 @op("transforms")
 def grad(of: Tensor, of_: str) -> Tensor:
     """The gradient, at the entry's selection, of the sum of `of`'s value over every axis it has (a missing row adds
-    nothing) with respect to the value at this entry's site as the forward goes on with it there, after the writes
-    listed before this entry at that site: `of` names, bare, an entry of the same forward at a site the forward
-    reaches after this one, whose ops a gradient passes through. The first op of an entry of a `forward` (see
-    above); what it meets is that gradient already, which it gives back as it is."""
+    nothing), with respect to the value at this entry's site. That value is the one the forward goes on with there,
+    after the writes listed before this entry at that site. `of` names, bare, an entry of the same forward at a site
+    the forward reaches after this one, whose ops a gradient passes through. `grad` is the first op of an entry of a
+    `forward` (see above). What it meets is that gradient already, which it gives back as it is."""
     return of
 
 
@@ -217,33 +217,35 @@ def picked(x: Tensor, k: int) -> tuple[Tensor, Tensor]:
 @op("transforms", layout=ranking_k, positionwise=True)
 def top_k(of: Tensor, k: int, dims: list[str], over: str | list[str] = RANKED
           ) -> dict[str, Tensor | dict[str, Tensor]]:
-    """The `k` largest along the axis `over` names, the largest first: `ids`, their indices along it, and over a
-    vocabulary (`vocab_size`, a probe's `classes`) `probs`, their float32 softmax over it, over another axis
-    `values`, the ranked values as the value has them. By default the most likely tokens, ranked by their logits
-    (as a step, its value also holds their `tokens`, decoded); over `features`, a featurizer's coordinates after
-    an `encode`. Along a ragged axis (a pattern's `key`, a `pos` whose rows hold different numbers of positions) the
-    entries that are there are ranked, and a pick past them is id -1, however large `k` is. A `k` below 1 is refused
-    by name at compile, and so is one past the entries of a ranked axis whose number compile knows: a `select`'s
-    indices, the layers picked from the first, a static width of `pos`, the dataset's rows (in a fit's body, those
-    its fewest-row run holds), a probe's classes, the coordinates of a featurizer that counts them (a subspace's or a
-    pca's `k`, an sae's `latents`, a loaded bundle's) and an earlier `top_k` step's `k`; preflight refuses one past
-    the model's size of the axis (`vocab_size`, `hidden_size`, `num_heads`, ...), the layers a slice or a count from
-    the last picks, or a width the rows confirm. Along an axis neither knows the number of (a drawn gate's
-    coordinates, a generation's `new`, a fit's `epochs`, a load's `k`), torch's error stops the op at the run. An
-    exact tie goes to the lower index (`ranked`), so `top_k`'s first is `argmax`'s.
+    """The `k` largest along the axis `over` names, the largest first. `ids` holds their indices along it. Over a
+    vocabulary (`vocab_size`, a probe's `classes`) `probs` holds their float32 softmax over it, and over another
+    axis `values` holds the ranked values as the value has them. By default the most likely tokens, ranked by their
+    logits (as a step, its value also holds their `tokens`, decoded); over `features`, a featurizer's coordinates
+    after an `encode`. Along a ragged axis (a pattern's `key`, a `pos` whose rows hold different numbers of
+    positions) the entries that are there are ranked, and a pick past them is id -1, however large `k` is. A `k`
+    below 1 is refused by name at compile. So is one past the entries of a ranked axis whose number compile knows:
+    a `select`'s indices, the layers picked from the first, a static width of `pos`, the dataset's rows (in a fit's
+    body, those its fewest-row run holds) and a probe's classes. Compile knows too the coordinates of a featurizer
+    that counts them (a subspace's or a pca's `k`, an sae's `latents`, a loaded bundle's) and an earlier `top_k`
+    step's `k`. Preflight
+    refuses one past the model's size of the axis (`vocab_size`, `hidden_size`, `num_heads`, ...), the layers a
+    slice or a count from the last picks, or a width the rows confirm. Along an axis neither knows the number of (a
+    drawn gate's coordinates, a generation's `new`, a fit's `epochs`, a load's `k`), torch's error stops the op at
+    the run. An exact tie goes to the lower index (`ranked`), so `top_k`'s first is `argmax`'s.
 
     Over a list of axes (`["rows", "pos"]`), as a step, the `k` largest of all their entries together, every one
-    of those axes removed: `ids` is then an object of each axis's index of each pick, by the axis's name (`{"rows":
-    ..., "pos": ...}`, each `[..., k]`; a list of one axis gives it too), beside `values`, or `probs` where one of the axes is a vocabulary (each
-    pick's softmax over it, and, over `vocab_size`, the `tokens`, decoded). It ranks the entries as one axis laid
-    out in the order the list names them, so an exact tie goes to the lower index along the first, then the next;
-    a missing (NaN) entry is ranked below every other, and a pick past those there is -1 on every axis.
+    of those axes removed. `ids` is then an object of each axis's index of each pick, by the axis's name (`{"rows":
+    ..., "pos": ...}`, each `[..., k]`); a list of one axis gives it too. Beside it stand `values`, or `probs` where
+    one of the axes is a vocabulary: each pick's softmax over it, and, over `vocab_size`, the `tokens`, decoded. It
+    ranks the entries as one axis laid out in the order the list names them, so an exact tie goes to the lower index
+    along the first, then the next. A missing (NaN) entry is ranked below every other, and a pick past those there
+    is -1 on every axis.
 
     Its value is several tensors, which no op takes whole: an op step over a top_k's value, an operand naming one, and
     an op after a top_k in its entry are refused by name at compile. A later step names a `top_k` step's members as
     it names a fit's, each a value laid out as the step's value is, with its labels: `<step>.ids` (an integer value,
     its hole -1), `<step>.probs` (float32) or `<step>.values` (the value's dtype), and over `vocab_size`
-    `<step>.tokens`, which is text, as the op that takes a tensor refuses it; over a list of axes `<step>.ids` is one
+    `<step>.tokens`, which is text, as the op that takes a tensor refuses it. Over a list of axes `<step>.ids` is one
     tensor per axis, which an op takes by axis, `<step>.ids.rows`. Ids below 2^53 rank as the integers they are (an
     `argmax` of `<step>.ids`), their hole below every id."""
     axes = over if isinstance(over, list) else [over]

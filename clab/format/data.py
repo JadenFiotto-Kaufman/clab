@@ -245,8 +245,8 @@ def encode(tokenizer: PreTrainedTokenizerBase, value: str | list[dict], template
 # pads on the left, so a row's positions are its own tokens from 0 whatever the width; the lengths it orders and
 # pads by are the encoded rows', known before any forward.
 PADDINGS = {
-    "dataset": "every batch padded to the longest row of the step's whole input, the default: a row's numbers do not "
-               "depend on which rows share its batch, and a run reproduces to the bit at one batch size",
+    "dataset": "every batch padded to the longest row of the step's whole input, the default: a row's numbers "
+               "depend on that width, not on which rows share its batch",
     "batch": "each batch padded to its own longest row, the rows in dataset order: fewer tokens fed, and a row's "
              "numbers move in the last bits with its batch's width",
     "sorted": "a step's rows ordered by token count, longest first, before they are batched, each batch padded to "

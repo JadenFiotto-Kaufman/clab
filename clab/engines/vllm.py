@@ -29,8 +29,8 @@ What vLLM makes different, each refused by name before anything runs, or recorde
 - A forward runs whole (`stops`): nothing ends a request's forward inside the worker.
 - `readout` runs the model's final norm, head and logits processor in the worker (`project_on_vocab`), in a trace of
   its own: the model's own, as the nnterp engine's is. Under `--readout at-reads` it meets the stream alone where
-  the forward's final norm fuses it with the last residual add, another kernel, so the two agree to the last bits
-  (2e-5 in the logits on SmolLM2 in float32), as `at-reads` promises, not to the bit.
+  the forward's final norm fuses it with the last residual add, another kernel, so the two agree to the last bits,
+  as `at-reads` promises, not to the bit.
 - vLLM's default kernels are not run-to-run stable: two identical request sets differ in the last bits (in bfloat16
   by whole ulps). The engine runs vLLM's batch-invariant kernels (`VLLM_BATCH_INVARIANT`) unless `invariant` is
   false, so that the model's values reproduce to the bit and a null is exact (an entry's own ops after its last edit
@@ -112,7 +112,7 @@ class VllmEngine:
         quantized model in its own formats, not bitsandbytes'.
 
         device: "cuda:0", the first of the GPUs vLLM runs the model on (CUDA_VISIBLE_DEVICES names them), where the run keeps its values; no other
-        tp: how many GPUs vLLM shards the model over (its tensor_parallel_size); measured at 1 only
+        tp: how many GPUs vLLM shards the model over (its tensor_parallel_size)
         memory: the fraction of each GPU's memory vLLM reserves for the weights and its cache (its gpu_memory_utilization); the run's own values live outside it
         max_len: the longest sequence, prompt and new tokens, the engine serves (its max_model_len); null for the checkpoint's
         invariant: true runs vLLM's batch-invariant kernels, so that a run reproduces to the bit; false its fastest, whose last bits move between runs
@@ -190,8 +190,8 @@ class VllmEngine:
         """Starts vLLM's worker and loads the weights (`dispatch`), once, before the first step of a run that calls
         the model, a key the loader rejects refused by name as `build` refuses one; the kernel switches the worker
         reads as it starts are set just before (the batch-invariant kernels per `invariant`, and IEEE float32 for
-        Triton's matmul where nothing set it: in TF32, its default, the batch-invariant matmul moved SmolLM2's
-        float32 logits by 6e-3 against transformers', and by 8e-6 once IEEE). Then the longest sequence the worker
+        Triton's matmul where nothing set it, since TF32, its default, moves float32 logits well past their last
+        bits). Then the longest sequence the worker
         serves is known (`longest`)."""
         if self.model.dispatched:
             return

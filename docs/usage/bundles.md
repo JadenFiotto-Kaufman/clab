@@ -70,7 +70,7 @@ Compile reads the bundle into the plan and checks it with the document alone. Wh
 |---|---|---|
 | the file exists and is safetensors | compile | `documents/artifacts/nope.safetensors does not exist under the corpus root; run the document that writes it first` |
 | it holds exactly the kind's tensors | compile | `documents/artifacts/sae.safetensors holds W_dec, W_enc, b_dec, b_enc; a subspace bundle holds basis` |
-| the header records its `width` and every field a draw from it needs: a subspace's or a pca's `k`, an sae's `latents`, a lora's `rank` and `alpha`, a probe's `classes` | compile | `documents/artifacts/sae.safetensors: header records no 'latents', which a sae bundle records` |
+| the header records its `width` and every field a draw from it needs: a subspace's or a pca's `k`, an sae's `latents`, a lora's `rank` and `alpha`, a probe's `classes` | compile | `documents/artifacts/sae.safetensors: header records no 'latents', which an sae bundle records` |
 | every tensor's shape, against one drawn from the header at its `width` and fields: a subspace's `basis` `[width, k]`, a lora's `B` `[rank, width]`, a gate's `theta` `[width]` | compile | `'basis' is [16, 4], and its header lays a subspace out at width 16, k 8, parametrization cayley: 'basis' is [16, 8]` |
 | the kind's fields the document gives | compile | `header 'k' is '8'; this document expects '4'` |
 | the model's `key`, `revision` and `dtype` | compile | `header 'model.dtype' is 'float32'; this document expects 'bfloat16'` |

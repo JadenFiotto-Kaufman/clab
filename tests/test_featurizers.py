@@ -209,9 +209,8 @@ def test_an_unknown_kind_is_refused_naming_the_kinds():
 
 
 @pytest.mark.parametrize("featurizer, message", [
-    ({"latents": 32, "activation": "topk"}, r"an sae's 'k' is how many latents 'topk' keeps; it is given with "
-                                            r"activation 'topk' and only then"),
-    ({"latents": 32, "k": 4}, r"an sae's 'k' is how many latents 'topk' keeps"),
+    ({"latents": 32, "activation": "topk"}, r"activation 'topk' needs 'k', how many latents it keeps$"),
+    ({"latents": 32, "k": 4}, r"'k' is how many latents activation 'topk' keeps; activation 'relu' takes none$"),
     ({"latents": 32, "activation": "jumprelu"}, r"a 'jumprelu' sae's threshold is a published file's; load one with "
                                                 r"'file_path'"),
     ({"latents": 32, "activation": "topk", "k": 40}, r"'topk' keeps k = 40 of 32 latents"),

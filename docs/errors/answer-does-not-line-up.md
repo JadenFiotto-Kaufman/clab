@@ -23,7 +23,7 @@ iia: pairs.ans row 0: ' Tuesday' is 3 tokens; the read has 1 position on that ro
 One ending names a whitespace-only token as the difference:
 
 ```text
-nll: days.base_answer row 0: ' 42' is 3 tokens; the read has 2 positions on that row; …; the input says it as '42', 2 tokens (['4', '2']), where ' 42' alone is [' ', '4', '2']: …
+nll: days.base_answer row 0: ' 42' is 3 tokens; the read has 2 positions on that row; …; its token 0, ' ', is whitespace only, which an answer keeps and a scope under strip does not cover: scope the column without strip
 ```
 
 Some tokenizers write a number's space as its own token (the corpus Llama writes ` 42` as `▁`, `4`, `2`), which the answer keeps. A `strip` flag on the scope's column drops that token from the scope, so the read is a position short. Scope the column without `strip`: the scope then covers all three tokens, and the answer scores at each.
