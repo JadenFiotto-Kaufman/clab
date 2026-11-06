@@ -331,7 +331,7 @@ def stand_ins(root: str) -> None:
              {"basis": torch.eye(16)[:, :8].contiguous()}),
             ("basis.safetensors", {"kind": "pca", "k": "4", "document": "pca_harvest"},
              {"basis": torch.zeros(16, 4), "mean": torch.zeros(16)}),
-            ("fit.dictionary.safetensors", {"kind": "sae", "activation": "relu", "centered": "true",
+            ("fit.dictionary.safetensors", {"kind": "sae", "activation": "relu", "centered": "true", "latents": "32",
                                             "document": "sae_train"},
              {"W_enc": torch.zeros(16, 32), "b_enc": torch.zeros(32), "W_dec": torch.zeros(32, 16),
               "b_dec": torch.zeros(16)}),

@@ -12,7 +12,7 @@ from clab import ops
 from clab.compile import dataset_rows, positions
 from clab.format import data
 from clab.format.sweeps import agreeing_point, coordinate, coordinate_text, projection
-from clab.output import run_record
+from clab.output import run_record, shape_or_dtype
 from clab.plan import (Intervention, Labelled, OpStep, Plan, arguments, entries, entry_of, made_by, points, projections,
                         record_of, runnable)
 
@@ -250,7 +250,8 @@ def value_rows(value: Tensor | list[Any] | dict[str, Any], dims: list[str], plac
     first = value
     while isinstance(first, dict):          # a dict's first member, a top_k's `ids` over several axes its first axis's
         first = next(iter(first.values()))
-    shape = list(first.shape) if isinstance(first, Tensor) else [len(first)]
+    # a nested list's (a top_k's tokens) as far as its lists are of one length, up to the value's axes
+    shape = list(first.shape) if isinstance(first, Tensor) else cast(list, shape_or_dtype(first, "shape"))[:len(dims)]
     # The axes a row is per: the example axes, then the token axes within each; every axis of a value with no rows.
     outer = [i for i, a in enumerate(dims) if a in ("layers", "rows") or "rows" not in dims]
     inner = [i for i, a in enumerate(dims) if a in ("pos", "key") and "rows" in dims]

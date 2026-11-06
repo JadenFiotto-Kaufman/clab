@@ -522,7 +522,13 @@ class Pos(Record):
     or a static index that does not fit, is refused by name before any forward: the data decided. Anywhere else it
     is a result, as is a call the row never reached, and as is an index that picks none of a row's tokens (`"5:"`
     on a shorter row), in the prefill too: the row is `alignment_missing`, NaN all the way, and a write there is
-    refused by name, since it has no token to write.
+    refused by name, since it has no token to write. So is a later step's write that would take such a value as its
+    operand on a row it lands on (a read at `{"frame": 3, "index": 0}` on a row whose generation made three calls, or
+    an op step's value that takes it as any named value: `of`, `with`, a `factor`), which would write NaN there:
+    refused by name, at compile where the read's frame is a decode call at or past its generation's
+    `max_new_tokens`, which no row makes, and otherwise in the run, naming the row and the call, a forward's write
+    before its batch's forward, one at a decode call once the batch's generation says which rows made that call; a
+    generation in a fit's body records no positions, so a write in the body with such an operand writes NaN there.
     """
     frame: Swept[Selector] = 0
     scope: Scope | None = None
@@ -1332,15 +1338,17 @@ def name(plan: Plan) -> str:
 
 
 def produced(steps: dict[str, Entry], declared: dict[str, FeaturizerEntry]) -> list[str]:
-    """Every value `steps` produce, by name, in order: an op step's or a generation's own, each entry's
-    `<step>.<entry>`, and a fit's members (`<fit>.history.<term>` and its eval members, `<fit>.<eval>.<member>`);
-    not a trained featurizer, which is no value. `declared` are the plan's featurizers, whose kinds say the scalars
-    a fit's history holds: those its body computes (an sae's over its `open_encodes`)."""
+    """Every value `steps` produce, by name, in order: an op step's or a generation's own, a `top_k` step's members
+    (`<step>.ids`, ...: `top_k_members`), each entry's `<step>.<entry>`, and a fit's members (`<fit>.history.<term>`
+    and its eval members, `<fit>.<eval>.<member>`); not a trained featurizer, which is no value. `declared` are the
+    plan's featurizers, whose kinds say the scalars a fit's history holds: those its body computes (an sae's over its
+    `open_encodes`)."""
     out: list[str] = []
     for name, entry in steps.items():
         step = points(entry)[0]
         if step.kind != "fit":
             out += [name] if step.kind != "forward" else []
+            out += [f"{name}.{m}" for m in top_k_members(step)] if top_k_of(step) is not None else []
             out += [f"{name}.{k}" for k in entries(step)]
             continue
         out += [f"{name}.history.{n}" for n, s in step.steps.items() if s.kind == "op"]
@@ -1354,6 +1362,42 @@ def produced(steps: dict[str, Entry], declared: dict[str, FeaturizerEntry]) -> l
 def trained_featurizers(steps: dict[str, Entry]) -> list[str]:
     """Every featurizer a fit among `steps` trains, by the name the steps after the fit use: `<fit>.<featurizer>`."""
     return [f"{n}.{f}" for n, e in steps.items() for s in points(e)[:1] if s.kind == "fit" for f in s.train]
+
+
+def top_k_of(record: Any) -> "Op | OpStep | None":
+    """The `top_k` whose whole value a record's is: an op step's own, or an entry's last op; None for any other value.
+    That value is several tensors (`ids`, one tensor per axis over a list of them, beside `probs` or `values`, and as
+    a step over `vocab_size` the picks' `tokens`), which no op takes whole."""
+    if isinstance(record, OpStep):
+        return record if record.op == "top_k" else None
+    if isinstance(record, Intervention) and record.ops and record.ops[-1].op == "top_k":
+        return record.ops[-1]
+    return None
+
+
+def top_k_members(step: "OpStep") -> list[str]:
+    """The members of a `top_k` step's value, each a value of its own a later step names as `<step>.<member>`, as it
+    names a fit's: `ids`, the picks' indices (over a list of axes an object of one tensor per axis, each `ids.<axis>`
+    beside it), `probs` over a vocabulary or else `values`, and over `vocab_size` the picks' `tokens`, text. Each is
+    laid out as the step's value is, with its labels."""
+    over = arguments(step).get("over", ops.transforms.RANKED)
+    axes = over if isinstance(over, list) else [over]
+    return ["ids", *(f"ids.{a}" for a in axes if isinstance(over, list)),
+            "probs" if set(axes) & set(ops.VOCABULARY) else "values",
+            *(["tokens"] if ops.transforms.RANKED in axes else [])]
+
+
+def member_of(steps: dict[str, Entry], ref: str, at: dict[str, int]) -> "tuple[OpStep, str] | None":
+    """The `top_k` step whose value's member `ref` names (`<step>.<member>`, `top_k_members`), at the point agreeing
+    with `at`, and the member; a fit's eval step's too (`<fit>.<eval>.<step>.<member>`). None for any other name."""
+    thing, _, member = ref.partition(".")
+    if thing not in steps or not member:
+        return None
+    step = agreeing_point(steps[thing], at)
+    if step.kind == "fit":
+        label, _, rest = member.partition(".")
+        return member_of(step.evals[label], rest, step.at) if label in step.evals else None
+    return (step, member) if top_k_of(step) is not None and member in top_k_members(step) else None
 
 
 def walk(steps: dict[str, Entry], prefix: str = "") -> Iterator[tuple[str, Any]]:
@@ -1408,10 +1452,14 @@ def entry_of(steps: dict[str, Entry], ref: str, at: dict[str, int]) -> tuple[For
 def record_of(steps: dict[str, Entry], ref: str, at: dict[str, int]) -> Labelled:
     """The record of the value `ref` names among `steps`, at the point agreeing with `at`, which carries its
     labelled layout: an entry's (`<step>.<entry>`, a load's read among them), an op step's, a generation's or a
-    load's own (`<step>`), or a fit member's: an eval step's value (`<fit>.<eval>.<member>`, its record among the
-    fit's `evals`), a term's history (`<fit>.history.<term>`, `[epochs]`) or a trained featurizer (no axes)."""
+    load's own (`<step>`), a `top_k` step's member's (`<step>.ids`, `member_of`: the step's labels), or a fit
+    member's: an eval step's value (`<fit>.<eval>.<member>`, its record among the fit's `evals`), a term's history
+    (`<fit>.history.<term>`, `[epochs]`) or a trained featurizer (no axes)."""
     thing, _, member = ref.partition(".")
     step = agreeing_point(steps[thing], at)
+    if step.kind == "op" and member:
+        assert member_of(steps, ref, at) is not None, f"{ref} names no value"
+        return Labelled(**{f: getattr(step, f) for f in Labelled.model_fields})
     if step.kind != "fit":
         host = step.source if step.kind == "load" else step
         found = entries(host)[member] if member else step

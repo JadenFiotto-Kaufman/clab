@@ -65,7 +65,7 @@ def sum(of: Tensor, dims: list[str], over: list[str] | None = None) -> Tensor:
 @op("reductions", layout=reduced, positionwise=True)
 def min(of: Tensor, dims: list[str], over: list[str] | None = None) -> Tensor:
     """The least value over the axes `over` names, as `mean` takes them, of the values that are there; NaN where
-    none is."""
+    none is, and -inf where one of them is -inf, as `max` is +inf where one is +inf."""
     of, axes = floated(of), [i for i, a in enumerate(dims) if a in (DEFAULT if over is None else over)]
     if of.numel() == 0:                                  # nothing at all: missing, as sum and mean have it
         return torch.full_like(of.sum(dim=axes), math.nan)
@@ -75,7 +75,7 @@ def min(of: Tensor, dims: list[str], over: list[str] | None = None) -> Tensor:
 @op("reductions", layout=reduced, positionwise=True)
 def max(of: Tensor, dims: list[str], over: list[str] | None = None) -> Tensor:
     """The greatest value over the axes `over` names, as `mean` takes them, of the values that are there; NaN where
-    none is."""
+    none is, and +inf where one of them is +inf, as `min` is -inf where one is -inf."""
     of, axes = floated(of), [i for i, a in enumerate(dims) if a in (DEFAULT if over is None else over)]
     if of.numel() == 0:                                  # nothing at all: missing, as sum and mean have it
         return torch.full_like(of.sum(dim=axes), math.nan)

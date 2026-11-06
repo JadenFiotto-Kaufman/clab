@@ -3,16 +3,19 @@ featurizer), the layout of its result, and the one rule an operand keeps against
 
 import inspect
 import json
+import math
 from collections.abc import Callable, Mapping
 from typing import Any, cast
 
 from clab import featurizers, ops
+from clab.featurizers import bundles
 from clab.compile import positions
 from clab.compile.answers import check_column_ref, check_text_ref, is_literal
 from clab.compile.state import Compiling
 from clab.format import address, data, registry, selectors
-from clab.plan import (Intervention, Labelled, Op, OpStep, Plan, arguments, fail, kind_of, produced, record_of,
-                       trained_featurizers)
+from clab.format.sweeps import points
+from clab.plan import (Featurizer, Intervention, Labelled, Load, Op, OpStep, Plan, arguments, fail, kind_of, member_of,
+                       produced, record_of, top_k_members, top_k_of, trained_featurizers)
 
 
 def narrowed_readout_refusal(what: str) -> str:
@@ -87,7 +90,10 @@ def resolver(cx: Compiling, path: str, classes: bool, at: dict[str, int],
     def resolve(key: str, value: Any, p: inspect.Parameter) -> Labelled | None:
         where = f"{path}.{key}"
         if p.annotation == ops.Value:
-            return value_record(cx, value, where, at, live)
+            record = value_record(cx, value, where, at, live)
+            if why := whole_top_k(cx, value, record, at, "an operand"):
+                fail(where, why)
+            return record
         if p.annotation == ops.Featurizer:
             check_featurizer_ref(cx, value, where)
             return None
@@ -146,6 +152,144 @@ def value_record(cx: Compiling, ref: str, path: str, at: dict[str, int],
         fail(path, f"{ref!r} names no value produced before this step; known: {', '.join(sorted(known)) or 'none'}")
     cx.used.add(ref)
     return record_of(cx.steps, ref, at)
+
+
+def several(top: Op | OpStep) -> str:
+    """What a top_k's value holds, as a refusal names it."""
+    over = arguments(top).get("over", ops.transforms.RANKED)
+    axes = over if isinstance(over, list) else [over]
+    return ("its ids" + (" (one tensor per axis it ranks)" if isinstance(over, list) else "") +
+            (", their probs" if set(axes) & set(ops.VOCABULARY) else ", their values") +
+            (" and their tokens" if isinstance(top, OpStep) and ops.transforms.RANKED in axes else ""))
+
+
+def whole_top_k(cx: Compiling, ref: str, record: Labelled, at: dict[str, int], takes: str) -> str | None:
+    """Why value `ref` (its record `record`, at the consumer's point `at`) is no one tensor an op takes: a `top_k`'s
+    whole value (`plan.top_k_of`), which is several tensors, whose members a step's names (`plan.top_k_members`); a
+    top_k step's `ids` over a list of axes, one tensor per axis; its `tokens`, text. A load's value is each of these
+    as the run that saved it recorded it, and the fix is the member to save there. None for any other value. `takes`
+    names what takes one (an op, an operand)."""
+    loaded = record.value if isinstance(record, Load) else None          # the name the run that saved it gave it
+    found = member_of(cx.sources[record.from_]["plan"].steps, record.value, record.at) if isinstance(record, Load) \
+        else member_of(cx.steps, ref, at)
+    if found is not None:
+        step, member = found
+        named, over = loaded or ref, arguments(step).get("over")
+        what, fix = (f"{ref!r} loads {loaded!r}, a top_k's", "save {} in the run that made it and load that") \
+            if loaded else (f"{ref!r} is a top_k's", "name {}")
+        if member == "ids" and isinstance(over, list):
+            axes = ", ".join(repr(f"{named}.{a}") for a in over)
+            return (f"{what} ids over a list of axes, one tensor per axis it ranks, and {takes} takes one: "
+                    + fix.format(f"the axis's ({axes})"))
+        if member == "tokens":
+            return (f"{what} tokens, its picks' token strings, which are text, and {takes} takes a tensor: "
+                    + fix.format(f"their ids ({named.removesuffix('.tokens') + '.ids'!r})"))
+        return None
+    top = top_k_of(record if not isinstance(record, Load) else
+                   record_of(cx.sources[record.from_]["plan"].steps, record.value, record.at))
+    if top is None:
+        return None
+    if isinstance(top, OpStep):
+        named = ", ".join(repr(f"{loaded or ref}.{m}") for m in top_k_members(top)
+                          if m != "tokens" and not (m == "ids" and isinstance(arguments(top).get("over"), list)))
+        fix = (f"save the member it needs in the run that made it ({named}) and load that" if loaded else
+               f"name the member it needs ({named})")
+        fix += ", or rank what it needs with an op over the value the top_k ranks" + ("" if loaded else f", {top.of!r}")
+    else:
+        fix = ("rank what it needs in that entry in place of the top_k, or make the top_k a step after the forward, "
+               "whose members a later step names (`<step>.ids`)")
+    return f"{ref!r} is a top_k's value, several tensors ({several(top)}), and {takes} takes one: {fix}"
+
+
+def k_past(name: str, args: dict, met: Labelled, sizes: dict[str, int] | None,
+           known: dict[str, tuple[int, str]]) -> str | None:
+    """Why a `top_k`'s `k` (op `name`'s arguments `args`) cannot pick among the entries of the axes it ranks on the
+    value it meets, labelled `met`: below 1, which picks nothing, or more than there are, where their number is
+    static. From the record: a `select`'s indices, the layers (at compile those written from the first, in preflight
+    every pick), a width of `pos` (at compile a static one, in preflight one the rows confirm); from `known`, by axis
+    with what says so, what the caller knows (at compile `known_counts`: the rows, a probe's classes, a featurizer's
+    coordinates, an earlier top_k's picks; in preflight a probe's classes); and in preflight the model's sizes
+    (`sizes`, None at compile). Along a ragged axis (`transforms.RAGGED`: a `pos` whose rows differ, the keys) there is
+    no one number, and a pick past what is there is id -1. None where `k` fits, or where an axis's number is known to
+    neither stage (a gate's coordinates, a generation's `new`, a fit's `epochs`, a load's `k`)."""
+    if name != "top_k" or not isinstance(args.get("k"), int):
+        return None
+    if args["k"] < 1:
+        return f"k {args['k']}: a top_k picks at least one entry, so k is 1 or more"
+    over = args.get("over", ops.transforms.RANKED)
+    counts: list[tuple[str, int, str]] = []
+    for axis in over if isinstance(over, list) else [over]:
+        kept = met.kept.get(axis)
+        if isinstance(kept, list) and kept:
+            counts.append((axis, len(kept), "those its select keeps"))
+        elif kept is not None:
+            return None                     # left to preflight, or keys relative to each query
+        elif axis == "layers" and met.layers:
+            counts.append((axis, len(met.layers), "the value's"))
+        elif axis == "pos" and met.width is not None:
+            counts.append((axis, met.width, "each row's"))
+        elif axis in known:
+            counts.append((axis, *known[axis]))
+        elif sizes is not None and axis in sizes and axis not in ops.transforms.RAGGED:
+            counts.append((axis, sizes[axis], "the model's"))
+        else:
+            return None
+    n = math.prod(c for _, c, _ in counts)
+    if args["k"] <= n:
+        return None
+    held = " by ".join(f"{c} along {axis} ({why})" for axis, c, why in counts)
+    return (f"k {args['k']} is more than the {n} entr{'y' if n == 1 else 'ies'} it ranks, {held}, each of which it "
+            f"picks once: k is at most {n}")
+
+
+def known_counts(cx: Compiling, record: Labelled, ref: str | None = None,
+                 at: dict[str, int] | None = None) -> dict[str, tuple[int, str]]:
+    """What compile knows of how many entries the value `ref` names (or an entry's, labelled `record`) holds along the
+    axes `k_past` takes from the caller, each with what says so: its dataset's rows (in a fit's body a run's rows are
+    fewer, which `compile_fit` holds a `top_k` to); the classes of the probe its `classes` axis is of (the last encode
+    left open around it); the coordinates of the featurizer its `features` are in, as its field or bundle counts them
+    (`coordinates_of`), as many as that encode's `select` keeps; and the picks of the `top_k` step whose member it is,
+    or descends from through op steps, along `k`."""
+    dims, out = record.dims or [], {}
+    if "rows" in dims and record.dataset in cx.rows:
+        out["rows"] = (len(cx.rows[cast(str, record.dataset)]), "the dataset's")
+    if record.space and ("classes" in dims or "features" in dims):
+        ref_f = record.space[-1]["featurizer"]
+        spec = points(cx.featurizers[ref_f if ref_f in cx.featurizers else ref_f.partition(".")[2]])[0]
+        if "classes" in dims:
+            out["classes"] = (len(featurizers.labels(cx.rows, (spec.model_extra or {})["classes"])), "the probe's")
+        elif (n := coordinates_of(spec)) is not None:
+            select = record.space[-1].get("select")
+            out["features"] = (len(selectors.select(select["features"], n)), "those its encode's select keeps") \
+                if select else (n, f"the {spec.kind}'s coordinates")
+    if "k" in dims and ref is not None and at is not None and (k := picks_of(cx, ref, at)) is not None:
+        out["k"] = (k, "the picks of the top_k it ranks")
+    return out
+
+
+def coordinates_of(spec: Featurizer) -> int | None:
+    """How many coordinates featurizer `spec` (a compiled record) encodes into, where compile knows: the field of its
+    kind that counts them (`Kind.counts`, else one it is drawn from: a subspace's or a pca's `k`, an sae's
+    `latents`), written or recorded by its bundle's header, else the last axis of the first tensor its bundle holds,
+    the encode's (a published sae's `W_enc`, `[width, latents]`); None for a drawn featurizer with no such field (a
+    gate's, as wide as its site)."""
+    kind, fields = featurizers.KINDS[spec.kind], spec.model_extra or {}
+    for key in dict.fromkeys((*kind.counts, *kind.drawn)):
+        given = fields.get(key)
+        if given is None and spec.header is not None and key in spec.header:
+            given = bundles.value(spec.header[key])
+        if isinstance(given, int) and not isinstance(given, bool):
+            return given
+    return None if spec.bundle is None else spec.bundle[kind.saves[0]].shape[-1]
+
+
+def picks_of(cx: Compiling, ref: str, at: dict[str, int]) -> int | None:
+    """The `k` of the `top_k` step whose member value `ref` is, or descends from through op steps; None for any other
+    value (a load's `k` axis, whose top_k ran in another run)."""
+    if (found := member_of(cx.steps, ref, at)) is not None:
+        return arguments(found[0])["k"]
+    record = record_of(cx.steps, ref, at)
+    return picks_of(cx, record.of, record.at) if isinstance(record, OpStep) and "k" in (record.dims or []) else None
 
 
 def check_featurizer_ref(cx: Compiling, value: object, path: str) -> None:

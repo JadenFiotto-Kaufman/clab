@@ -7,7 +7,7 @@ import numpy
 import pytest
 import torch
 
-from conftest import BATCH_SIZE, edited, placed, same
+from conftest import BATCH_SIZE, edited, on_each, placed, same
 
 from clab import ops
 from clab.ops import edits, metrics, reductions, transforms
@@ -636,6 +636,24 @@ def test_max_mirrors_min_each_keeping_an_infinity_and_std_is_the_sample_standard
         ["rows", "hidden_size"]
 
 
+def test_min_and_max_keep_an_infinity_beside_holes_to_the_bit():
+    """Over rows with NaN holes, ids with their -1 hole, and bfloat16, each step's `min` is -inf where its row holds
+    -inf and `max` +inf where it holds +inf, to the bit (never the dtype's lowest or highest finite number, which
+    `nan_to_num` would give), NaN where nothing is there, and each mirrors the other: `max` of `-x` is `-min` of x."""
+    d = ["rows", "pos"]
+    x = torch.tensor([[-math.inf, 1.0, NAN, 2.0], [NAN, NAN, NAN, NAN], [math.inf, -2.0, NAN, NAN],
+                      [math.inf, -math.inf, NAN, 0.5]])
+    assert same(reductions.min(x, d, over=["pos"]), torch.tensor([-math.inf, NAN, -2.0, -math.inf]))
+    assert same(reductions.max(x, d, over=["pos"]), torch.tensor([2.0, NAN, math.inf, math.inf]))
+    assert same(reductions.max(-x, d, over=["pos"]), -reductions.min(x, d, over=["pos"]))
+    assert same(reductions.min(x.bfloat16(), d, over=["pos"]), reductions.min(x, d, over=["pos"]))
+    assert same(reductions.min(x, d), torch.tensor(-math.inf)) and same(reductions.max(x, d), torch.tensor(math.inf))
+    assert same(reductions.max(-x.bfloat16(), d, over=["pos"]), torch.tensor([math.inf, NAN, 2.0, math.inf]))
+    ids = torch.tensor([[3, -1, 7], [-1, -1, -1]])
+    assert same(reductions.min(ids, d, over=["pos"]), torch.tensor([3.0, NAN]))
+    assert same(reductions.max(ids, d, over=["pos"]), torch.tensor([7.0, NAN]))
+
+
 def test_median_is_numpys_over_the_values_there_and_the_mean_of_the_middle_two_at_an_even_count():
     """Over one axis and several, at odd and even counts of the values there, on random values with NaNs and signed
     zeros: the bits of numpy's `nanmedian` of the float32 values, a zero's sign included (+0.0, where the sort alone
@@ -913,6 +931,42 @@ def test_a_reduction_or_an_elementwise_transform_of_ids_takes_their_hole_as_miss
     own = [top[i][top[i] != -1] for i in range(4)]
     assert r["min"].tolist() == [float(ids.min()) for ids in own] and (r["min"] >= 0).all()
     assert r["sum"].tolist() == [float(ids.sum()) for ids in own]
+
+
+def test_argmax_and_top_k_rank_ids_with_their_hole_below_every_id():
+    """Ids (a top_k step's `ids`, an `argmax`'s) below 2^53 rank as the integers they are, their hole -1 missing as
+    NaN is: ranked below every id, a pick past the ids there -1, and a vector of holes -1; `top_k`'s `values` keep
+    the ids' dtype, the hole -1 in them."""
+    ids = torch.tensor([[[3, -1, 7, 5]], [[-1, -1, -1, -1]], [[2**40 + 1, 2**40, -1, 0]]])
+    dims = ["rows", "pos", "k"]
+    assert transforms.argmax(ids, dims, over="k").tolist() == [[2], [-1], [0]]
+    top = transforms.top_k(ids, 4, dims, over="k")
+    assert top["ids"].tolist() == [[[2, 3, 0, -1]], [[-1, -1, -1, -1]], [[0, 1, 3, -1]]]
+    assert top["values"].dtype == torch.int64
+    assert top["values"].tolist() == [[[7, 5, 3, -1]], [[-1, -1, -1, -1]], [[2**40 + 1, 2**40, 0, -1]]]
+
+
+def test_a_top_k_past_a_ragged_axis_picks_minus_one_however_large_its_k(engines):
+    """Along a ragged axis (`pos` where rows hold different numbers of positions, `key`) a pick past the entries there
+    is -1 with a missing value, `k` past the widest row's too, where torch's top-k refused a `k` past the axis; on
+    plain tensors, an `argmax` of an empty one is -1; and on weekdays/train read at every token (11, 9, 9 and 9),
+    twelve picks over `pos` are each row's own then -1, on both engines alike."""
+    x = torch.tensor([[1.0, 3.0], [2.0, NAN]])
+    for over in ("pos", "key"):
+        top = transforms.top_k(x, 4, ["rows", over], over=over)
+        assert top["ids"].tolist() == [[1, 0, -1, -1], [0, -1, -1, -1]]
+        assert same(top["values"], torch.tensor([[3.0, 1.0, NAN, NAN], [2.0, NAN, NAN, NAN]]))
+        assert transforms.argmax(torch.zeros(2, 0), ["rows", over], over=over).tolist() == [-1, -1]
+
+    def change(d: dict) -> None:
+        d["steps"] = {"clean": {"kind": "forward", "input": "pairs.input", "interventions": {"h": {
+                          "site": "target", "pos": {"index": ":"}, "ops": [{"op": "sum", "over": ["hidden_size"]}]}}},
+                      "top": {"kind": "op", "op": "top_k", "of": "clean.h", "k": 12, "over": "pos"}}
+        d["saves"] = ["top"]
+    runs = on_each(engines, edited("patching", change).compile())
+    assert same(runs["nnterp"].results, runs["hooks"].results)
+    ids = runs["nnterp"].results["top"]["ids"]
+    assert [int((row != -1).sum()) for row in ids] == [11, 9, 9, 9] and (ids[:, 11] == -1).all()
 
 
 def test_the_new_reductions_are_refused_by_name_where_they_cannot_mean_anything():
