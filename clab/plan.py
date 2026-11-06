@@ -806,7 +806,8 @@ class Forward(Record):
     rows share its batch. At some thread counts the batch's other rows can still move them in the last bits. They
     do depend on the batch's shape: a trailing partial batch is a smaller matrix, and a batch padded to its own
     width a narrower one. Either can differ in the last bits: in float32 a forward's values move by 6e-8 at most on
-    the corpus (`tests/test_padding.py`), and a real model's move more. A featurizer trained through such a forward
+    the corpus (`tests/test_padding.py`), 1.2e-7 where a write takes what a fit trained on such values, and a real
+    model's move more. A featurizer trained through such a forward
     can move by more than the last bits, since an optimizer such as Adam scales a rounding-sized gradient up to its
     step size. So a fit whose trained tensors are compared belongs under `dataset` padding. Results reproduce to the
     bit at a fixed batch size, padding, readout and thread count, each of which the run records."""

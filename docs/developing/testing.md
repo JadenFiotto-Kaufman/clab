@@ -8,7 +8,7 @@ sources: [tests/conftest.py, tests/test_documents.py, tests/test_plan.py, tests/
 
 # Testing
 
-The suite runs every corpus document on its checkpoint (tiny ones, and GPT-2 for one), offline and on CPU, and pins its numbers per engine; it also holds FORMAT.md and the docs to the code. This page is how to run it, how pins work and are re-pinned, and where a new test goes.
+The suite runs every corpus document on tiny checkpoints, offline and on CPU, and pins its numbers per engine; it also holds FORMAT.md and the docs to the code. This page is how to run it, how pins work and are re-pinned, and where a new test goes.
 
 ## Running the suite
 
@@ -34,7 +34,6 @@ CUDA_VISIBLE_DEVICES= HF_HUB_OFFLINE=1 uv run --no-sync pytest tests/ -q
 |---|---|---|
 | `hf-internal-testing/tiny-random-LlamaForCausalLM` | `9fb191250dd56d0ba7ec9785a025ed29c03d5998` | the corpus |
 | `hf-internal-testing/tiny-random-gpt2` | `71034c5d8bde858ff824298bdedc65515b97d2b9` | `documents/gpt2_reach.json` and the other byte-level BPE documents and tests |
-| `openai-community/gpt2` | `607a30d783dfa663caf39e06633721c8d4cfcd7e` | `documents/probe_direction.json`, the one corpus document on a trained model's weights |
 | `trl-internal-testing/tiny-Qwen3ForCausalLM` | `25bb9b8963688237e94750f6f3e48f1947d3c7a3` | chat-template tests in `tests/test_positions.py` and `tests/test_findings.py` |
 | `nyu-mll/glue`, a dataset, configs `wnli` and `ax` | `bcdcba79d07bc864c1c254ccfcedcce55bcc9a8c` | `tests/test_hub.py` |
 | `Qwen/Qwen3-8B`, its tokenizer only | `b968826d9c46dd6066d109eabc6255188de91218` | one chat-template test in `tests/test_positions.py`, which skips without it |

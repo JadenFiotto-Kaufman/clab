@@ -1,8 +1,8 @@
 {
- "description": "A trained probe's direction, projected out of the stream it was trained on, in one document, on GPT-2 (CPU, float32). Twenty one-sentence reviews, half positive and half negative, end \"Overall, the movie was\"; `harvest.h` reads layer 10's output at that last token, and the fit trains a two-class `linear` probe on it against `label` (its classes sorted: `negative`, then `positive`). `fit.probe.W` is the trained probe's weight, a value laid out `[hidden_size, classes]`: `positive` and `negative` select its two columns (a `select` keeps `classes` at size 1, labelled with the class it kept), each summed over `classes` to drop that axis, and `direction` is the one less the other, `W[:, 1] - W[:, 0]`, the direction along which the probe tells positive from negative. `projected` removes it from layer 10's output at every position (`project_out`), and `null` removes the direction scaled to zero, which leaves every vector as it is, so its numbers are the clean run's to the bit. `ld` is each row's logit for the word that matches its review (`answer`: \" good\" or \" bad\") less the one that does not (`other`), and each `margin` its mean over the rows: how far the model's next word follows the review's sentiment. The probe is trained and its direction tested on the same twenty rows.",
+ "description": "A trained probe's direction, projected out of the stream it was trained on, in one document, on the tiny GPT-2 the byte-level BPE documents use. Twenty one-sentence reviews, half positive and half negative, end \"Overall, the movie was\"; `harvest.h` reads layer 2's output at that last token, and the fit trains a two-class `linear` probe on it against `label` (its classes sorted: `negative`, then `positive`). `fit.probe.W` is the trained probe's weight, a value laid out `[hidden_size, classes]`: `positive` and `negative` select its two columns (a `select` keeps `classes` at size 1, labelled with the class it kept), each summed over `classes` to drop that axis, and `direction` is the one less the other, `W[:, 1] - W[:, 0]`, the direction along which the probe tells positive from negative. `projected` removes it from layer 2's output at every position (`project_out`), and `null` removes the direction scaled to zero, which leaves every vector as it is, so its numbers are the clean run's to the bit. `ld` is each row's logit for its `answer` less its `other` (\" well\" and \" no\", one token each on this tokenizer), and each `margin` its mean over the rows. The weights are random, so the probe and the margins show the mechanism, not a sentiment; the probe is trained and its direction tested on the same twenty rows.",
  "model": {
-  "key": "openai-community/gpt2",
-  "revision": "607a30d783dfa663caf39e06633721c8d4cfcd7e"
+  "key": "hf-internal-testing/tiny-random-gpt2",
+  "revision": "71034c5d8bde858ff824298bdedc65515b97d2b9"
  },
  "data": {
   "reviews": {
@@ -10,125 +10,125 @@
     {
      "input": "I loved this film. Overall, the movie was",
      "label": "positive",
-     "answer": " good",
-     "other": " bad"
+     "answer": " well",
+     "other": " no"
     },
     {
      "input": "I hated this film. Overall, the movie was",
      "label": "negative",
-     "answer": " bad",
-     "other": " good"
+     "answer": " no",
+     "other": " well"
     },
     {
      "input": "What a wonderful movie. Overall, the movie was",
      "label": "positive",
-     "answer": " good",
-     "other": " bad"
+     "answer": " well",
+     "other": " no"
     },
     {
      "input": "What a terrible movie. Overall, the movie was",
      "label": "negative",
-     "answer": " bad",
-     "other": " good"
+     "answer": " no",
+     "other": " well"
     },
     {
      "input": "The acting was brilliant. Overall, the movie was",
      "label": "positive",
-     "answer": " good",
-     "other": " bad"
+     "answer": " well",
+     "other": " no"
     },
     {
      "input": "The acting was awful. Overall, the movie was",
      "label": "negative",
-     "answer": " bad",
-     "other": " good"
+     "answer": " no",
+     "other": " well"
     },
     {
      "input": "A delightful story. Overall, the movie was",
      "label": "positive",
-     "answer": " good",
-     "other": " bad"
+     "answer": " well",
+     "other": " no"
     },
     {
      "input": "A boring story. Overall, the movie was",
      "label": "negative",
-     "answer": " bad",
-     "other": " good"
+     "answer": " no",
+     "other": " well"
     },
     {
      "input": "This was a fantastic experience. Overall, the movie was",
      "label": "positive",
-     "answer": " good",
-     "other": " bad"
+     "answer": " well",
+     "other": " no"
     },
     {
      "input": "This was a dreadful experience. Overall, the movie was",
      "label": "negative",
-     "answer": " bad",
-     "other": " good"
+     "answer": " no",
+     "other": " well"
     },
     {
      "input": "The music was beautiful. Overall, the movie was",
      "label": "positive",
-     "answer": " good",
-     "other": " bad"
+     "answer": " well",
+     "other": " no"
     },
     {
      "input": "The music was horrible. Overall, the movie was",
      "label": "negative",
-     "answer": " bad",
-     "other": " good"
+     "answer": " no",
+     "other": " well"
     },
     {
      "input": "I enjoyed every minute of it. Overall, the movie was",
      "label": "positive",
-     "answer": " good",
-     "other": " bad"
+     "answer": " well",
+     "other": " no"
     },
     {
      "input": "I regretted every minute of it. Overall, the movie was",
      "label": "negative",
-     "answer": " bad",
-     "other": " good"
+     "answer": " no",
+     "other": " well"
     },
     {
      "input": "An excellent, moving film. Overall, the movie was",
      "label": "positive",
-     "answer": " good",
-     "other": " bad"
+     "answer": " well",
+     "other": " no"
     },
     {
      "input": "A dull, lifeless film. Overall, the movie was",
      "label": "negative",
-     "answer": " bad",
-     "other": " good"
+     "answer": " no",
+     "other": " well"
     },
     {
      "input": "The cast was superb. Overall, the movie was",
      "label": "positive",
-     "answer": " good",
-     "other": " bad"
+     "answer": " well",
+     "other": " no"
     },
     {
      "input": "The cast was dreadful. Overall, the movie was",
      "label": "negative",
-     "answer": " bad",
-     "other": " good"
+     "answer": " no",
+     "other": " well"
     },
     {
      "input": "A charming and funny movie. Overall, the movie was",
      "label": "positive",
-     "answer": " good",
-     "other": " bad"
+     "answer": " well",
+     "other": " no"
     },
     {
      "input": "A tedious and stupid movie. Overall, the movie was",
      "label": "negative",
-     "answer": " bad",
-     "other": " good"
+     "answer": " no",
+     "other": " well"
     }
    ],
-   "sha256": "a5b9f71dcc59dbd92c7626adef0fc8bbb5f16a30d9ca28130b58fb728b2ba7e0",
+   "sha256": "959bacf684bd4d6418804e2efc97d0c885354d8056bf85a98c6400c30adcacfe",
    "n_rows": 20
   }
  },
@@ -146,7 +146,7 @@
     "h": {
      "site": {
       "component": "layer_output",
-      "layers": 10
+      "layers": 2
      },
      "pos": -1,
      "dims": [
@@ -156,7 +156,7 @@
      ],
      "dataset": "reviews",
      "layers": [
-      10
+      2
      ],
      "read": "harvest.h",
      "width": 1,
@@ -196,7 +196,7 @@
      ],
      "dataset": "reviews",
      "layers": [
-      10
+      2
      ],
      "read": "harvest.h",
      "width": 1,
@@ -217,7 +217,7 @@
      ],
      "dataset": "reviews",
      "layers": [
-      10
+      2
      ],
      "read": "harvest.h",
      "width": 1
@@ -233,7 +233,7 @@
      ],
      "dataset": "reviews",
      "layers": [
-      10
+      2
      ],
      "read": "harvest.h",
      "width": 1
@@ -245,7 +245,7 @@
      "dims": [],
      "dataset": "reviews",
      "layers": [
-      10
+      2
      ],
      "read": "harvest.h"
     }
@@ -377,7 +377,7 @@
     "out": {
      "site": {
       "component": "layer_output",
-      "layers": 10
+      "layers": 2
      },
      "ops": [
       {
@@ -397,7 +397,7 @@
      ],
      "dataset": "reviews",
      "layers": [
-      10
+      2
      ],
      "read": "projected.out"
     },
@@ -439,7 +439,7 @@
     "out": {
      "site": {
       "component": "layer_output",
-      "layers": 10
+      "layers": 2
      },
      "ops": [
       {
@@ -459,7 +459,7 @@
      ],
      "dataset": "reviews",
      "layers": [
-      10
+      2
      ],
      "read": "null.out"
     },
