@@ -93,6 +93,7 @@ A reference is a thing, then a member, split at the first dot:
 | `<dataset>.<column>` | a column, read row by row | `pairs.cf_answer` |
 | `<featurizer>` | a declared featurizer | `rot` |
 | `<fit>.<member>` | a fit's trained featurizer, an eval's value, or its history | `fit.rot` (`documents/das.json`), `fit.held_out.ce` (`documents/lora_train.json`) |
+| `<top_k step>.<member>` | one of a `top_k` step's tensors (`ids`, `probs` or `values`, `tokens`); over a list of axes, `ids.<axis>` | `top.ids`, `top.ids.rows` |
 
 - **Steps run in the order written, and a value is named only after the step that makes it.** An op step placed before the forward it reads is refused: `steps.iia.of: 'patched.logits' names no value produced before this step; known: counterfactual.v_cf`.
 - **Names are one flat namespace per scope.** A step name has no dot and is not also a dataset or featurizer name. Entry names belong to their step, so two steps may each have a `logits`.
