@@ -480,7 +480,7 @@ def test_a_pattern_from_an_input_of_other_lengths_is_refused(engines):
         d["data"]["pairs"] = {"path": "weekdays/train"}
     text, forwards = refused(engines, edited("attention_pattern_patching", change).compile(), kind="nnterp")
     assert forwards == 0
-    assert text.startswith("patched.look_there: operand 'counterfactual.their_pattern' was read on "
+    assert text.startswith("patched.look_there at num_heads=0: operand 'counterfactual.their_pattern' was read on "
                            "pairs.counterfactual_inputs[0], row 0 of which is 9 tokens; pairs.input has 11 there"), text
 
 
