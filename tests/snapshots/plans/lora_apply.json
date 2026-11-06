@@ -20,7 +20,7 @@
     "alpha": "8",
     "component": "layer_output",
     "document": "lora_train",
-    "format": "clab/1",
+    "format": "nnspec/1",
     "kind": "lora",
     "layer": "0",
     "model.dtype": "float32",

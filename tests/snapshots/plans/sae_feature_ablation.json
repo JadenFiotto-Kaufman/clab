@@ -20,7 +20,7 @@
     "centered": "true",
     "component": "layer_output",
     "document": "sae",
-    "format": "clab/1",
+    "format": "nnspec/1",
     "kind": "sae",
     "latents": "32",
     "layer": "0",
