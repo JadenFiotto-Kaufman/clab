@@ -166,6 +166,16 @@ def select_kept(where: str, of: Labelled, args: dict, sizes: dict[str, int] | No
     return out
 
 
+def selected_layers(of: Labelled, kept: dict[str, selectors.Kept]) -> tuple[list[int] | None, dict[str, selectors.Kept]]:
+    """A `select`'s value's layers and the indices it keeps (`select_kept`'s), the picks along `layers` taken out of the
+    kept indices and mapped to the model layers of the value it is over (`[]` while either waits on a later stage);
+    the value's own layers where it selects none."""
+    if "layers" not in kept:
+        return of.layers, kept
+    picks, rest = kept["layers"], {a: v for a, v in kept.items() if a != "layers"}
+    return ([cast(list, of.layers)[i] for i in cast(list, picks)] if picks and of.layers else []), rest
+
+
 def select_counts(cx: Compiling, record: Labelled, ref: str, at: dict[str, int]
                   ) -> tuple[dict[str, tuple[int, str]], dict[str, tuple[int, str]]]:
     """What compile knows of the numbers of entries along the axes of value `ref` (labelled `record`) a `select`

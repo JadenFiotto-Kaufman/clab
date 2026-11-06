@@ -437,7 +437,7 @@ def test_select_takes_the_indices_its_selector_picks_along_each_axis_as_torch_do
     ({"select": {"rows": 0}}, r"select 'rows': a select step narrows a value's other axes, and its rows are a "
                               r"dataset's \(take, skip\) to narrow"),
     ({"select": {"pos": -1}}, r"its pos are a read's \(pos\)"),
-    ({"select": {"layers": 0}}, r"its layers are a site's \(layers\)"),
+    ({"select": {"key": 0}}, r"its key are a read's \(its site's select\)"),
     ({"select": {}}, r"select \{\}: \{<axis>: <selector>\}, one or more axes of the value"),
     ({"select": {"classes": "1:1"}}, r"select\.classes: '1:1' picks nothing")])
 def test_select_names_a_feature_axis_with_a_selector(args, message):
