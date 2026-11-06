@@ -43,9 +43,9 @@ def width(pos: dict) -> int | None:
     its frame names a static number of calls, its index has a static width, and a scope, if any, is one occurrence
     in the prefill, not `until` (which runs from the frame's first token to it). Where it is None, preflight writes
     for a prefill record the number every row's positions hold, where they agree. Only a pairing with another
-    forward's value needs that one number, and compile refuses one over a None but where the scope alone leaves it
-    so (`pending_width`: one occurrence in the prefill, not `until`, its tokens counted by an index of no static
-    width, `":"` among them), which the rows decide."""
+    forward's value needs that one number, and compile refuses one over a None but where the rows decide it
+    (`pending_width`: an index of no static width, `":"` among them, over the prefill's prompt or over one
+    occurrence of a scope there, not `until`)."""
     scope = pos["scope"]
     if fixed(pos["frame"]) is None or scope and (not prefill_only(pos) or fixed(scope.get("occurrence", 0)) != 1
                                                  or scope.get("until")):
@@ -54,11 +54,12 @@ def width(pos: dict) -> int | None:
 
 
 def pending_width(pos: dict) -> bool:
-    """Whether a record's width is the rows' to confirm, in preflight, where its `pos` alone does not fix it: one
-    occurrence of a scope in the prefill, not `until`, whose tokens an index of no static width counts (`width`)."""
+    """Whether a record's width is the rows' to confirm, in preflight, where its `pos` alone does not fix it
+    (`width`): in the prefill alone, an index of no static width (`":"`, `"2:"`) over the prompt, whose length each
+    row's tokens decide, or over one occurrence of a scope, not `until`, whose tokens they decide."""
     scope = pos["scope"]
-    return bool(scope) and prefill_only(pos) and fixed(scope.get("occurrence", 0)) == 1 and not scope.get("until") \
-        and width(pos) is None
+    return prefill_only(pos) and width(pos) is None and (
+        not scope or fixed(scope.get("occurrence", 0)) == 1 and not scope.get("until"))
 
 
 def reach(pos: dict, horizon: int | None = None) -> tuple[bool, list[int] | None, bool]:

@@ -63,11 +63,11 @@ def preflight(engine: Engine, plan: Plan) -> Findings:
     size (`address.COMPONENTS`' `ids`); a position that does not fit some row's scope, or whose scope is not in a row
     a write or a read of static width needs; a token column that is not one token on some row; an operand that breaks
     Ops' one rule once the model's sizes and the rows' positions are known (`arguments.mismatch`: a layer the op acts
-    at that the operand does not hold, heads in another order, one head for several, another width, a whole scope from
-    another forward whose rows hold different numbers of tokens, each count's rows named); a write to a component with
-    a `key` axis (the attention pattern, the scores) whose operand was read on another input that does not tokenize to
-    the same length on every row, which would misalign the keys, and a window of several positions that reaches past
-    the tokens two such inputs share (`check_operands`, `check_window`); a `pca` over no more vectors than its `k`; a
+    at that the operand does not hold, heads in another order, one head for several, another width, a whole scope or
+    an open index from another forward, or a permute of one, whose rows hold different numbers of tokens, each
+    count's rows named); a write to a component with a `key` axis (the attention pattern, the scores) whose operand
+    was read on another input that does not tokenize to the same length on every row, which would misalign the
+    keys, and a window of several positions that reaches past the tokens two such inputs share (`check_operands`, `check_window`); a `pca` over no more vectors than its `k`; a
     featurizer used at two widths (at a site, the site's; inside an `encode`, that one's coordinates'), at a width its
     bundle's header does not say (or, with no header, whose tensors are not as wide), with a field that counts more
     directions than that width (`counts`), at another layer than the one it says it was trained at, reading its input
@@ -115,7 +115,7 @@ def prepare(engine: Engine, plan: Plan, steps: dict, classes: dict[str, list], f
                         raise ValueError(f"{at_point(plan, name, step.at)}: {why}")
                     for key, (written, theirs) in references(step.op, args, preflight_resolver(plan, step.at)).items():
                         why = mismatch(of, theirs, step.op, key, written, repr(step.of), False, False,
-                                       adapts(plan, step), lambda read: entry_of(plan.steps, read, step.at)[1])
+                                       adapts(plan, step), lambda ref: record_of(plan.steps, ref, step.at))
                         if why:
                             raise ValueError(f"{name}: operand {why}")
                     if "classes" in of.dims:
@@ -203,7 +203,7 @@ def prepare(engine: Engine, plan: Plan, steps: dict, classes: dict[str, list], f
                                                                preflight_resolver(plan, step.at)).items():
                             forward = written.rpartition(".")[0] == name
                             why = mismatch(ours, theirs, o.op, k, written, repr(step.input), i < edits, forward,
-                                           adapts(plan, o), lambda read: entry_of(plan.steps, read, step.at)[1])
+                                           adapts(plan, o), lambda ref: record_of(plan.steps, ref, step.at))
                             if why:
                                 raise ValueError(f"{where}: operand {why}")
                         write = (cast(Site, record.site).component, repr(record.pos), repr(record.kept), o.op,

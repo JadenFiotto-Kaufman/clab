@@ -140,8 +140,9 @@ def permute(of: Tensor, seed: int | None, dims: list[str], derangement: bool = F
     or a detokenize's value is permuted before that op, which acts row by row. The layout, the dataset and the
     width are `of`'s, row i still indexing the dataset. Each row's positions are π(i)'s, so the value has no `read`
     (its record's is null). Its positions label no row's tokens, and a table numbers them by plain index. It meets
-    a write or an op of another read as a read of another input would, position by position at a static width. A
-    ragged one is refused there, though it may still be reduced. The step's record holds π (`permutation`: the
+    a write or an op of another read as a read of another input would, position by position at one width: a static
+    one, or the one its read's rows confirm in preflight where they decide it (`{"index": ":"}` on rows of one
+    length). A ragged one is refused there, naming the read and each count's rows, though it may still be reduced. The step's record holds π (`permutation`: the
     dataset row whose value each row holds, as the run drew it). In a fit's body each training minibatch draws π
     over its own rows from the seed alone, so every minibatch of one size pairs its rows the same way. The record
     holds the π of the body's last run, the one that scores every training row, which no training step used. Without `derangement`, a seed that draws the identity over a training

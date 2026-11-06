@@ -141,6 +141,7 @@ What is left (a confidence interval, a ranking across points, a join across runs
 - `encode` gives a featurizer's coordinates ([featurizers](featurizers.md)).
 - `grad` is the first op of an entry. It puts the gradient of a later entry of the same forward in the value's place, in its layout, and the ops after it act on the gradient ([interventions](interventions.md#a-gradient-at-a-site)).
 - `permute` reorders a value's rows, row i holding row π(i)'s, π drawn from `seed` alone. It is an op step only, and its record holds what it drew (`permutation`). A resample ablation swaps a permuted read into a later forward ([ablation](../patterns/ablation.md#resample-by-permuting-the-rows)).
+- A permuted read pairs with another forward's value as its read does. At `{"index": ":"}` on prompts of one length it pairs at the width preflight confirms; on prompts of different lengths preflight refuses it, naming the read and each count's rows (`operand 'donor' reorders the rows of 'harvest.acts', which holds 11 positions on row 0 and 9 positions on rows 1-3; …`). Read a static span every row holds instead (`"0:9"`) ([operand-does-not-fit](../errors/operand-does-not-fit.md#-an-open-index-pairs-with-another-forwards-value-when-every-row-holds-as-many-positions)).
 
 ### Arithmetic
 

@@ -1058,14 +1058,18 @@ def test_m1_two_sweeps_of_one_label_zip_and_the_refusal_names_label():
     assert len(points(two({"sweep": [1, 0], "label": "mlp"}).steps["f"])) == 4
 
 
-def test_m2_a_metric_over_two_reads_without_a_static_width_says_to_read_at_a_static_index():
-    with pytest.raises(PlanError, match=r"steps\.kl\.against: 'f\.logits' has no width compile can fix \(an open "
-                                        r"index, an `until` scope, several occurrences\), so it pairs with no other "
-                                        r"forward's value; read both at a static index"):
-        plan(data={"d": DAYS}, steps={
-            "f": forward({"lens": {"site": {"component": "layer_output", "layers": -1}, "pos": {"index": ":"},
-                                   "ops": [{"op": "readout"}]}, "logits": {"site": HEAD, "pos": {"index": ":"}}}),
-            "kl": {"kind": "op", "op": "kl", "of": "f.lens", "against": "f.logits"}}).compile()
+def test_m2_a_metric_over_two_reads_without_a_static_width_says_to_read_at_a_static_index(engines):
+    """Two reads at an open index in the prefill compile, their width the rows' to decide; on rows of different
+    lengths preflight refuses the pair naming each count's rows and a static span every row holds."""
+    compiled = plan(data={"d": DAYS}, steps={
+        "f": forward({"lens": {"site": {"component": "layer_output", "layers": -1}, "pos": {"index": ":"},
+                               "ops": [{"op": "readout"}]}, "logits": {"site": HEAD, "pos": {"index": ":"}}}),
+        "kl": {"kind": "op", "op": "kl", "of": "f.lens", "against": "f.logits"}}).compile()
+    refused_before_any_forward(engines, compiled, r"^kl: operand 'f\.logits' holds 9 positions on rows 0-1, 4 "
+                                                  r"positions on row 2 and 5 positions on row 3; an open index pairs "
+                                                  r"with another forward's value when every row holds as many "
+                                                  r"positions: read a static span every row holds \('index': '0:4', "
+                                                  r"or '-4:'\), or reduce it$")
 
 
 def test_m3_one_latent_is_read_with_encodes_select_and_the_featurizer_op_is_gone(engines):
@@ -1081,16 +1085,15 @@ def test_m3_one_latent_is_read_with_encodes_select_and_the_featurizer_op_is_gone
     assert torch.equal(one.results["f.z"], every.results["f.z"][..., [2]])
 
 
-def test_m4_an_operand_without_a_static_width_into_such_a_write_says_what_differs():
-    """trial-01, trial-02: the two layouts print the same, so the message says the difference is where the
-    positions come from."""
-    with pytest.raises(PlanError, match=r"with: 'abc\.v' has no width compile can fix \(an open index, an `until` "
-                                        r"scope, several occurrences\), so it pairs with no other forward's value; "
-                                        r"read both at a static index"):
-        plan(data={"d": PAIR}, steps={
-            "abc": {"kind": "forward", "input": "d.abc", "interventions": {"v": {"site": LAYER0, "pos": {"index": ":"}}}},
-            "patched": forward({"w": {"site": LAYER0, "pos": {"index": ":"},
-                                      "ops": [{"op": "swap", "with": "abc.v"}]}})}).compile()
+def test_m4_an_operand_without_a_static_width_into_such_a_write_says_what_differs(engines):
+    """trial-01, trial-02: the two layouts print the same, so the message says what differs: here each side's width,
+    which its one row confirms in preflight (19 positions and 16)."""
+    compiled = plan(data={"d": PAIR}, steps={
+        "abc": {"kind": "forward", "input": "d.abc", "interventions": {"v": {"site": LAYER0, "pos": {"index": ":"}}}},
+        "patched": forward({"w": {"site": LAYER0, "pos": {"index": ":"},
+                                  "ops": [{"op": "swap", "with": "abc.v"}]}})}).compile()
+    refused_before_any_forward(engines, compiled, r"^patched\.w: operand 'abc\.v' holds 19 position\(s\) per row and "
+                                                  r"the value 'swap' acts on holds 16; position i meets position i")
 
 
 def test_m5_o2_argmax_ranks_the_axis_over_names_and_one_the_value_lacks_is_refused():
