@@ -322,9 +322,10 @@ decide; where they disagree it is refused by name, with each count's rows, in pr
 loaded read, which carries its rows' positions. In the prefill (`frame: 0`) an occurrence a row does not have,
 or a static index that does not fit, is refused by name before any forward: the data decided. Anywhere else it
 is a result, as is a call the row never reached, and as is an index that picks none of a row's tokens (`"5:"`
-on a shorter row), in the prefill too: the row is `alignment_missing`, NaN all the way, and a write there is
-refused by name, since it has no token to write. So is a later step's write that would take such a value as its
-operand on a row it lands on (a read at `{"frame": 3, "index": 0}` on a row whose generation made three calls, or
+on a shorter row), in the prefill too: the row is `alignment_missing`, NaN all the way but in a `count`, which
+is 0 there (`clab table` flags the row with no value in both), and a write there is refused by name, since
+it has no token to write. So is a later step's write that would take such a value as its operand on a row it
+lands on (a read at `{"frame": 3, "index": 0}` on a row whose generation made three calls, or
 an op step's value that takes it as any named value: `of`, `with`, a `factor`), which would write NaN there:
 refused by name, at compile where the read's frame is a decode call at or past its generation's
 `max_new_tokens`, which no row makes, and otherwise in the run, naming the row and the call, a forward's write

@@ -67,4 +67,4 @@ What a record names in the prefill depends on the prompt alone, so preflight res
 
 The document cannot be what was meant.
 
-Beyond the prefill, what a record names depends on what the model generates, which no check can know beforehand. So a row it does not fit is a result, not an error: the row is `alignment_missing`, recorded so in the entry's `positions`, and its value is NaN all the way through. The causes, how missing rows pass downstream, and how to keep them out are [errors/alignment-missing.md](../errors/alignment-missing.md).
+Beyond the prefill, what a record names depends on what the model generates, which no check can know beforehand. So a row it does not fit is a result, not an error: the row is `alignment_missing`, recorded so in the entry's `positions`, and its value is NaN all the way through, but in a `count` of it, which holds 0 there; `clab table` flags the row with no value in both. The causes, how missing rows pass downstream, and how to keep them out are [errors/alignment-missing.md](../errors/alignment-missing.md).
