@@ -42,19 +42,19 @@ Its layer 12 head 28 comes first, at about +2.20, where [head patching](head-and
 
 ## Check the gradient
 
-A gradient check compares `grad` with a central difference of the metric: two forwards that move the site by plus and minus a small step. Adding a number moves every element alike, so its derivative is the gradient summed over `hidden_size`. This complete document runs both and puts the gap in `gap`:
+A gradient check tests the quantity the estimate uses: the gradient's dot with the counterfactual difference, the counterfactual's value at the read less the base's. It compares that with a central difference of the metric along the same difference, `(metric(+e) - metric(-e)) / 2e`, from two forwards that add `e` times the difference at the site and `-e` times it. This complete document runs both on GPT-2 at layer 6's last token and puts the gap in `gap`:
 
 ```json
 {
-  "description": "The gradient check: layer 0's gradient at the last token, summed over hidden_size, against a central difference of two forwards that add 0.001 and -0.001 to every element there.",
+  "description": "The gradient check along the counterfactual difference: the gradient at layer 6's last token dotted with the counterfactual's value there less the base's, against a central difference of two forwards that add 0.1 and -0.1 times that difference there.",
   "model": {
-    "key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
-    "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998",
+    "key": "openai-community/gpt2",
+    "revision": "607a30d783dfa663caf39e06633721c8d4cfcd7e",
     "dtype": "float32"
   },
   "data": {"pairs": {"path": "weekdays/train"}},
   "sites": {
-    "target": {"component": "layer_output", "layers": 0},
+    "target": {"component": "layer_output", "layers": 6},
     "head": {"component": "lm_head_output"}
   },
   "interventions": {
@@ -62,28 +62,34 @@ A gradient check compares `grad` with a central difference of the metric: two fo
                           "ops": [{"op": "logit_diff", "a": "pairs.cf_answer", "b": "pairs.base_answer"}]}}
   },
   "steps": {
+    "counterfactual": {"kind": "forward", "input": "pairs.counterfactual_inputs[0]",
+                       "interventions": {"v_cf": {"site": "target", "pos": -1}}},
     "taken": {"kind": "forward", "input": "pairs.input", "interventions": [
-      {"g": {"site": "target", "pos": -1, "ops": [{"op": "grad", "of": "metric"}, {"op": "sum", "over": ["hidden_size"]}]}},
+      {"v": {"site": "target", "pos": -1},
+       "g": {"site": "target", "pos": -1, "ops": [{"op": "grad", "of": "metric"}]}},
       "scored"]},
+    "difference": {"kind": "op", "op": "sub", "of": "counterfactual.v_cf", "with": "taken.v"},
+    "term": {"kind": "op", "op": "scale", "of": "difference", "factor": "taken.g"},
+    "along": {"kind": "op", "op": "sum", "of": "term", "over": ["hidden_size"]},
     "up": {"kind": "forward", "input": "pairs.input", "interventions": [
-      {"nudge": {"site": "target", "pos": -1, "ops": [{"op": "add", "with": 0.001}]}}, "scored"]},
+      {"nudge": {"site": "target", "pos": -1, "ops": [{"op": "add", "with": "difference", "scale": 0.1}]}}, "scored"]},
     "down": {"kind": "forward", "input": "pairs.input", "interventions": [
-      {"nudge": {"site": "target", "pos": -1, "ops": [{"op": "add", "with": -0.001}]}}, "scored"]},
+      {"nudge": {"site": "target", "pos": -1, "ops": [{"op": "add", "with": "difference", "scale": -0.1}]}}, "scored"]},
     "rise": {"kind": "op", "op": "sub", "of": "up.metric", "with": "down.metric"},
-    "central": {"kind": "op", "op": "scale", "of": "rise", "factor": 500},
-    "gap": {"kind": "op", "op": "sub", "of": "taken.g", "with": "central"}
+    "central": {"kind": "op", "op": "scale", "of": "rise", "factor": 5},
+    "gap": {"kind": "op", "op": "sub", "of": "along", "with": "central"}
   },
-  "saves": ["taken.g", "central", "gap"]
+  "saves": ["along", "central", "gap"]
 }
 ```
 
-A central difference's own error falls as the step squared. So above float32's rounding, a gap that falls about 100 times when the step falls 10 times says the gradient is right. At a small step the two forwards' rounding, divided by twice the step, takes over, and the ratio degrades. So set a tolerance before the run, and pass the check where the gap is below a small fraction of the largest gradient.
+On GPT-2 (`openai-community/gpt2` at `607a30d783dfa663caf39e06633721c8d4cfcd7e`, CPU, float32), row 0's `along` is 0.31854 and its `central` 0.31857. Over the four rows `gap` is at most 2.4e-4, where the largest `along` is 0.41.
 
-A `grad` of the wrong entry runs without a refusal and maps that entry, so run this check once on each new document. A gap far above the tolerance that does not shrink with the step is that case: check that `of` names the entry you meant. On the corpus model in float32 (`tests/test_grad.py` `test_the_gradient_is_the_central_difference_of_the_metric`):
+- **Find the step by trying several.** A central difference's own error falls as the step squared, and the two forwards' rounding, divided by twice the step, grows as it falls. On GPT-2 the largest gap was 9.3e-4 at `e` 0.4, 1.6e-4 at 0.2, 2.4e-4 at 0.1, 4.2e-3 at 0.01 and 2.7e-2 at 0.001. Below 0.2 the rounding of GPT-2's large logits took over.
+- **Pass the check at the step whose gap is least**, where that gap is a small fraction of the largest `along`; set the fraction before the run.
+- **Adding one number to every element checks nothing on a model with LayerNorm.** LayerNorm removes each vector's mean, so the derivative along that direction is about zero however the gradient is wired. On GPT-2 the gradient summed over `hidden_size` at layer 0's last token was below 3e-7 on every row. The counterfactual difference is the direction the estimate uses, so check along it.
 
-- the gradients are about ±6.8, and `gap` is at most 0.0068, a thousandth of the largest;
-- at a step of 0.01 the gap is 95 times larger;
-- the corpus document's `patched.h` is the same central difference taken along `difference`, to 2e-5.
+A `grad` of the wrong entry runs without a refusal and maps that entry, so run this check once on each new document. A gap far above the tolerance at every step is that case: check that `of` names the entry you meant. On the corpus model the corpus document's `patched.h` is the same central difference along `difference`, to 2e-5 (`tests/test_grad.py` `test_the_gradient_is_the_central_difference_of_the_metric`).
 
 Three nulls, each exact on both engines:
 
@@ -96,18 +102,19 @@ Three nulls, each exact on both engines:
   ```
 
   Use `mul`, not `scale`. A `scale` 0 entry alone at the head, listed before the metric, is a write: it zeroes the logits the metric reads, so the real `grad` is zero too ([interventions](../usage/interventions.md#a-gradient-at-a-site)).
+
+  It tests the wiring: that the `grad` differentiates the entry its `of` names, through that entry's ops, and that nothing else reaches the backward. It says nothing about the gradient's size, which the check above tests.
 - **A counterfactual that is the base prompt gives zero.** Read `v_cf` in a forward over `pairs.input` instead: `difference` is exactly zero, and so is every row's attribution. It checks that the two reads are one selection, which a constant's null does not.
 - **A `grad` sees the order at its site.** A `grad` listed before a write of `{"op": "scale", "factor": 2}` at its site is exactly twice the `grad` listed after it.
 
 ## Variations
 
-- **Every layer and position.** A site at `"layers": ":"` read at a window of static width (`{"index": "-3:"}`) gives a `[layers, rows, pos, hidden_size]` gradient from the same one backward. Each layer's slice equals a forward that takes it at that layer alone. The `difference` it is scaled by is read at the same site and positions on both prompts. With `resid` that site, `target` layer 0, and `counterfactual` reading `z` as `base` does:
+- **Every layer and position.** A site at `"layers": ":"` read at a window of static width (`{"index": "-3:"}`) gives a `[layers, rows, pos, hidden_size]` gradient from the same one backward. Each layer's slice equals a forward that takes it at that layer alone. The `difference` it is scaled by is read at the same site and positions on both prompts. With `resid` that site, and `counterfactual` reading `z` as `base` does:
 
   ```json
   "base": {"kind": "forward", "input": "pairs.input", "interventions": {
     "z": {"site": "resid", "pos": {"index": "-3:"}},
     "dz": {"site": "resid", "pos": {"index": "-3:"}, "ops": [{"op": "grad", "of": "metric"}]},
-    "g": {"site": "target", "pos": -1, "ops": [{"op": "grad", "of": "metric"}, {"op": "sum", "over": ["hidden_size"]}]},
     "metric": {"site": "head", "pos": -1, "ops": [{"op": "logit_diff", "a": "pairs.cf_answer", "b": "pairs.base_answer"}]}}},
   "difference": {"kind": "op", "op": "sub", "of": "counterfactual.z", "with": "base.z"},
   "term": {"kind": "op", "op": "scale", "of": "difference", "factor": "base.dz"},
@@ -115,7 +122,7 @@ Three nulls, each exact on both engines:
   "map": {"kind": "op", "op": "mean", "of": "per_row", "over": ["rows"]}
   ```
 
-  `map` is `[layers, pos]`. `g` is the gradient check's point entry, in the map's own forward: it shares the one backward and equals the map's slice at layer 0, the last position, summed over `hidden_size`. So the check above tests the map's own gradient. The constant's null (`zero` and `g0`) may sit in this forward too.
+  `map` is `[layers, pos]`. At each layer and position, `per_row` is the check's `along` there, from the map's one backward. So the check's two nudged forwards, at one layer and the last position, test the map's own gradient. The constant's null (`zero` and `g0`) may sit in this forward too.
 - **Heads.** On `attention_premix` the gradient keeps the `num_heads` and `head_dim` axes; sum over `head_dim` (and `pos`) for one number per head. A `select` on `num_heads` keeps the gradient of the heads it picks.
 - **Several sites, one backward.** Every `grad` entry naming the same `of` is served by one backward, so the residual stream and the heads of a model come from one forward together.
 
