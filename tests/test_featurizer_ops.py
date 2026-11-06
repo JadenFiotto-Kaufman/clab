@@ -345,7 +345,7 @@ def test_an_argument_apply_does_not_take_is_refused_at_compile():
     with pytest.raises(PlanError, match=r"steps\.base\.interventions\.recon\.ops\[0\]: 'apply' takes no 'scale'; its "
                                         r"arguments: featurizer, with"):
         reconstructed({"scale": 2.0})
-    with pytest.raises(PlanError, match=r"steps\.base\.interventions\.recon\.ops\[0\]\.with: a sae's apply takes no "
+    with pytest.raises(PlanError, match=r"steps\.base\.interventions\.recon\.ops\[0\]\.with: an sae's apply takes no "
                                         r"'with', an adapter's input read at another site \(a lora's\)"):
         reconstructed({"with": "base.plain"})
 

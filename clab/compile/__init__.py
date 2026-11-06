@@ -33,7 +33,7 @@ from clab.compile.interventions import bundles_of, compile_entry, entries_with_p
 from clab.compile.schedule import share_forwards
 from clab.compile.state import Compiling
 from clab.compile.uses import check_bundle_sites, check_gate_axes, check_named_values
-from clab.featurizers import KINDS, bundles, labels
+from clab.featurizers import KINDS, article, bundles, labels
 from clab.format import data, registry
 from clab.format.sweeps import agreeing_point, coordinate_spelling, find_sweeps
 from clab.plan import (
@@ -667,13 +667,13 @@ def compile_featurizer(cx: Compiling, plan: Plan, name: str, at: dict[str, int])
             fail(f"{path}.classes", str(e))
     missing = [k for k in KINDS[f.kind].drawn if fields.get(k) is None]
     if fields.get("file_path") is None and missing:
-        fail(path, f"a {f.kind!r} featurizer drawn without a bundle needs {' and '.join(map(repr, missing))}; or "
-             "load one with 'file_path'")
+        fail(path, f"{article(f.kind)} {f.kind!r} featurizer drawn without a bundle needs "
+             f"{' and '.join(map(repr, missing))}; or load one with 'file_path'")
     # A field it is drawn from that its bundle's header does not record (a constant's `init`) says nothing of a bundle.
     unrecorded = [k for k in KINDS[f.kind].drawn if k not in KINDS[f.kind].header and fields.get(k) is not None]
     if fields.get("file_path") is not None and unrecorded:
-        fail(f"{path}.{unrecorded[0]}", f"a {f.kind} loaded from file_path is its bundle's, and {unrecorded[0]} draws "
-             "one: write one of them")
+        fail(f"{path}.{unrecorded[0]}", f"{article(f.kind)} {f.kind} loaded from file_path is its bundle's, and "
+             f"{unrecorded[0]} draws one: write one of them")
     record = {**f.model_dump(exclude_defaults=True), "at": at}
     if isinstance(fields.get("site"), str):         # the site it was trained at, inlined as an entry's is
         if fields["site"] not in plan.sites:
@@ -704,8 +704,8 @@ def compile_fit(cx: Compiling, path: str, name: str, spec: Fit, plan: Plan, at: 
             fail(f"{path}.train[{i}]", f"no featurizer {f!r}; declared: {', '.join(plan.featurizers) or 'none'}")
         trainable = [k for k, c in featurizers.KINDS.items() if c.trains]
         if kind_of(plan, f) not in trainable:
-            fail(f"{path}.train[{i}]", f"{f!r} is a {kind_of(plan, f)}, which a bundle fixes; it has nothing to "
-                 f"train (trainable kinds: {', '.join(trainable)})")
+            fail(f"{path}.train[{i}]", f"{f!r} is {article(kind_of(plan, f))} {kind_of(plan, f)}, which a bundle "
+                 f"fixes; it has nothing to train (trainable kinds: {', '.join(trainable)})")
         if any((p.model_extra or {}).get("file_path") for p in points(plan.featurizers[f])):
             fail(f"{path}.train[{i}]", f"{f!r} is loaded from a bundle, which fixes it; a fit trains a featurizer "
                  "it draws")

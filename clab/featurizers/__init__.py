@@ -153,7 +153,8 @@ class Kind:
     def published(cls, tensors: dict[str, Tensor], fields: dict[str, Any]) -> dict[str, Tensor]:
         """The tensors of a published file (one with no clab header), as an instance loads them; a kind that
         reads none refuses."""
-        raise ValueError(f"{fields['file_path']} has no clab header; a {cls.kind} bundle is one clab wrote")
+        raise ValueError(f"{fields['file_path']} has no clab header; {article(cls.kind)} {cls.kind} bundle is one "
+                         "clab wrote")
 
     # -- what the run calls ----------------------------------------------------------------------------------
 
@@ -211,7 +212,7 @@ class Kind:
 
     def scalar(self, name: str) -> Tensor:
         """The scalar `name` a fit's objective may name: one of `scalars`, as compile checks."""
-        raise ValueError(f"a {self.kind!r} featurizer has no scalar {name!r}")
+        raise ValueError(f"{article(self.kind)} {self.kind!r} featurizer has no scalar {name!r}")
 
     def size(self) -> int:
         """How many coordinates the instance's space has: the shape of its encode of one zero vector made where
@@ -229,6 +230,12 @@ def check(kind: str, fields: dict[str, Any]) -> None:
     if kind not in KINDS:
         raise ValueError(f"unknown featurizer kind {kind!r}; valid: {', '.join(KINDS)}")
     KINDS[kind].check(fields)
+
+
+def article(kind: str) -> str:
+    """The indefinite article a refusal writes before featurizer kind `kind`: "an" before a vowel sound (an affine,
+    and an sae, said letter by letter), "a" before any other (a gate, a lora)."""
+    return "an" if kind.startswith(tuple("aeiou")) or kind == "sae" else "a"
 
 
 def labels(rows: dict[str, list[dict[str, Any]]], column: str) -> list:

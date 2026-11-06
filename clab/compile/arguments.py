@@ -45,12 +45,12 @@ def featurizer_kind(cx: Compiling, plan: Plan, path: str, name: str, args: dict)
     kind = kind_of(plan, ref)
     serves = featurizers.KINDS[kind].ops()
     if name not in serves:
-        fail(f"{path}.featurizer", f"{ref!r} is a {kind!r} featurizer, which has no {name}: it serves "
-             f"{', '.join(serves)}" + ("; it has no way back into the value" if name == "decode" else ""))
+        fail(f"{path}.featurizer", f"{ref!r} is {featurizers.article(kind)} {kind!r} featurizer, which has no {name}: "
+             f"it serves {', '.join(serves)}" + ("; it has no way back into the value" if name == "decode" else ""))
     if name == "apply" and args.get("with") is not None:
         if "with_" not in registry.signature(featurizers.KINDS[kind].method("apply")).parameters:
-            fail(f"{path}.with", f"a {kind}'s apply takes no 'with', an adapter's input read at another site (a lora's), "
-                 "or the value a gate interpolates toward")
+            fail(f"{path}.with", f"{featurizers.article(kind)} {kind}'s apply takes no 'with', an adapter's input read "
+                 "at another site (a lora's), or the value a gate interpolates toward")
         if featurizers.KINDS[kind].adapts and not isinstance(args["with"], str):
             fail(f"{path}.with", f"{args['with']!r} is not a name; 'with' names a value read at the positions the op "
                  "acts on")

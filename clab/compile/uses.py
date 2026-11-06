@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 import torch
 
-from clab.featurizers import KINDS, Kind, bundles, labels, make
+from clab.featurizers import KINDS, Kind, article, bundles, labels, make
 from clab.format import address, registry, selectors
 from clab.format.registry import Value
 from clab.format.selectors import selected
@@ -353,8 +353,8 @@ def check_named_values(plan: Plan) -> None:
                          "value in a step before the featurizer's first use")
                 record = record_of(plan.steps, ref, points(runnable(plan.steps)[made])[0].at)
                 if record.axes:
-                    fail(path, f"{ref!r} depends on the sweep axes {record.axes}, and a {kind} is drawn once per "
-                         f"point of its own fields: {field} names a value on no sweep axis")
+                    fail(path, f"{ref!r} depends on the sweep axes {record.axes}, and {article(kind)} {kind} is drawn "
+                         f"once per point of its own fields: {field} names a value on no sweep axis")
                 for where, read, _, _, around in used.get(name, []):
                     space = [{k: v for k, v in arguments(o).items() if k in ("featurizer", "select")} for o in around]
                     last = KINDS[kind_of(plan, arguments(around[-1])["featurizer"])].axis if around else \
@@ -367,14 +367,14 @@ def check_named_values(plan: Plan) -> None:
                         shared = [a for a in dims if a not in (last, *address.EXAMPLE_AXES)
                                   and (read.kept.get(a) is None or len(read.kept[a]) > 1)]
                         fix = (f"one vector is shared by every {shared[0]} the site keeps, so for each one's own, "
-                               f"declare a site per {shared[0]} (a select of one) with a {kind} of its own, each "
-                               f"{field} a mean of a read there over every axis but {last}") if shared else \
+                               f"declare a site per {shared[0]} (a select of one) with {article(kind)} {kind} of its "
+                               f"own, each {field} a mean of a read there over every axis but {last}") if shared else \
                             f"reduce it to that, a mean of a read at the site over every axis but {last}"
-                        fail(path, f"{ref!r} is laid out {dims}, {why}, and a {kind}'s {field} is one vector of its "
-                             f"width, laid out {[last]} as {where} meets the value: {fix}")
+                        fail(path, f"{ref!r} is laid out {dims}, {why}, and {article(kind)} {kind}'s {field} is one "
+                             f"vector of its width, laid out {[last]} as {where} meets the value: {fix}")
                     if record.space != space:
-                        fail(path, f"{ref!r} is in another coordinate space than {where}'s value; a {kind}'s {field} "
-                             "is in the coordinates of the value it is applied to")
+                        fail(path, f"{ref!r} is in another coordinate space than {where}'s value; {article(kind)} "
+                             f"{kind}'s {field} is in the coordinates of the value it is applied to")
 
 
 def check_named_widths(engine: Engine, plan: Plan) -> None:
@@ -396,8 +396,9 @@ def check_named_widths(engine: Engine, plan: Plan) -> None:
                         raise ValueError(f"{where}: featurizer {name!r} is drawn from {ref!r} ({field}), which keeps "
                                          f"{last} {held if held is not None else 'whole'}, {wide} wide, and is applied "
                                          f"here to a value keeping {last} {kept if kept is not None else 'whole'}, "
-                                         f"{f.width} wide; a {f.kind}'s {field} lies unit for unit on the value it is "
-                                         f"written into: make {ref!r} from a read at this use's select")
+                                         f"{f.width} wide; {article(f.kind)} {f.kind}'s {field} lies unit for unit on "
+                                         f"the value it is written into: make {ref!r} from a read at this use's "
+                                         "select")
 
 
 def named_values(spec: Featurizer) -> dict[str, str]:
