@@ -13,7 +13,7 @@ Exact names: the generated spec first, then the command line, the Python API and
 
 ## FORMAT.md
 
-[FORMAT.md](../../FORMAT.md), generated from the code by `clab describe --markdown`, section by section:
+[FORMAT.md](../../FORMAT.md), generated from the code by `nnspec describe --markdown`, section by section:
 
 - [root keys and records](../../FORMAT.md#root-keys) — the root keys, then the fields of every record a document is made of, the [`pos`](../../FORMAT.md#pos) grammar among them.
 - [step kinds](../../FORMAT.md#step-kinds) — `forward`, `generate`, `op`, `fit` and `load`, each with its fields.
@@ -29,9 +29,9 @@ Exact names: the generated spec first, then the command line, the Python API and
 
 ## Commands and Python
 
-- [cli](cli.md) — Every clab command and flag (run, compile, show, table, describe), with defaults, exit statuses and refusals.
-- [python-api](python-api.md) — The public Python surface: clab.run, Plan and its methods, engines.load and execute, results and run, describe.
+- [cli](cli.md) — Every nnspec command and flag (run, compile, show, table, describe), with defaults, exit statuses and refusals.
+- [python-api](python-api.md) — The public Python surface: nnspec.run, Plan and its methods, engines.load and execute, results and run, describe.
 
 ## Words
 
-- [glossary](glossary.md) — clab's words, each in one sentence with the page that explains it.
+- [glossary](glossary.md) — nnspec's words, each in one sentence with the page that explains it.

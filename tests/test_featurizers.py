@@ -1,6 +1,6 @@
-"""Featurizer math is device- and autocast-safe, and a published SAE (a safetensors file with no clab header, as
+"""Featurizer math is device- and autocast-safe, and a published SAE (a safetensors file with no nnspec header, as
 SAELens and Gemma Scope publish one) loads: its tensor names and shapes checked, its activation the document's,
-its model and site unchecked; a clab-written sae bundle records its activation and round-trips."""
+its model and site unchecked; an nnspec-written sae bundle records its activation and round-trips."""
 
 import json
 import os
@@ -11,11 +11,11 @@ from conftest import BATCH_SIZE, DOCUMENTS, ROOT, TRIP, bundle_header, edited, s
 from safetensors import safe_open
 from safetensors.torch import save_file
 
-from clab import Plan, featurizers
-from clab.featurizers.gate import Gate
-from clab.featurizers.sae import Sae
-from clab.format.sweeps import points
-from clab.plan import PlanError
+from nnspec import Plan, featurizers
+from nnspec.featurizers.gate import Gate
+from nnspec.featurizers.sae import Sae
+from nnspec.format.sweeps import points
+from nnspec.plan import PlanError
 
 G = torch.Generator().manual_seed(5)
 H = torch.randn(3, 2, 16, generator=G)
@@ -149,7 +149,7 @@ def published(tmp_path, tensors: dict, featurizer: dict, site: dict | None = Non
 
 @pytest.mark.parametrize("tensors, featurizer, message", [
     ({**TENSORS, "W_gate": TENSORS["W_enc"].clone()}, STATED,
-     r"published\.safetensors has no clab header and holds W_dec, W_enc, W_gate, b_dec, b_enc; a published sae "
+     r"published\.safetensors has no nnspec header and holds W_dec, W_enc, W_gate, b_dec, b_enc; a published sae "
      r"holds W_enc, W_dec, b_enc, b_dec, threshold \(threshold optional\)"),
     ({**TENSORS, "W_enc": torch.zeros(16)}, STATED,
      r"published\.safetensors: W_enc is \[16\]; it is \[width, latents\]"),
@@ -183,14 +183,14 @@ ROTATION = {"kind": "subspace", "k": "8", "parametrization": "cayley", "document
 
 @pytest.mark.parametrize("tensors, header, message", [
     ({"basis": torch.eye(16)[:, :8].contiguous()}, None,
-     r"has no clab header; a subspace bundle is one clab wrote"),
+     r"has no nnspec header; a subspace bundle is one nnspec wrote"),
     ({"rotation": torch.eye(16)[:, :8].contiguous()}, bundle_header(**ROTATION),
      r"holds rotation; a subspace bundle holds basis"),
 ])
 def test_a_subspace_from_a_published_file_or_a_bundle_of_other_tensors_is_refused_at_compile(tmp_path, tensors,
                                                                                                header, message):
-    """das_apply's rotation loaded from a file with no clab header (of the kinds, only an sae reads a published
-    file), or from a clab bundle whose tensors are not a subspace's."""
+    """das_apply's rotation loaded from a file with no nnspec header (of the kinds, only an sae reads a published
+    file), or from an nnspec bundle whose tensors are not a subspace's."""
     os.makedirs(tmp_path / "documents" / "artifacts")
     os.symlink(os.path.join(ROOT, "data"), tmp_path / "data")
     save_file(tensors, str(tmp_path / "documents" / "artifacts" / "fit.rot.safetensors"), metadata=header)
@@ -247,17 +247,17 @@ def test_a_published_file_as_wide_as_another_site_is_refused_before_any_forward(
     plan = published(tmp_path, {**TENSORS, "threshold": THRESHOLD}, {"activation": "jumprelu", "centered": False,
                                                                        **WHERE},
                      {"component": "mlp_activation", "layers": 0}).compile()
-    with pytest.raises(ValueError, match=r"base\.latents: documents/artifacts/published\.safetensors has no clab "
+    with pytest.raises(ValueError, match=r"base\.latents: documents/artifacts/published\.safetensors has no nnspec "
                                          r"header and is 16 wide; this document uses 'dictionary' at mlp_activation, "
                                          r"whose width is \d+"):
         engines("hooks", plan.model).execute(plan, batch_size=BATCH_SIZE)
 
 
-def test_a_published_file_has_no_header_and_a_clab_bundle_keeps_its_own():
+def test_a_published_file_has_no_header_and_an_nnspec_bundle_keeps_its_own():
     plan = Plan(os.path.join(DOCUMENTS, "sae_published_topk.json")).compile()
     assert points(plan.featurizers["dictionary"])[0].header is None
-    clab_written = Plan(os.path.join(DOCUMENTS, "sae_feature_ablation.json")).compile()
-    assert (points(clab_written.featurizers["dictionary"])[0].header or {})["format"] == "clab/1"
+    nnspec_written = Plan(os.path.join(DOCUMENTS, "sae_feature_ablation.json")).compile()
+    assert (points(nnspec_written.featurizers["dictionary"])[0].header or {})["format"] == "nnspec/1"
 
 
 def test_a_published_dictionary_is_the_same_remote_local_and_through_the_stand_in_server(engines, monkeypatch):
@@ -308,10 +308,10 @@ def test_a_trained_topk_dictionary_records_its_activation_and_loads_back(engines
 def test_an_saes_signature_prints_no_default_a_published_file_lacks():
     """`activation` and `centered` are `null` in the signature, since a published file has no default for them
     (its document states them, `Sae.published`); unstated, a drawn dictionary is relu and centered (`unstated`),
-    which its bundle's header records, and a clab bundle loaded with neither stated encodes as its header says."""
-    from clab.docs import describe
-    from clab.featurizers import bundles
-    from clab.plan import Model
+    which its bundle's header records, and an nnspec bundle loaded with neither stated encodes as its header says."""
+    from nnspec.docs import describe
+    from nnspec.featurizers import bundles
+    from nnspec.plan import Model
 
     listed = describe("featurizers")
     assert 'activation: one of "relu", "jumprelu", "topk" or null = null' in listed and \
@@ -326,7 +326,7 @@ def test_an_saes_signature_prints_no_default_a_published_file_lacks():
     assert torch.equal(unstated.call("encode", H, {}), stated.call("encode", H, {}))
 
 
-def test_a_clab_bundles_activation_and_centering_are_its_headers():
+def test_an_nnspec_bundles_activation_and_centering_are_its_headers():
     """The committed fixture's header says relu and centered; a document that loads it states those or nothing,
     and one that states otherwise is refused naming the key."""
     with safe_open(os.path.join(DOCUMENTS, "artifacts", "sae.safetensors"), "pt") as f:
@@ -340,16 +340,16 @@ def test_a_clab_bundles_activation_and_centering_are_its_headers():
 
 
 @pytest.mark.parametrize("metadata, featurizer, message", [
-    # A clab format: a clab bundle, its header checked whole.
-    ({"format": "clab/1"}, STATED, r"published\.safetensors: header 'kind' is None; this document expects 'sae'"),
-    # clab's header keys under another format: neither a clab bundle nor a published file.
+    # An nnspec format: an nnspec bundle, its header checked whole.
+    ({"format": "nnspec/1"}, STATED, r"published\.safetensors: header 'kind' is None; this document expects 'sae'"),
+    # nnspec's header keys under another format: neither an nnspec bundle nor a published file.
     ({"kind": "sae", "model.key": "gpt2", "layer": "0"}, STATED,
-     r"published\.safetensors carries clab header keys \(kind, model\.key, layer\) but its format is None, not "
-     r"'clab/1'; a clab bundle's header is whole, a published file carries none of them"),
+     r"published\.safetensors carries nnspec header keys \(kind, model\.key, layer\) but its format is None, not "
+     r"'nnspec/1'; an nnspec bundle's header is whole, a published file carries none of them"),
     # Unrelated metadata: a published file, read as one.
     ({"format": "pt"}, {}, r"published\.safetensors is a published sae, which says neither how it encodes nor where"),
 ])
-def test_a_files_format_decides_whether_it_is_clabs_or_published(tmp_path, metadata, featurizer, message):
+def test_a_files_format_decides_whether_it_is_nnspecs_or_published(tmp_path, metadata, featurizer, message):
     with pytest.raises(PlanError, match=r"featurizers\.dictionary\.file_path: .*" + message):
         published(tmp_path, TENSORS, featurizer, metadata=metadata).compile()
     if metadata == {"format": "pt"}:

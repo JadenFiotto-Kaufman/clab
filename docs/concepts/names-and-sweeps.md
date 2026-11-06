@@ -3,7 +3,7 @@ title: Names and Sweeps
 one_liner: "How do names resolve, and how do sweeps multiply into points?"
 tags: [concepts, names, sweeps, scope]
 related: [docs/usage/sweeps.md, docs/usage/writing-a-document.md, docs/usage/interventions.md, docs/usage/fit.md, docs/concepts/plan-lifecycle.md]
-sources: [clab/compile/__init__.py, clab/format/sweeps.py, clab/plan.py]
+sources: [nnspec/compile/__init__.py, nnspec/format/sweeps.py, nnspec/plan.py]
 ---
 
 # Names and Sweeps
@@ -15,14 +15,14 @@ A document is a line of steps that name each other's values, and compile resolve
 Every reference splits at its first dot. The part before it is a *thing*: a step, a dataset or a featurizer. The part after it is a *member* of that thing: a step's entry (`counterfactual.v_cf`), a dataset's column (`pairs.cf_answer`), a featurizer's scalar (`mask.mask`), a fit's member (`fit.rot`), a `top_k` step's member (`top3.ids`, and over a list of axes `top.ids.rows`). The thing alone decides what kind of value a reference is, so the three kinds share one namespace. A name has no dot, and no step may share a name with a dataset or a featurizer:
 
 ```text
-clab: steps.pairs: 'pairs' is also a dataset or a featurizer
-clab: steps.i.ia: a name has no dots; a dot separates a thing from its member
+nnspec: steps.pairs: 'pairs' is also a dataset or a featurizer
+nnspec: steps.i.ia: a name has no dots; a dot separates a thing from its member
 ```
 
 Values come into existence in document order, and a reference resolves only against what exists before its step. A plan therefore has no cycles, and compile knows every value's layout and dataset before any forward. The refusal lists what does exist at that point:
 
 ```text
-clab: steps.iia.of: 'patched.logits' names no value produced before this step; known: counterfactual.v_cf
+nnspec: steps.iia.of: 'patched.logits' names no value produced before this step; known: counterfactual.v_cf
 ```
 
 ## Scopes: the root and a fit's body
@@ -36,7 +36,7 @@ The root is one scope. A `fit`'s body is a second scope. It sees every value pro
 Such a value cannot follow a change of rows. An `eval` that reads the harvest's dataset as another is refused, since no step made the harvest over the other's rows. Evaluate on the other dataset in steps after the fit, which reach what it trained as `<fit>.<featurizer>`:
 
 ```text
-clab: steps.fit.eval.held_out: the body uses 'counterfactual.h', made before the fit with a row per example of 'train', and this eval reads 'train' as 'test', over whose rows no step made it; …
+nnspec: steps.fit.eval.held_out: the body uses 'counterfactual.h', made before the fit with a row per example of 'train', and this eval reads 'train' as 'test', over whose rows no step made it; …
 ```
 
 Nothing leaves the body except through the fit's members ([usage/fit.md](../usage/fit.md#members)), so its step names do not collide with the root's. An eval's steps are the body's again, compiled as root steps after the fit under the members' names (`fit.held_out.adapted`). There a body name means the eval's own step, and a trained featurizer is `<fit>.<featurizer>`. A root step named `patched` can sit before a fit whose body also has a `patched`. A root step after the fit that names `patched.logits` means the root's. Naming a body value bare from outside is refused, and the refusal lists the members you can name instead.
@@ -46,7 +46,7 @@ Nothing leaves the body except through the fit's members ([usage/fit.md](../usag
 A root `interventions` bundle is not a value. It is a set of entries that are pasted into each step that names the bundle, and its names resolve there. An operand that names one of the bundle's own entries bare means that entry in whichever step pulls the bundle in. A bundle with entries `resid` and `shifted` (`"with": "resid"`) pulled into steps `clean` and `cf` compiles to `clean.resid` in one and `cf.resid` in the other. Writing the step into the name fixes it to that step, which the bundle refuses:
 
 ```text
-clab: interventions.lens.shifted.ops[0].with: 'clean.resid' names step 'clean''s entry 'resid', which is also this bundle's own entry; …
+nnspec: interventions.lens.shifted.ops[0].with: 'clean.resid' names step 'clean''s entry 'resid', which is also this bundle's own entry; …
 ```
 
 An operand that names another step's entry (`counterfactual.v_cf` in `documents/two_observes.json`'s `patching` bundle) resolves as written. [usage/interventions.md](../usage/interventions.md) covers bundles in use.

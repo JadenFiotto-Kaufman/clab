@@ -16,12 +16,12 @@ from safetensors import safe_open
 from safetensors.torch import save_file
 from transformers import AutoTokenizer
 
-from clab import Plan, ops
-from clab.compile import answers, positions
-from clab.format import data
-from clab.format.sweeps import points
-from clab.ops import metrics, reductions, transforms
-from clab.plan import PlanError
+from nnspec import Plan, ops
+from nnspec.compile import answers, positions
+from nnspec.format import data
+from nnspec.format.sweeps import points
+from nnspec.ops import metrics, reductions, transforms
+from nnspec.plan import PlanError
 
 TINY = {"key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
         "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998"}
@@ -168,8 +168,8 @@ def test_b6_batches_join_on_the_first_ones_device():
     """A batch that made no call a read names makes its blank where no value says otherwise; batches join on
     the first one's device, as a `layers` read's layers do, so a CPU blank beside CUDA values (the crash) joins.
     Two devices without a GPU: a meta batch first, then a CPU one."""
-    from clab.plan import entries
-    from clab.steps.batches import join_batches
+    from nnspec.plan import entries
+    from nnspec.steps.batches import join_batches
 
     compiled = generate_at(3)
     step: Any = compiled.steps["g"]
@@ -239,7 +239,7 @@ def test_b9_a_swept_fits_bundle_file_holds_a_header_per_point(engines, tmp_path)
     with safe_open(str(tmp_path / "fit.lora.safetensors"), "pt") as f:
         header, keys = f.metadata(), set(f.keys())
     assert keys == {"rank=2/A", "rank=2/B", "rank=4/A", "rank=4/B"}
-    assert header["format"] == "clab/1"
+    assert header["format"] == "nnspec/1"
     assert (header["rank=2/rank"], header["rank=4/rank"]) == ("2", "4")
     assert header["rank=2/alpha"] == header["rank=4/alpha"] == "8"
     assert header["rank=4/component"] == "layer_output" and header["rank=4/width"] == "16"
@@ -265,8 +265,8 @@ def probe_fit(change=None) -> dict:
 
 def test_b10_a_run_that_loads_a_probe_reads_back_and_tables(engines, tmp_path):
     """trial-09 §4.4: a run whose document loads a `linear` bundle by `file_path` is read back by `Plan.load`,
-    `clab show` and `clab table`, though its manifest holds no rows to take the classes from."""
-    from clab.cli import main
+    `nnspec show` and `nnspec table`, though its manifest holds no rows to take the classes from."""
+    from nnspec.cli import main
 
     root = corpus(tmp_path)
     trained = run(engines, plan(root, **probe_fit()).compile())
@@ -384,7 +384,7 @@ def test_s3_an_occurrence_lies_on_token_and_word_boundaries(engines):
     assert positions.occurrence_spans([("a", False, False)], words, letters) == [(5, 6)]     # ` a` without its space
     assert positions.occurrence_spans([("Ann", False, False)], "Annabel", [(0, 3), (3, 7)]) == []
     assert positions.occurrence_spans([("Ann", False, False)], "Annabel", [(0, 3), (3, 7)], ahead=False) == [(0, 3)]
-    from clab.plan import Pos, Scope
+    from nnspec.plan import Pos, Scope
     assert "starts where a token starts and ends where a token" in " ".join((Pos.__doc__ or "").split())
     assert "lies on token and word boundaries" in " ".join((Scope.__doc__ or "").split())
 

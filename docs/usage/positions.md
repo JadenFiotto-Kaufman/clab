@@ -3,7 +3,7 @@ title: Positions
 one_liner: "Which tokens does an entry touch? pos for the last token, a word, the token before it, a chat turn, text up to a marker and generated tokens, and checking where it landed."
 tags: [usage, positions, pos, scope, occurrence, until, before]
 related: [docs/concepts/positions.md, docs/usage/sites.md, docs/usage/generate.md, docs/usage/output.md, docs/errors/alignment-missing.md, docs/errors/operand-does-not-fit.md, docs/usage/data.md, docs/usage/interventions.md]
-sources: [clab/compile/positions.py, clab/format/selectors.py, clab/plan.py]
+sources: [nnspec/compile/positions.py, nnspec/format/selectors.py, nnspec/plan.py]
 ---
 
 # Positions
@@ -12,10 +12,10 @@ An entry's `pos` says which token positions of each row it reads or writes at it
 
 ## Check where it landed
 
-Every read and write records the positions it resolved to on every row, saved or not. The record is the entry's `positions`, under the dataset whose rows they are. In the manifest, each entry of `steps` names its list by index in the top-level `positions`, which holds each distinct list once. `clab show` prints them one line per entry; look before you trust a number:
+Every read and write records the positions it resolved to on every row, saved or not. The record is the entry's `positions`, under the dataset whose rows they are. In the manifest, each entry of `steps` names its list by index in the top-level `positions`, which holds each distinct list once. `nnspec show` prints them one line per entry; look before you trust a number:
 
 ```python
-from clab import Plan
+from nnspec import Plan
 
 plan = Plan.load("out/entity_patch")
 tokens = plan.run.tokens["pairs.input"]
@@ -31,7 +31,7 @@ for row, where in enumerate(patch.positions["pairs"]):
 3 [4] ['▁Sunday']
 ```
 
-The positions are absolute, counted from each row's BOS. On prompts of different lengths a read and a write at the same `-1` print different numbers on one row (`[8]` and `[10]` on row 0 of `documents/patching.json`), so compare their tokens, or count from each row's end. For a saved value, `clab table OUT NAME` prints the same thing as its `pos` and `pos_token` columns. In a generation a position past the prompt indexes the generated tokens, `plan.run.tokens[<prompt input>][row] + plan.run.tokens[<step>][row]`. A row the entry did not reach holds `"alignment_missing"` instead of a list. The run record's other fields are in [output.md](output.md#the-run-record).
+The positions are absolute, counted from each row's BOS. On prompts of different lengths a read and a write at the same `-1` print different numbers on one row (`[8]` and `[10]` on row 0 of `documents/patching.json`), so compare their tokens, or count from each row's end. For a saved value, `nnspec table OUT NAME` prints the same thing as its `pos` and `pos_token` columns. In a generation a position past the prompt indexes the generated tokens, `plan.run.tokens[<prompt input>][row] + plan.run.tokens[<step>][row]`. A row the entry did not reach holds `"alignment_missing"` instead of a list. The run record's other fields are in [output.md](output.md#the-run-record).
 
 ## Recipes
 
@@ -119,14 +119,14 @@ Two values of different reads pair, position by position, only at a fixed width,
 - **Preflight records an open width where the rows agree.** In the prefill it resolves every row's positions before any forward and writes the count they share as the record's `width`. An open index or a scope occurrence there pairs at that width; a read whose width no row settles (`until`, several occurrences, beyond the prefill) pairs with nothing.
 - **Two entries of one forward are two reads.** An op step `{"op": "sub", "of": "f.a", "with": "f.b"}` over two `{"index": ":"}` reads of one forward pairs as reads of two forwards do: where every row holds as many positions, and refused in preflight where they do not. A write's operand from its own forward is compared with the write row by row instead ([operand-does-not-fit.md](../errors/operand-does-not-fit.md#an-operand-from-the-same-forward)).
 - **A read is ragged where its rows hold different numbers of positions**, such as an entity of one token on one row and three on another.
-- **A ragged value is as wide as its widest row.** Row r's j-th position sits at index j, and past a row's own positions the value is NaN; `clab table` leaves those out.
+- **A ragged value is as wide as its widest row.** Row r's j-th position sits at index j, and past a row's own positions the value is NaN; `nnspec table` leaves those out.
 - **Index j along `pos` is the read's j-th position on that row**, not position j. Index 0 of `{"index": "-4:-1"}` is a different absolute position on rows of different lengths ([values-and-layout.md](../concepts/values-and-layout.md#an-index-counts-along-the-value)).
 - **To pair a ragged read**, read it at a static index (`documents/entity_patch.json`, `"index": -1`) or reduce it over `pos` first (`documents/entity_mean_ablation.json`, a `mean` over every entity token).
 - **A pairing the table says no to is refused at compile; one the rows decide, in preflight.** An open index or a whole scope whose rows disagree is refused before any forward, naming each count's rows, and a loaded one at compile, since its positions came with it. A permuted read pairs as the read it permutes. The messages and their fixes are [operand-does-not-fit.md](../errors/operand-does-not-fit.md).
 - **A static index that does not fit a row** is refused in the prefill (`row 1: index 0:10 does not fit the row's 9 positions at this frame`) and is `alignment_missing` beyond it.
 - **An open index takes what each row has**, which can be nothing. A read with nothing on a row is `alignment_missing` there (`{"index": "10:"}` on a 9-token row, [alignment-missing](../errors/alignment-missing.md#causes)); a write is refused ([position-not-in-row.md](../errors/position-not-in-row.md#the-writes-positions-hold-no-token-of-this-row)).
 
-**A position pairs across prompts of different lengths only where every token between it and the end it is counted from is the same on both**: every token before it, counted from the start, or every token after it, counted from the end. The two tokens it pairs may differ. It applies to an unscoped `pos` read on one input and written on another, which preflight checks row by row (`clab/compile/interventions.py` `check_window`).
+**A position pairs across prompts of different lengths only where every token between it and the end it is counted from is the same on both**: every token before it, counted from the start, or every token after it, counted from the end. The two tokens it pairs may differ. It applies to an unscoped `pos` read on one input and written on another, which preflight checks row by row (`nnspec/compile/interventions.py` `check_window`).
 
 - **Measured on GPT-2** (`openai-community/gpt2` at `607a30d783dfa663caf39e06633721c8d4cfcd7e`): `The Eiffel Tower is in the city of`, 10 tokens, against `The Golden Gate Bridge is in the city of`, 9, which share ` is in the city of` at the end and `The` at the start. `-6` pairs ` Tower` with ` Bridge` and runs; `-7` is refused. From the start, `1` pairs ` E` with ` Golden` and runs; `2` is refused.
 - **Matching tokens are not enough.** On `The Eiffel Tower is in Paris` against `The Golden Gate Bridge is in Rome`, `-1` pairs ` Paris` with ` Rome` and runs, and `-2` pairs ` in` with ` in` and is refused, since ` Paris` and ` Rome` lie between it and the end.

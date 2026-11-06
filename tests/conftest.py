@@ -13,15 +13,15 @@ import pytest  # noqa: E402
 import torch  # noqa: E402
 from safetensors.torch import save_file  # noqa: E402
 
-from clab import Plan  # noqa: E402
-from clab.featurizers import FORMAT  # noqa: E402
-from clab.format.sweeps import coordinate_text, points  # noqa: E402
-from clab.plan import Model, entries, producer, record_of, runnable  # noqa: E402
+from nnspec import Plan  # noqa: E402
+from nnspec.featurizers import FORMAT  # noqa: E402
+from nnspec.format.sweeps import coordinate_text, points  # noqa: E402
+from nnspec.plan import Model, entries, producer, record_of, runnable  # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DOCUMENTS = os.path.join(ROOT, "documents")
 SNAPSHOTS = os.path.join(ROOT, "tests", "snapshots")
-UPDATE = os.environ.get("CLAB_UPDATE_SNAPSHOTS") == "1"
+UPDATE = os.environ.get("NNSPEC_UPDATE_SNAPSHOTS") == "1"
 BATCH_SIZE = 2      # results are reproducible to the bit only at a fixed batch size
 # The intra-op thread count the snapshots were made with. The BLAS splits a matmul's reduction by thread, so the
 # thread count sets a row's last bits, and another count moves them past the snapshots and the tests that hold two
@@ -98,7 +98,7 @@ def edited(name: str, change) -> Plan:
 
 
 def snapshot(name: str, value, holds=None) -> Any:
-    """The checked-in snapshot `name`; with CLAB_UPDATE_SNAPSHOTS=1, `value` is written as it first, unless
+    """The checked-in snapshot `name`; with NNSPEC_UPDATE_SNAPSHOTS=1, `value` is written as it first, unless
     `holds(checked_in)` says the checked-in one already holds it. A snapshot that records what made it, or whose
     floats move by a known drift between hosts, passes `holds`, so that a re-pin that moves no value past the drift
     leaves the file, and the diff, as they are. One of floats skips on another vendor's CPU (`floats_compared`)."""
@@ -237,12 +237,12 @@ def on_each(engines, plan: Plan, *, batch_size: int = BATCH_SIZE,
 
 # The modules a run's request names by reference, and the marks of something shipped by value: a class
 # rebuilt from its definition (cloudpickle) or a function from its source (nnsight).
-REFERENCED = (b"clab.plan", b"clab.engines.ndif", b"clab.steps")
+REFERENCED = (b"nnspec.plan", b"nnspec.engines.ndif", b"nnspec.steps")
 BY_VALUE = (b"_make_skeleton_class", b"_load_function")
 
 
 def by_reference(blob: bytes) -> bool:
-    """Whether a serialized request names clab's plan, engine and steps by reference and ships nothing by value."""
+    """Whether a serialized request names nnspec's plan, engine and steps by reference and ships nothing by value."""
     return all(name in blob for name in REFERENCED) and not any(mark in blob for mark in BY_VALUE)
 
 
@@ -252,7 +252,7 @@ def stand_in(engines, plan: Plan, monkeypatch) -> tuple[Plan, dict]:
     objects of a loaded model (the nnterp engine's, which is what a server holds), take what its outermost
     boundary pushes, round-trip that through torch.save/torch.load as a response does, then mark it and push
     it into the caller's frame as RemoteBackend._push does. Returns what came home and what the trip saw:
-    whether the request named clab's plan, engines and steps by reference with nothing shipped by value, and
+    whether the request named nnspec's plan, engines and steps by reference with nothing shipped by value, and
     the names and types that came back, with the keys and types of the one dict that did."""
     import io
 
@@ -298,7 +298,7 @@ TRIP = {"by_reference": True, "names": ["home"], "types": ["dict"],
 @pytest.fixture(scope="session")
 def engines():
     """Each engine loaded once per model block and options, for the whole session."""
-    from clab.engines import load
+    from nnspec.engines import load
 
     loaded: dict = {}
 

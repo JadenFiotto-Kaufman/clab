@@ -9,9 +9,9 @@ import torch
 
 from conftest import BATCH_SIZE, edited, on_each, placed, same
 
-from clab import ops
-from clab.ops import edits, metrics, reductions, transforms
-from clab.steps import batches
+from nnspec import ops
+from nnspec.ops import edits, metrics, reductions, transforms
+from nnspec.steps import batches
 
 torch.manual_seed(0)
 X = torch.randn(3, 2, 5)                       # rows, pos, hidden
@@ -330,8 +330,8 @@ def test_a_batch_of_equal_rows_binds_no_mask_and_writes_as_an_all_true_one():
     must count before the host goes on, and writes what an all-true mask writes, to the bit."""
     from conftest import plan_of
 
-    from clab.plan import entries
-    from clab.format.sweeps import points
+    from nnspec.plan import entries
+    from nnspec.format.sweeps import points
 
     record = entries(points(plan_of("patching").steps["patched"])[0])["patch"]
     even = batches.selection_in_batch(record, {}, [[1], [2], [0]], [0, 1, 2], 4, False)
@@ -1008,7 +1008,7 @@ def test_the_new_reductions_are_refused_by_name_where_they_cannot_mean_anything(
     """At compile, with the step's path: `norm` of a metric with no `over` (it has no `hidden_size`), `count` of a
     value with no `pos`, a `count` over `rows` inside an entry (it sees one batch), a `p` of 0, and a `p` of
     `Infinity`, which a JSON document can spell and which gave 1.0 for every vector."""
-    from clab.plan import PlanError
+    from nnspec.plan import PlanError
 
     def with_steps(**steps):
         def change(d):

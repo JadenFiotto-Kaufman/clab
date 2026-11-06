@@ -1,4 +1,4 @@
-"""Tensor parallelism, the nnterp engine's `tp` (`clab run DOC -o tp=N` under `torchrun --nproc-per-node=N`): what
+"""Tensor parallelism, the nnterp engine's `tp` (`nnspec run DOC -o tp=N` under `torchrun --nproc-per-node=N`): what
 is refused before anything loads, which components every rank holds whole (`split`, read off the model's plan),
 rank 0 alone writing and printing, and the tiny Llama (and a tiny hybrid, where it is cached) at tp 2 with its two
 ranks run by torchrun on the CPU (gloo) and, given two GPUs, on CUDA (NCCL): each rank's results the other's to the
@@ -14,11 +14,11 @@ import torch
 from conftest import BATCH_SIZE, MIXTRAL, ROOT, document, edited, plan_of, same
 from huggingface_hub import try_to_load_from_cache
 
-import clab
-from clab.cli import main
-from clab.engines import load, standard
-from clab.engines.nnterp import split
-from clab.format.address import COMPONENTS
+import nnspec
+from nnspec.cli import main
+from nnspec.engines import load, standard
+from nnspec.engines.nnterp import split
+from nnspec.format.address import COMPONENTS
 from tp_ranks import HYBRID, planned
 
 # What the ranks hold in pieces on a Llama at every layer: the attention's interior but its output projection's input
@@ -45,7 +45,7 @@ GPUS = torch.cuda.device_count()
 def unloadable(monkeypatch):
     """No engine can load a model: a refusal must come before anything loads."""
     for where in ("nnterp", "hooks", "ndif"):
-        monkeypatch.setattr(f"clab.engines.{where}.StandardizedTransformer", lambda *a, **k: pytest.fail("loaded"))
+        monkeypatch.setattr(f"nnspec.engines.{where}.StandardizedTransformer", lambda *a, **k: pytest.fail("loaded"))
     for key in ("WORLD_SIZE", "LOCAL_WORLD_SIZE", "RANK", "LOCAL_RANK"):
         monkeypatch.delenv(key, raising=False)
     return monkeypatch
@@ -53,7 +53,7 @@ def unloadable(monkeypatch):
 
 def test_tp_outside_torchrun_is_refused_with_the_command(unloadable):
     with pytest.raises(ValueError, match=r"^tp 2 shards the model over 2 processes, one per rank, that torchrun "
-                                         r"starts: `torchrun --nproc-per-node=2 --no-python clab run <document> "
+                                         r"starts: `torchrun --nproc-per-node=2 --no-python nnspec run <document> "
                                          r"-o tp=2`; this process is not one of them \(WORLD_SIZE is unset\)$"):
         load("nnterp", plan_of("patching").model, tp=2)
     with pytest.raises(ValueError, match="^tp 0: tensor parallelism shards the model over at least one rank$"):
@@ -66,7 +66,7 @@ def test_a_world_size_other_than_tp_is_refused(unloadable, world, tp):
     unloadable.setenv("WORLD_SIZE", world)
     with pytest.raises(ValueError, match=rf"^tp {tp}: torchrun started {world} processes \(WORLD_SIZE\), each of which "
                                          rf"runs the whole plan, and tp shards the model over {tp}; give both the one "
-                                         rf"number: `torchrun --nproc-per-node={world} --no-python clab run "
+                                         rf"number: `torchrun --nproc-per-node={world} --no-python nnspec run "
                                          rf"<document> -o tp={world}`$"):
         load("nnterp", plan_of("patching").model, tp=tp)
 
@@ -124,7 +124,7 @@ def test_the_other_engines_refuse_tp_and_torchrun_by_name(unloadable, capsys):
             load(kind, model)
     unloadable.delenv("WORLD_SIZE")
     assert main(["run", document("patching"), "-o", "tp=2"]) == 1
-    assert capsys.readouterr().err.startswith("clab: tp 2 shards the model over 2 processes")
+    assert capsys.readouterr().err.startswith("nnspec: tp 2 shards the model over 2 processes")
 
 
 @pytest.mark.parametrize("rank, printed", [("0", True), ("1", False)])
@@ -180,7 +180,7 @@ def test_split_holds_a_mixtures_routing_whole_and_its_slots_in_pieces():
 def test_on_a_hybrid_tp_refuses_a_value_in_pieces_at_the_blocks_that_have_it():
     """The tiny hybrid's blocks 0 to 2 have no `self_attn`: there nnterp's own reason stands, and only block 3's
     queries are asked of `split`, which refuses them; the residual stream is served."""
-    from clab.engines.nnterp import NnterpEngine
+    from nnspec.engines.nnterp import NnterpEngine
 
     engine: Any = object.__new__(NnterpEngine)              # the engine's `unserved` over the hybrid's meta shell
     engine.model, engine.options = shell(HYBRID["key"], HYBRID["revision"]), {"tp": 2}
@@ -220,7 +220,7 @@ def test_tp_1_in_one_torchrun_process_is_the_plain_run(engines, monkeypatch):
 def test_rank_0_alone_writes_the_output_and_prints(engines, monkeypatch, tmp_path, capsys):
     monkeypatch.setenv("RANK", "1")
     plan = plan_of("patching")
-    filled = clab.run(plan, engine=engines("nnterp", plan.model), out=str(tmp_path / "a"), batch_size=BATCH_SIZE)
+    filled = nnspec.run(plan, engine=engines("nnterp", plan.model), out=str(tmp_path / "a"), batch_size=BATCH_SIZE)
     assert filled.results and not (tmp_path / "a").exists()
     assert main(["run", document("patching"), "--batch-size", str(BATCH_SIZE), "--out", str(tmp_path / "b")]) == 0
     assert capsys.readouterr().out == "" and not (tmp_path / "b").exists()

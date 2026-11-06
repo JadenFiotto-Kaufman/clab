@@ -1,4 +1,4 @@
-"""`clab compile`, `clab show` and `clab table`: `Plan(path).compile()` or `Plan.load` and one call each, printed;
+"""`nnspec compile`, `nnspec show` and `nnspec table`: `Plan(path).compile()` or `Plan.load` and one call each, printed;
 what `run` prints and refuses."""
 
 import json
@@ -9,8 +9,8 @@ import sys
 import pytest
 from conftest import BATCH_SIZE, ROOT, document, edited, plan_of
 
-from clab import Plan, cli
-from clab.cli import compact, main, shaped
+from nnspec import Plan, cli
+from nnspec.cli import compact, main, shaped
 
 
 @pytest.fixture(scope="module")
@@ -27,7 +27,7 @@ def test_show_prints_how_it_ran_what_each_step_cost_where_each_entry_resolved_an
     assert shown[0].startswith("generate_probe: run on nnterp, device cpu, tp 1, batch size 2, padding dataset, readout full, "
                                "started ")
     assert shown[1] == "  served: float32 on cpu"
-    assert shown[2].startswith("  versions: clab ")
+    assert shown[2].startswith("  versions: nnspec ")
     assert shown[3].split() == ["step", "at", "serves", "seconds", "memory", "forwards", "tokens", "real"]
     assert [line.split()[:2] for line in shown[4:9]] == [["counterfactual", "—"], ["patched", "frame=0"]] + \
         [["p_answer", f"frame={k}"] for k in range(3)]                  # one generation serves the three points
@@ -70,7 +70,7 @@ def test_show_on_a_compiled_plan_that_has_not_run_prints_who_serves_whom():
     """A compiled plan has its schedule before any run: `show` prints each run of a step with its kind, a
     generation's input, and which points it serves (generate_probe's one generation its three frames, `p_answer`
     one point each), and nothing it would need a run for."""
-    from clab.cli import show
+    from nnspec.cli import show
 
     shown = show(plan_of("generate_probe")).splitlines()
     assert shown[0] == "generate_probe: compiled, not run"
@@ -83,7 +83,7 @@ def test_show_on_a_compiled_plan_that_has_not_run_prints_who_serves_whom():
 
 
 def test_compile_prints_what_would_run_and_exits_0(capsys):
-    """`clab compile DOC` is `Plan(DOC).compile()` and `show` of it: each run of a step in run order with its kind,
+    """`nnspec compile DOC` is `Plan(DOC).compile()` and `show` of it: each run of a step in run order with its kind,
     a forward's input and its sweep points (pos_sweep's patched forward once per position), on stdout, exit 0."""
     assert main(["compile", document("pos_sweep")]) == 0
     printed = capsys.readouterr()
@@ -98,8 +98,8 @@ def test_compile_prints_what_would_run_and_exits_0(capsys):
 
 def test_a_run_whose_model_block_holds_a_key_compile_now_refuses_reads_back(engines, tmp_path, capsys):
     """A run written before compile refused `tp_size`, `_commit_hash` and `device_mesh` in the model block (each
-    loaded and ran) is a record: `Plan.load`, `clab show` and `clab table` read it as they read any run. The document
-    is refused at compile, and by `clab compile`, naming the key."""
+    loaded and ran) is a record: `Plan.load`, `nnspec show` and `nnspec table` read it as they read any run. The
+    document is refused at compile, and by `nnspec compile`, naming the key."""
     plan = plan_of("patching")
     engines("hooks", plan.model).execute(plan, batch_size=BATCH_SIZE).dump(str(tmp_path))
     with open(tmp_path / "manifest.json") as f:
@@ -119,11 +119,11 @@ def test_a_run_whose_model_block_holds_a_key_compile_now_refuses_reads_back(engi
     (tmp_path / "data").symlink_to(os.path.join(ROOT, "data"))
     path.write_text(json.dumps(doc))
     assert main(["compile", str(path)]) == 1
-    assert capsys.readouterr() == ("", "clab: model: 'tp_size': tensor parallelism is a run option: -o tp=N\n")
+    assert capsys.readouterr() == ("", "nnspec: model: 'tp_size': tensor parallelism is a run option: -o tp=N\n")
 
 
 def test_compile_refuses_as_run_does_in_one_line(tmp_path, capsys):
-    """A document compile refuses, and one that is not there, are each the one `clab:` line on stderr that `clab
+    """A document compile refuses, and one that is not there, are each the one `nnspec:` line on stderr that `nnspec
     run` prints for it, and exit status 1, with nothing on stdout and no output directory written."""
     with open(document("patching")) as f:
         doc = json.load(f)
@@ -132,14 +132,14 @@ def test_compile_refuses_as_run_does_in_one_line(tmp_path, capsys):
     path.parent.mkdir()
     (tmp_path / "data").symlink_to(os.path.join(ROOT, "data"))
     path.write_text(json.dumps(doc))
-    refusal = ("clab: steps.iia.of: 'patched.nothing' names no value produced before this step; known: "
+    refusal = ("nnspec: steps.iia.of: 'patched.nothing' names no value produced before this step; known: "
                "counterfactual.v_cf, patched.logits, patched.patch\n")
     assert main(["compile", str(path)]) == 1
     assert capsys.readouterr() == ("", refusal)
     assert main(["run", str(path), "--out", str(tmp_path / "out")]) == 1
     assert capsys.readouterr().err == refusal
     assert main(["compile", "nowhere.json"]) == 1
-    assert capsys.readouterr() == ("", "clab: no document at 'nowhere.json'\n")
+    assert capsys.readouterr() == ("", "nnspec: no document at 'nowhere.json'\n")
     assert not os.path.exists(tmp_path / "out") and not os.path.exists("out/broken")
 
 
@@ -194,7 +194,7 @@ def test_a_shape_is_printed_once_per_value_and_a_token_list_as_its_full_shape(en
     assert capsys.readouterr().out.splitlines()[-1].split()[-4:] == ["3", "points,", "each", "[4,1]"]
 
 def test_a_reader_that_goes_away_ends_show_quietly(out, monkeypatch):
-    """`clab show OUT | head -1`: the pipe's reader is gone before `show` has written, and the command returns
+    """`nnspec show OUT | head -1`: the pipe's reader is gone before `show` has written, and the command returns
     0 with no traceback (stdout is sent to /dev/null for the interpreter's own flush at exit)."""
     reading, writing = os.pipe()
     os.close(reading)
@@ -204,8 +204,8 @@ def test_a_reader_that_goes_away_ends_show_quietly(out, monkeypatch):
 
 @pytest.mark.parametrize("command", [["show"], ["table", "p_answer"]])
 def test_a_reader_that_goes_away_mid_print_ends_the_command_quietly(out, monkeypatch, capsys, command):
-    """`clab show OUT | head`, the reader gone while `show` prints more than the pipe holds: the write fails inside
-    the command, which still returns 0 and says nothing on stderr, where it said `clab: [Errno 32] Broken pipe`
+    """`nnspec show OUT | head`, the reader gone while `show` prints more than the pipe holds: the write fails inside
+    the command, which still returns 0 and says nothing on stderr, where it said `nnspec: [Errno 32] Broken pipe`
     (a broken pipe is an OSError, which the command refuses in one line). A line-buffered stdout makes the first
     line's write fail as a full pipe's would."""
     reading, writing = os.pipe()
@@ -217,14 +217,15 @@ def test_a_reader_that_goes_away_mid_print_ends_the_command_quietly(out, monkeyp
 @pytest.mark.parametrize("command", [["compile"], ["show"], ["table", "p_answer"], ["describe", "ops"]])
 def test_compile_show_table_and_describe_import_no_engine(out, command):
     """T9's P1: a command that compiles a document or reads an output directory or the format imports no engine, so
-    neither nnsight, nnterp nor sklearn, and but for compile no transformers (8.8 s of `clab table` at load 12); `run`
+    neither nnsight, nnterp nor sklearn, and but for compile no transformers (8.8 s of `nnspec table` at load 12); `run`
     alone loads one. Compile imports transformers for a `generate` step's options (`GenerationConfig`), so the
     document it compiles here has one. Counted in a fresh interpreter, whose modules this suite's have not already
     imported."""
     given = {"compile": [document("generate_probe")], "describe": []}.get(command[0], [out])
     argv = [command[0], *given, *command[1:]]
-    engines_ = ("nnsight", "nnterp", "sklearn", "clab.engines") + (() if command[0] == "compile" else ("transformers",))
-    code = ("import contextlib, io, sys\nfrom clab.cli import main\nwith contextlib.redirect_stdout(io.StringIO()):\n"
+    engines_ = (("nnsight", "nnterp", "sklearn", "nnspec.engines")
+                + (() if command[0] == "compile" else ("transformers",)))
+    code = ("import contextlib, io, sys\nfrom nnspec.cli import main\nwith contextlib.redirect_stdout(io.StringIO()):\n"
             f"    assert main({argv!r}) == 0\n"
             f"print(sorted(m for m in {engines_!r} if m in sys.modules))")
     done = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, cwd=ROOT, check=True)
@@ -233,23 +234,23 @@ def test_compile_show_table_and_describe_import_no_engine(out, command):
 
 def test_the_cli_refuses_what_run_cannot_do_in_one_line(tmp_path, capsys):
     """A missing document, a device that is no torch device, a CUDA device where none is visible (the suite runs
-    with none) and a batch size below 1 are each one `clab:` line and exit status 1."""
+    with none) and a batch size below 1 are each one `nnspec:` line and exit status 1."""
     out = str(tmp_path / "out")
     assert main(["run", "nowhere.json", "--out", out]) == 1
-    assert capsys.readouterr().err == "clab: no document at 'nowhere.json'\n"
+    assert capsys.readouterr().err == "nnspec: no document at 'nowhere.json'\n"
     assert main(["show", "nowhere"]) == 1
-    assert capsys.readouterr().err == "clab: no run at 'nowhere' (no manifest.json); run the document first\n"
+    assert capsys.readouterr().err == "nnspec: no run at 'nowhere' (no manifest.json); run the document first\n"
     assert main(["run", document("patching"), "--device", "gpu", "--out", out]) == 1
-    assert capsys.readouterr().err == ("clab: device 'gpu': not a torch device ('cpu', 'cuda:0') or a device map "
+    assert capsys.readouterr().err == ("nnspec: device 'gpu': not a torch device ('cpu', 'cuda:0') or a device map "
                                        "transformers computes ('auto', 'balanced', 'balanced_low_0', 'sequential')\n")
     for engine in ("nnterp", "hooks"):
         assert main(["run", document("patching"), "--engine", engine, "--device", "cuda:0", "--out", out]) == 1
-        assert capsys.readouterr().err == ("clab: device 'cuda:0': no CUDA device is visible (torch.cuda.is_available() "
+        assert capsys.readouterr().err == ("nnspec: device 'cuda:0': no CUDA device is visible (torch.cuda.is_available() "
                                            "is False); run on 'cpu', or make a GPU visible (CUDA_VISIBLE_DEVICES)\n")
     assert main(["run", document("patching"), "--engine", "ndif", "--device", "cuda:0", "--out", out]) == 1
-    assert capsys.readouterr().err == "clab: device: the ndif engine cannot honor 'cuda:0': the server places the model\n"
+    assert capsys.readouterr().err == "nnspec: device: the ndif engine cannot honor 'cuda:0': the server places the model\n"
     assert main(["run", document("patching"), "--batch-size", "0", "--out", out]) == 1
-    assert capsys.readouterr().err == "clab: batch_size 0: a batch holds one row or more (--batch-size N, N at least 1)\n"
+    assert capsys.readouterr().err == "nnspec: batch_size 0: a batch holds one row or more (--batch-size N, N at least 1)\n"
     assert not os.path.exists(out)                       # and nothing loaded: each refusal came before the model
 
 def test_show_compacts_positions_every_row_shares(engines, tmp_path, capsys):
@@ -295,7 +296,7 @@ def test_show_prints_an_entry_of_more_than_twelve_rows_as_its_first_three_and_la
     `…`, the last row's and the row count, and a row of more than twelve positions its first three and last, so
     one entry stays within a line or two at any number of rows."""
     assert compact([[i] for i in range(12)]) == ", ".join(f"[{i}]" for i in range(12))
-    assert compact([[i] for i in range(50_000)]) == "[0], [1], [2], …, [49999] (50,000 rows; clab table shows each)"
+    assert compact([[i] for i in range(50_000)]) == "[0], [1], [2], …, [49999] (50,000 rows; nnspec table shows each)"
     assert compact([[3]] * 50_000) == "[3] on all 50,000 rows"
     assert compact([list(range(12)), "alignment_missing"]) == "[0,1,2,3,4,5,6,7,8,9,10,11], —"
     assert compact([list(range(512)), list(range(3, 9))]) == "[0,1,2,…,511], [3,4,5,6,7,8]"
@@ -314,4 +315,4 @@ def test_show_keeps_apart_points_whose_positions_differ_only_in_rows_it_does_not
     rows = cli.resolved(plan)
     assert [r[:2] for r in rows[1:]] == [["patched.patch", "pos=-1"], ["patched.patch", "pos=-2"],
                                          ["patched.patch", "pos=-3"]]
-    assert {r[2] for r in rows[1:]} == {"[7], [7], [7], …, [7] (50 rows; clab table shows each)"}
+    assert {r[2] for r in rows[1:]} == {"[7], [7], [7], …, [7] (50 rows; nnspec table shows each)"}

@@ -1,0 +1,281 @@
+"""What the engines share: how nnterp reaches nnspec's components (the envoy, its dotted name there, the sizes) and
+where not, whether its key reads inside a forward, how a model block becomes a loader call (its dtype as the loader's
+arguments), where a batch's inputs go, and where a HuggingFace generation stops."""
+
+from __future__ import annotations
+
+import importlib.util
+import logging
+from typing import TYPE_CHECKING, Any, Callable, cast
+
+from nnspec.format.address import COMPONENTS
+from nnspec.plan import OWNED, QUANTIZED
+
+if TYPE_CHECKING:
+    from nnsight.intervention.envoy import Envoy
+    from nnterp import StandardizedTransformer
+    from torch import Tensor
+    from transformers import GenerationConfig, PreTrainedTokenizerBase
+
+    from nnspec.plan import Model
+
+# The model's sizes: nnterp's model's own, then a mixture of experts' two, which nnterp's `Moe` holds (`sizes`).
+SIZES = ("num_layers", "hidden_size", "num_heads", "num_kv_heads", "head_dim", "qk_head_dim", "intermediate_size",
+         "vocab_size", "num_experts", "top_k")
+
+# The per-layer components nnterp serves below the block, on its attention or its MLP (a mixture of experts' values
+# among the MLP's: nnterp's `Moe` is an MLP).
+BELOW = {
+    "self_attn": ("attention_queries", "attention_keys", "attention_values", "attention_scores",
+                  "attention_probabilities", "attention_head_outputs", "attention_premix", "attention_output"),
+    "mlp": ("mlp_activation", "mlp_neurons", "router_logits", "expert_weights", "expert_indices", "expert_outputs",
+            "routed_output", "shared_expert_output", "mlp_output"),
+}
+
+
+def host(component: str) -> str:
+    """`model`, `layer`, `self_attn` or `mlp`: the envoy nnterp serves the component on."""
+    if not COMPONENTS[component]["per_layer"]:
+        return "model"
+    return next((h for h, names in BELOW.items() if component in names), "layer")
+
+
+def nnterp_name(component: str) -> str:
+    """The dotted name nnterp's `support()` and `rank()` know the component by."""
+    return f"{host(component)}.{component}" if host(component) in BELOW else component
+
+
+def envoy(model: StandardizedTransformer, component: str, layer: int | None) -> Envoy:
+    """The envoy on `model` (a loaded model or a meta shell) that serves the component."""
+    where = host(component)
+    if where == "model":
+        return model
+    block = model.layers[cast(int, layer)]
+    return block if where == "layer" else getattr(block, where)
+
+
+def inside(value: Any, host: Envoy) -> bool:
+    """Whether nnterp's key for `value` on `host` reads inside a module's forward: a `source` segment on its path."""
+    return "source" in value.path(host).lstrip("./").split(".")
+
+
+def reached(host: Any, key: str) -> tuple[Any, str]:
+    """The module nnterp's key for a value on `host` reaches, and how the value is read there: up a parent for each
+    `../`, then down its children to the `source` segment (inside that module's forward) or to its last, the module
+    boundary (`input`, `output`)."""
+    while key.startswith("../"):
+        host, key = host.parent, key[3:]
+    parts = key.split(".")
+    end = parts.index("source") if "source" in parts else len(parts) - 1
+    for child in parts[:end]:
+        host = getattr(host, child)
+    return host, parts[end]
+
+
+def sizes(model: StandardizedTransformer) -> dict[str, int]:
+    """The model's sizes by name (`SIZES`): nnterp's model's own, and `num_experts` and `top_k` off nnterp's `Moe` at
+    the first block whose MLP is a mixture of experts, absent where none is, so that a `select` of them there is
+    refused with the component it narrows."""
+    from nnterp.components.moe import Moe
+
+    own = {k: getattr(model, k) for k in SIZES if k not in ("num_experts", "top_k")}
+    moe = next((m for m in (getattr(block, "mlp", None) for block in model.layers)
+                if isinstance(m, Moe) and m.no_mixture() is None), None)
+    return own if moe is None else {**own, "num_experts": moe.num_experts, "top_k": moe.top_k}
+
+
+# nnterp's reason for a dense MLP's values at a block whose MLP is a mixture of experts (`nnterp.components.moe`
+# `ROUTED`), which points at nnterp's own `Moe` component; nnspec names that component's values, so it says which of
+# them, and of the MLP's, the engine serves there instead (`own`).
+ROUTED = "routed experts; read per-expert via the Moe component"
+
+# nnspec's reason for a mixture's value on a model none of whose blocks has one, which nnterp's answer does not name.
+DENSE = "no block of this model has a mixture of experts"
+
+# nnspec's reason for a mixture's value on a model nnterp has no family for and reads under its default one, which
+# names no mixture's values but says a block's MLP is a mixture (`nnterp.families.default.MIXTURE`, its reason for
+# the activation there); `own` adds what the engine serves of the MLPs.
+UNADDRESSED = ("nnterp has no family for this architecture (it reads the model under its default family), so its "
+               "mixture of experts is not addressed")
+
+
+def mixed() -> set[str]:
+    """A mixture of experts' values: those nnterp's `Moe` adds to an MLP's, each under its name, which is nnspec's."""
+    from nnterp.components.mlp import Mlp
+    from nnterp.components.moe import Moe
+
+    return set(Moe.values().keys() - Mlp.values().keys())
+
+
+def unserved(shell: StandardizedTransformer) -> dict[str, str | dict[int, str] | None]:
+    """nnterp's `support()` of each component: None, a reason for the whole component, or `{layer: reason}`; a
+    mixture's value (one nnterp's `Moe` adds to an MLP's) that it does not name is refused on a model with no mixture
+    (`DENSE`), and on one whose mixture nnterp's default family finds but cannot address (`UNADDRESSED`). Any other
+    component nnterp's answer does not name at all is refused by name, since nothing says it is served: a component
+    is one nnterp serves, under nnterp's name for it (`nnterp_name`). An engine says its answer with `own`, which
+    replaces nnterp's advice to read its `Moe` component."""
+    from nnterp.families import default
+
+    support = shell.support()
+    unnamed = [c for c in COMPONENTS if nnterp_name(c) not in support and c not in mixed()]
+    if unnamed:
+        raise ValueError(f"nnterp's support() does not name {', '.join(nnterp_name(c) for c in unnamed)}, so nothing "
+                         f"says whether it serves {', '.join(unnamed)}; a component of address.COMPONENTS is one "
+                         "nnterp serves under that name")
+    activation = support[nnterp_name("mlp_activation")]
+    found = default.MIXTURE in (activation.values() if isinstance(activation, dict) else [activation])
+    return {c: support.get(nnterp_name(c), UNADDRESSED if found else DENSE) for c in COMPONENTS}
+
+
+def own(answer: dict[str, str | dict[int, str] | None]) -> dict[str, str | dict[int, str] | None]:
+    """An engine's `answer` (`unserved`'s, or the engine's own from it) with nnspec's reason where nnterp's sends the
+    reader to its `Moe` component (`ROUTED`): that a mixture has no single activation or down projection; or where
+    nnterp's default family leaves a mixture unaddressed (`UNADDRESSED`); each naming the MLP's components, its
+    routing and experts', the answer serves at that block (at every block, for a value refused at all)."""
+    def said(why: str, layer: int | None) -> str:
+        if why not in (ROUTED, UNADDRESSED):
+            return why
+        mlp = [c for c in COMPONENTS if (c.startswith("mlp_") or host(c) == "mlp") and (
+            (r := answer[c]) is None or isinstance(r, dict) and layer is not None and not r.get(layer))]
+        named = ", ".join(mlp[:-1]) + f" and {mlp[-1]}" if len(mlp) > 1 else "".join(mlp) or "none of them"
+        if why == UNADDRESSED:
+            return f"{UNADDRESSED}; its MLPs are served as {named}"
+        return (f"block {layer}'s MLP is a mixture of experts, which has no single activation or down projection; at "
+                f"block {layer} its MLP is served as {named}")
+    return {c: {layer: said(why, layer) for layer, why in refused.items()} if isinstance(refused, dict) else
+            refused and said(refused, None) for c, refused in answer.items()}
+
+
+def served(component: str, refused: str | dict[int, str] | None, num_layers: int) -> list[int | None]:
+    """The layers nnterp serves the component at, by its answer `refused` (`unserved`'s); [None] for a model value."""
+    if isinstance(refused, str):
+        return []
+    return [i for i in range(num_layers) if i not in (refused or {})] if COMPONENTS[component]["per_layer"] else [None]
+
+
+# The device maps transformers computes, which may spread a model over several devices; any other `device` is one
+# torch device.
+COMPUTED = ("auto", "balanced", "balanced_low_0", "sequential")
+
+
+def loading(model: Model, engine: str, device: str) -> dict[str, Any]:
+    """The loader's arguments for the model's `dtype`, which every engine takes from here, so that a quantization
+    holds the same weights and computes in the same dtype on each by construction: `dtype`, torch's (the compute
+    dtype, `Model.computes`, under a quantization), and for a quantization the `quantization_config` nnsight builds
+    for its name: bitsandbytes 4-bit in that quant type computing in that dtype (without double quantization),
+    LLM.int8(), or transformers' FP8. Refused by name before anything loads (every engine's constructor comes through
+    here before its loader): a `device` that is neither a device map transformers computes (`COMPUTED`) nor one torch
+    device, a CUDA device where none is visible or one beyond those that are, a bitsandbytes format without
+    bitsandbytes installed, and `fp8` off a GPU of compute capability 8.9 or later (below it transformers would load
+    bfloat16)."""
+    import torch
+    from transformers import BitsAndBytesConfig, FineGrainedFP8Config
+
+    if device not in COMPUTED:
+        try:
+            where = torch.device(device)
+        except RuntimeError:
+            raise ValueError(f"device {device!r}: not a torch device ('cpu', 'cuda:0') or a device map transformers "
+                             f"computes ({', '.join(map(repr, COMPUTED))})") from None
+        if where.type == "cuda" and not torch.cuda.is_available():
+            raise ValueError(f"device {device!r}: no CUDA device is visible (torch.cuda.is_available() is False); run "
+                             "on 'cpu', or make a GPU visible (CUDA_VISIBLE_DEVICES)")
+        if where.type == "cuda" and where.index is not None and where.index >= torch.cuda.device_count():
+            n = torch.cuda.device_count()
+            raise ValueError(f"device {device!r}: {n} CUDA device{'s' * (n != 1)} visible, cuda:0 to cuda:{n - 1}")
+    dtype = getattr(torch, model.computes)
+    if model.dtype not in QUANTIZED:
+        return {"dtype": dtype}
+    if model.dtype == "fp8":
+        if device not in COMPUTED and torch.device(device).type != "cuda" or not torch.cuda.is_available():
+            raise ValueError(f"model.dtype 'fp8' needs a GPU of compute capability 8.9 or later; the {engine} "
+                             f"engine's device is {device!r}" + ("" if torch.cuda.is_available() else
+                                                                 ", and no GPU is visible"))
+        for i in range(torch.cuda.device_count()) if device in COMPUTED else [torch.device(device).index or 0]:
+            capability = torch.cuda.get_device_capability(i)
+            if capability < (8, 9):
+                raise ValueError(f"model.dtype 'fp8' needs a GPU of compute capability 8.9 or later; cuda:{i} "
+                                 f"({torch.cuda.get_device_name(i)}) is {capability[0]}.{capability[1]}")
+        return {"dtype": dtype, "quantization_config": FineGrainedFP8Config()}
+    if importlib.util.find_spec("bitsandbytes") is None:
+        raise ValueError(f"model.dtype {model.dtype!r} holds the weights in bitsandbytes, which is not installed: "
+                         "install bitsandbytes")
+    config = (BitsAndBytesConfig(load_in_8bit=True) if model.dtype == "int8" else
+              BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_quant_type=model.dtype, bnb_4bit_compute_dtype=dtype))
+    return {"dtype": dtype, "quantization_config": config}
+
+
+def placing(model: Model, device: str) -> dict[str, str]:
+    """Where nnsight's loader puts the model: as its `device_map` a map transformers computes, else as its `device`
+    one torch device, and a quantized model's as its `device_map` too, since a model is quantized where
+    `device_map` says (the first GPU when it says nothing) and a quantized one cannot move after."""
+    if device in COMPUTED:
+        return {"device_map": device}
+    return {"device": device, **({"device_map": device} if model.dtype in QUANTIZED else {})}
+
+
+def inputs(batch: dict[str, Tensor], keys: tuple[str, ...], device: str) -> dict[str, Tensor]:
+    """The batch's `keys` on `device`: where the model's first parameter is (`batches.model_device`), which is where a
+    computed device map puts the model's input. Onto a GPU the keys' tensors (each `[rows, width]`, as `data.pad`
+    makes them) go stacked in one pinned buffer and one copy the host does not wait for, which runs in stream order
+    before the model's first kernel, so that feeding a batch never drains the GPU's queue."""
+    import torch
+
+    if torch.device(device).type != "cuda":
+        return {k: batch[k].to(device) for k in keys}
+    assert len({batch[k].dtype for k in keys}) == 1, "a batch's keys share one dtype, which the stack would cast"
+    held = torch.stack([batch[k] for k in keys]).pin_memory().to(device, non_blocking=True)
+    return dict(zip(keys, held.unbind()))
+
+
+def build(model: Model, engine: str, call: Callable[[dict[str, Any]], Any]) -> Any:
+    """`call` with the model block's keys other than `key`, `revision` and `dtype` (which `loading` reads), as they
+    are, once the `pad_token_id` warning (`PADDED`) is filtered off the transformers logger that emits it, the filter
+    (`unpadded`) added once and passing every other message of that logger. A key the block may not hold
+    (`plan.OWNED`, which compile refuses in a document) is refused by name, and one the loader rejects is reported
+    as that key. A checkpoint the loader cannot get (its `OSError`) is refused as
+    `model.key`, saying whether the run is offline and the cache lacks it."""
+    from huggingface_hub.constants import HF_HUB_OFFLINE
+
+    extra = dict(model.model_extra or {})
+    for key in extra:
+        if key in OWNED:
+            raise ValueError(f"model.{key}: the {engine} engine cannot honor it: {OWNED[key]}")
+    logger = logging.getLogger("transformers.configuration_utils")
+    if unpadded not in logger.filters:
+        logger.addFilter(unpadded)
+    try:
+        return call(extra)
+    except OSError as e:                   # before ValueError: the hub's not-found error is both
+        why = ("HF_HUB_OFFLINE is set and the Hugging Face cache lacks it, or part of it; fetch it online first"
+               if HF_HUB_OFFLINE else "the hub does not give it and the cache lacks it")
+        said = (str(e).strip().splitlines() or [""])[0]
+        raise ValueError(f"model.key {model.key!r} at revision {model.revision!r}: the {engine} engine cannot load "
+                         f"it: {why} (the loader says: {said})") from None
+    except (TypeError, ValueError) as e:
+        def names(key: str, text: str) -> bool:
+            return repr(key) in text or f"{key}=" in text or f" {key} " in text
+        key = next((k for k in extra if names(k, str(e))), None)
+        if key is None:
+            raise
+        # The last line that names the key, without its exception's name: nnsight's loader wraps the error in a
+        # report of every class it tried, with each one's traceback.
+        why = [line.strip() for line in str(e).splitlines() if names(key, line)][-1]
+        raise ValueError(f"model.{key}: the {engine} engine's loader rejects it: "
+                         f"{why.partition(': ')[2] if why.split(': ')[0].endswith('Error') else why}") from None
+
+
+# The one transformers warning every load of a checkpoint whose config carries `pad_token_id: -1` prints (the tiny
+# test models do), which says nothing about the run: nnspec pads with the tokenizer's own id (`data.pad`).
+PADDED = "Model config: pad_token_id must be `None` or an integer within the vocabulary"
+
+
+def unpadded(record: logging.LogRecord) -> bool:
+    return not record.getMessage().startswith(PADDED)
+
+
+def stops(config: GenerationConfig, tokenizer: PreTrainedTokenizerBase) -> list[int]:
+    """The ids a generation stops on: the generation config's EOS, else the tokenizer's."""
+    found = getattr(config, "eos_token_id", None)
+    found = cast("int | list[int]", tokenizer.eos_token_id if found is None else found)
+    return [found] if isinstance(found, int) else list(found)

@@ -3,7 +3,7 @@ title: Data and Inputs
 one_liner: "How do I load rows and pick what a step runs over? File, inline and hub datasets, narrowing, renamed and derived columns, chats, teacher forcing and answer columns."
 tags: [usage, data, inputs, chat]
 related: [docs/usage/writing-a-document.md, docs/usage/positions.md, docs/usage/ops.md, docs/usage/generate.md, docs/usage/fit.md, docs/usage/running.md, docs/usage/output.md, docs/patterns/generation-experiments.md, docs/errors/answer-does-not-line-up.md]
-sources: [clab/format/data.py, clab/plan.py, clab/compile/__init__.py, clab/compile/answers.py]
+sources: [nnspec/format/data.py, nnspec/plan.py, nnspec/compile/__init__.py, nnspec/compile/answers.py]
 ---
 
 # Data and Inputs
@@ -56,7 +56,7 @@ A dataset has exactly one source; giving two is refused.
            "config": "wnli", "split": "validation", "take": 3}
   ```
 
-  Its rows never go into the plan or the manifest. Compile loads them to check the document and records their digest, the run loads them again where the model runs, and `clab table` loads them again to label its rows. Offline (`HF_HUB_OFFLINE=1`) they come from the `datasets` library's cache, which one online load of that commit fills (`tests/test_hub.py` gives the command). A hub dataset with several splits and no `split` is refused, and the message lists them.
+  Its rows never go into the plan or the manifest. Compile loads them to check the document and records their digest, the run loads them again where the model runs, and `nnspec table` loads them again to label its rows. Offline (`HF_HUB_OFFLINE=1`) they come from the `datasets` library's cache, which one online load of that commit fills (`tests/test_hub.py` gives the command). A hub dataset with several splits and no `split` is refused, and the message lists them.
 
 ## Narrowing and renaming rows
 
@@ -75,9 +75,9 @@ The five fields apply in this order: `split`, `shuffle`, `skip`, `take`, `column
 - **A rename into a name the steps read changes what they read, unrefused.** On `weekdays/train`, `{"input": "entity", "prompt": "input"}` runs every `pairs.input` step on the entity alone (`<s> ▁Friday` on row 1). Check `run.tokens` after renaming.
 - **`take` without `shuffle` keeps the first N rows.** On a file sorted by label or difficulty, that is not a sample.
 
-The manifest records each dataset's `sha256` and `n_rows` after these fields apply, and a row's index in `clab table` counts these rows.
+The manifest records each dataset's `sha256` and `n_rows` after these fields apply, and a row's index in `nnspec table` counts these rows.
 
-`shuffle`'s order ranks each row's index `i` by the 8-byte blake2b hash of `repr((0, i))` (`clab/format/data.py` `shuffled`), so it depends on the row count alone. Outside clab, with `n` the row count after `split`:
+`shuffle`'s order ranks each row's index `i` by the 8-byte blake2b hash of `repr((0, i))` (`nnspec/format/data.py` `shuffled`), so it depends on the row count alone. Outside nnspec, with `n` the row count after `split`:
 
 ```python
 order = sorted(range(n), key=lambda i: hashlib.blake2b(repr((0, i)).encode(), digest_size=8).digest())
@@ -125,12 +125,12 @@ Text is tokenized as the tokenizer does by default, with BOS where it adds one; 
 - **After a word, the bare answer joins it.** `["p.input", "p.said"]` on `data/weekdays/said.json` gives `issubstr`, and the scope on `p.said` is refused: `column 'p.said' ('substr') is not in its input; it occurs only inside 'issubstr', …`.
 - **After punctuation it is a word of its own, in another spelling, and nothing is refused.** On GPT-2 (`openai-community/gpt2` at `607a30d783dfa663caf39e06633721c8d4cfcd7e`, CPU, float32), `Q: What day comes after Thursday? A:` with `Friday` appended tokenizes the answer as `Friday`, not ` Friday`. The scope on the bare column finds it, and `cross_entropy` scores `Friday` at 8.60 nats, where the spaced answer scores 3.20 at the same position.
 - **Where the prompt also names the answer, a scope on the spaced text lands on the prompt's copy.** A spaced text never finds a word without the space, so the last occurrence it finds is the prompt's. On GPT-2, `Thursday comes before Friday. If today is Thursday, tomorrow is` with `Friday` appended, read at `{"scope": {"column": "p.spaced", "occurrence": -1, "before": true}}`, lands at position 2 (` before`). It scores the prompt's ` Friday`, 5.92 nats, where the spaced append is read at 11 and scores 0.94. Nothing refuses it: the scope found an occurrence, and the input holds the target's tokens where it landed.
-- **Check the positions in `clab show`, and write the space into the rows.** An appended answer's positions lie past the prompt's last token. With the space in the rows the appended answer is the spelling scored, and it ends last, so `"occurrence": -1` finds it.
+- **Check the positions in `nnspec show`, and write the space into the rows.** An appended answer's positions lie past the prompt's last token. With the space in the rows the appended answer is the spelling scored, and it ends last, so `"occurrence": -1` finds it.
 - **A text space fixes the input, not the target.** `"input": ["p.input", {"text": " "}, "p.said"]` spaces the appended word. On the corpus Llama, where `substr` and ` substr` are the same tokens, that gives the same numbers as rows with the space written in. On GPT-2 the bare target is other tokens than the input holds, and a metric of it is refused: `'substr' is 2 tokens; the read has 1 position on that row; …`, or, where the counts agree, `position 6 predicts ' Friday' in the input, which is not token 0 of 'Friday' as it tokenizes alone …`. There the space goes into the rows, since a derived column only cuts ([below](#answer-columns)).
 
 ### Chat inputs
 
-A column whose value on each row is a list of `{"role", "content"}` messages is a chat. clab renders it through the checkpoint's own chat template and tokenizes the result without adding special tokens, since the template writes its own. `documents/chat_turn.json` reads `chats.chat` from `data/weekdays/chat.json`; on the corpus Llama the first row renders as:
+A column whose value on each row is a list of `{"role", "content"}` messages is a chat. nnspec renders it through the checkpoint's own chat template and tokenizes the result without adding special tokens, since the template writes its own. `documents/chat_turn.json` reads `chats.chat` from `data/weekdays/chat.json`; on the corpus Llama the first row renders as:
 
 ```text
 <s>[INST]▁Name▁a▁weekday.▁[/INST]▁Thursday.▁</s><s>[INST]▁If▁today▁is▁Thursday,▁tomorrow▁is▁[/INST]
@@ -145,12 +145,12 @@ The dataset's `template` is passed to the checkpoint's `apply_chat_template` as 
 - **Without a template** the prompt ends with the template's close of the last message, and `pos: -1` is that close's last token.
 - **With `add_generation_prompt`** it ends with the assistant's header, so a `generate` continues as the assistant. What an argument does is the template's: on a Llama-2-style template, as above, `add_generation_prompt` changes nothing. Check the rendering in `run.tokens`.
 - **A `template` on a dataset that no step reads as a chat is refused**, and so is a `tokenize` key in it. Positions inside a turn are [positions.md](positions.md#chat-turns).
-- **A chat comes only from a column that already holds `{"role", "content"}` messages**; nothing in a document turns a text column into one. To run a text dataset as user turns, write the messages outside clab as inline `rows` (or a file), and record the hub source and its revision in `description`.
+- **A chat comes only from a column that already holds `{"role", "content"}` messages**; nothing in a document turns a text column into one. To run a text dataset as user turns, write the messages outside nnspec as inline `rows` (or a file), and record the hub source and its revision in `description`.
 
 **A template can read the clock.** Llama-3.2's template adds a system header when the chat has none and writes `Today Date: <today>` in it (`strftime_now`). The same document would then render other tokens on another day, which a dataset's digest cannot say: it covers the rows, not how they render. A chat of such a template is refused before any forward unless the dataset's `template` pins the date, and the refusal gives the pin (`tests/test_plan.py` `test_a_chat_template_that_reads_the_clock_renders_only_with_its_date_pinned`):
 
 ```text
-clab: blanked: chats.chat: the checkpoint's chat template calls strftime_now, which writes today's date into the prompt, so these rows render to other tokens on another day and nothing in the run record says so; pin it in data.chats.template, {"date_string": "26 Jul 2024"}
+nnspec: blanked: chats.chat: the checkpoint's chat template calls strftime_now, which writes today's date into the prompt, so these rows render to other tokens on another day and nothing in the run record says so; pin it in data.chats.template, {"date_string": "26 Jul 2024"}
 ```
 
 ```json
@@ -168,7 +168,7 @@ Where a field takes a column, as an answer to score or as text to find (a metric
 ```
 
 - **Flags say how text compares; they never rewrite the data.** `lower` compares lowercased; `strip` makes surrounding whitespace optional. Scored against logits, the answer's token then stands for every vocabulary token that compares the same: in `documents/answer_spellings.json`, ` Yes` under both flags sums the probability of `▁Yes`, `▁yes`, `Yes`, `yes`, `YES` and `▁YES`. What that does to each metric is [ops.md](ops.md#metrics).
-- **A list of strings is a set**, any member of which is the answer: `"answer": [" Yes", " True"]` above. `clab table` prints it as JSON.
+- **A list of strings is a set**, any member of which is the answer: `"answer": [" Yes", " True"]` above. `nnspec table` prints it as JSON.
 - **A fixed answer is a literal, not a column.** Where an op takes an answer or a text, `{"text": "</think>"}` stands in place of the column. It is the same text on every row, tokenized as written and compared under the same flags (`{"text": " yes", "strip": true, "lower": true}`; a list is a set). It gives the same numbers as a column holding that text on every row (`tests/test_answers.py` `test_a_literal_scores_as_the_constant_column_of_its_text_does`), so a constant column built only to be scored is not needed.
 - **A bare string is always a column reference.** `"token": "</think>"` is refused with `'</think>' is not <dataset>.<column> over a dataset; …; text written as it is, the same on every row, is {'text': '</think>'}`.
 - **A path reaches inside a column's entries**: `pairs.counterfactual_inputs_variables[0].entity` is the `entity` of each row's first variables object.
@@ -179,7 +179,7 @@ Where a field takes a column, as an answer to score or as text to find (a metric
 
 ## `example_id`
 
-A row's `example_id` column, when the dataset has one, leads every row of `clab table`. Give rows one when you shuffle or take, so a table row still says which example it is.
+A row's `example_id` column, when the dataset has one, leads every row of `nnspec table`. Give rows one when you shuffle or take, so a table row still says which example it is.
 
 ## The corpus data
 
@@ -202,4 +202,4 @@ The datasets under the repository's `data/`, by the `path` that reads them. Ever
 
 ## Pitfalls
 
-- **A file dataset is read again when you table a run.** `clab table` loads it from `data/` under the working directory and refuses rows that changed since the run ([output.md](output.md#tabling-needs-the-rows)). Inline rows do not have this problem.
+- **A file dataset is read again when you table a run.** `nnspec table` loads it from `data/` under the working directory and refuses rows that changed since the run ([output.md](output.md#tabling-needs-the-rows)). Inline rows do not have this problem.

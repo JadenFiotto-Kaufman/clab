@@ -1,19 +1,19 @@
 ---
 title: Python API
-one_liner: "The public Python surface: clab.run, Plan and its methods, engines.load and execute, results and run, describe."
+one_liner: "The public Python surface: nnspec.run, Plan and its methods, engines.load and execute, results and run, describe."
 tags: [reference, python, api]
 related: [docs/usage/running.md, docs/usage/output.md, docs/reference/cli.md, docs/concepts/plan-lifecycle.md, docs/developing/engines.md, FORMAT.md]
-sources: [clab/__init__.py, clab/plan.py, clab/engines/__init__.py, clab/output/__init__.py, clab/output/table.py, clab/docs.py, clab/cli.py]
+sources: [nnspec/__init__.py, nnspec/plan.py, nnspec/engines/__init__.py, nnspec/output/__init__.py, nnspec/output/table.py, nnspec/docs.py, nnspec/cli.py]
 ---
 
 # Python API
 
-`import clab` gives `clab.run`, `clab.Plan` and `clab.describe`; `clab.engines.load` loads an engine, and `clab.output.manifest` reads a run's manifest. This page lists their signatures and what each returns and refuses. When to call which is [running.md](../usage/running.md); reading results is [output.md](../usage/output.md).
+`import nnspec` gives `nnspec.run`, `nnspec.Plan` and `nnspec.describe`; `nnspec.engines.load` loads an engine, and `nnspec.output.manifest` reads a run's manifest. This page lists their signatures and what each returns and refuses. When to call which is [running.md](../usage/running.md); reading results is [output.md](../usage/output.md).
 
-## `clab.run`
+## `nnspec.run`
 
 ```python
-clab.run(plan, engine="nnterp", out=None, batch_size=8, device=None, padding="dataset", readout="full", **options) -> Plan
+nnspec.run(plan, engine="nnterp", out=None, batch_size=8, device=None, padding="dataset", readout="full", **options) -> Plan
 ```
 
 | parameter | meaning |
@@ -29,7 +29,7 @@ clab.run(plan, engine="nnterp", out=None, batch_size=8, device=None, padding="da
 
 It compiles the plan, loads the engine when given a name, executes, dumps into `out`, and returns the filled plan. A loaded engine takes no `device` or options: `the loaded nnterp engine runs on cpu with {'tp': 1}; device and options are given when an engine loads`. Under torchrun (`tp`) every rank runs and returns the filled plan, and rank 0 alone writes `out`. A step that runs out of CUDA memory stops the run: `out` is written with the steps that finished and the refusal in `plan.run.stopped`, then the refusal is raised as a `ValueError` ending `the steps before it are saved in <out>` ([running.md](../usage/running.md#when-a-step-runs-out-of-memory)).
 
-## `clab.Plan`
+## `nnspec.Plan`
 
 ```python
 Plan(path)        # read the JSON document at path
@@ -43,7 +43,7 @@ Plan(**fields)    # build one from the document's keys as Python values
 | `compile() -> Plan` | a new, compiled plan: rows loaded, sites and bundles of entries inlined, sweeps expanded into points, names resolved. A compiled plan returns itself. Raises `PlanError` |
 | `dump(out)` | writes the output directory: one file per save, `manifest.json` and `tokens.json` (the rows' tokens, `run.tokens`). A plan that has not run raises `ValueError` (`the plan has not run, so it has no results; execute it first`) |
 | `Plan.load(out)` | classmethod: the filled plan an output directory holds, with `results` and `run` |
-| `table(*names, columns=None) -> list[dict]` | the rows `clab table` prints, one dict per row. `columns` lists the dataset columns to include; by default, those the values' steps used. A plan that has not run raises `ValueError`, as `dump` does |
+| `table(*names, columns=None) -> list[dict]` | the rows `nnspec table` prints, one dict per row. `columns` lists the dataset columns to include; by default, those the values' steps used. A plan that has not run raises `ValueError`, as `dump` does |
 | `write(path)` | writes the plan as a JSON document in its current state, without `results`, `run` and `document`, defaults left out |
 
 Besides the document's own keys (`description`, `model`, `data`, `sites`, `interventions`, `featurizers`, `steps`, `saves`), a plan holds:
@@ -63,7 +63,7 @@ A plan's `repr` says its stage: `Plan(patching, uncompiled)`, `Plan(patching, co
 ## Engines
 
 ```python
-from clab.engines import ENGINES, load
+from nnspec.engines import ENGINES, load
 
 engine = load(name, model, device=None, **options)
 filled = engine.execute(plan, batch_size=8, padding="dataset", readout="full")
@@ -87,32 +87,32 @@ The rest of an engine's surface is the protocol an engine implements ([developin
 
 It refuses a plan that is not compiled (`plan is not compiled; call plan.compile()`). It refuses one whose model block differs from the one the engine loaded, naming each field that differs (`the plan's model is not the one this engine loaded: key 'hf-internal-testing/tiny-random-gpt2' where the engine's is 'hf-internal-testing/tiny-random-LlamaForCausalLM', revision …`). One engine executes any number of plans that pin its model block. A step that runs out of CUDA memory fills `results`, `run.costs` and `run.stopped` for the steps that finished and raises the refusal.
 
-## `clab.output.manifest`
+## `nnspec.output.manifest`
 
 ```python
-from clab.output import manifest
+from nnspec.output import manifest
 
 held, results = manifest(out)
 ```
 
 The manifest of the run at `out`, as JSON, with each record's `positions` put back in place from the manifest's shared list, and apart from it the `results`: each saved value's record by name. `held["steps"]` is what two runs compare to check that every read and write landed alike ([running.md](../usage/running.md#comparing-two-runs)). A directory without `manifest.json` is refused with `FileNotFoundError`.
 
-## `clab.describe`
+## `nnspec.describe`
 
 ```python
-clab.describe(what=None) -> str
+nnspec.describe(what=None) -> str
 ```
 
-The text `clab describe` prints: `what` is one of `records`, `steps`, `ops`, `components`, `featurizers`, `pos`, `engines`, or `None` for all of them ([cli.md](cli.md#clab-describe)).
+The text `nnspec describe` prints: `what` is one of `records`, `steps`, `ops`, `components`, `featurizers`, `pos`, `engines`, or `None` for all of them ([cli.md](cli.md#nnspec-describe)).
 
 ## Errors
 
 | exception | raised for | example |
 |---|---|---|
-| `clab.plan.PlanError`, a `ValueError` | a document that does not read or compile; the message starts with the document path of what is wrong | `steps.iia.of: 'patched.logits' names no value produced before this step; known: counterfactual.v_cf` |
+| `nnspec.plan.PlanError`, a `ValueError` | a document that does not read or compile; the message starts with the document path of what is wrong | `steps.iia.of: 'patched.logits' names no value produced before this step; known: counterfactual.v_cf` |
 | `ValueError` | a refusal after the model loads, which names the step or entry; a run option; an engine option; a plan not compiled or not run | `counterfactual.v_cf: layer 5; the model has 2 layers` |
 | `FileNotFoundError` | a document, a run's `manifest.json` or its `tokens.json` that is not there | `no document at 'documents/nope.json'`; `no run at 'out/nope' (no manifest.json); run the document first` |
 | `TypeError` | `Plan(dict)`: a document's fields passed as one dict | `Plan(dict): a document's fields are keywords, Plan(**fields); …` |
-| nnsight's `RemoteError` | a refusal raised on an NDIF server under the `ndif` engine | its last line is clab's message |
+| nnsight's `RemoteError` | a refusal raised on an NDIF server under the `ndif` engine | its last line is nnspec's message |
 
-On the command line (`clab/cli.py` `command`), `clab run` catches `ValueError`, `NotImplementedError`, `OSError` and `RemoteError`, and `clab show` and `clab table` catch `ValueError` and `OSError`; each prints one `clab:` line and exits 1. Messages and their fixes: [errors/index.md](../errors/index.md).
+On the command line (`nnspec/cli.py` `command`), `nnspec run` catches `ValueError`, `NotImplementedError`, `OSError` and `RemoteError`, and `nnspec show` and `nnspec table` catch `ValueError` and `OSError`; each prints one `nnspec:` line and exits 1. Messages and their fixes: [errors/index.md](../errors/index.md).

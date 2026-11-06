@@ -3,7 +3,7 @@ title: Cached Harvests
 one_liner: "How do I harvest once and reuse it? Save it, load it in another document, fit on it without a forward, harvest in shards."
 tags: [patterns, load, cache, harvest, shards, skip]
 related: [docs/usage/output.md, docs/usage/data.md, docs/usage/fit.md, docs/usage/bundles.md, docs/usage/sweeps.md, docs/usage/engines.md, docs/patterns/probing.md, docs/patterns/sae.md]
-sources: [clab/plan.py, clab/compile/__init__.py, clab/compile/preflight.py, clab/steps/__init__.py, clab/output/__init__.py, clab/engines/nnterp.py]
+sources: [nnspec/plan.py, nnspec/compile/__init__.py, nnspec/compile/preflight.py, nnspec/steps/__init__.py, nnspec/output/__init__.py, nnspec/engines/nnterp.py]
 ---
 
 # Cached Harvests
@@ -88,7 +88,7 @@ A value an op took out of the coordinates, by changing the last axis they lie on
 
 ## Positions and the table
 
-A loaded read keeps its positions per row, and preflight tokenizes its input as a forward would. So `clab table` labels `pos` and `pos_token` as the harvesting run's table does, and `clab show` lists the read under `<step>.<entry>` (`harvest.acts`). The tokens are this run's, from the same checkpoint and the same rows.
+A loaded read keeps its positions per row, and preflight tokenizes its input as a forward would. So `nnspec table` labels `pos` and `pos_token` as the harvesting run's table does, and `nnspec show` lists the read under `<step>.<entry>` (`harvest.acts`). The tokens are this run's, from the same checkpoint and the same rows.
 
 ## A harvest in shards
 
@@ -105,10 +105,10 @@ The two shards' values, joined in order, equal the harvest of all 42 shuffled ro
 
 The loaded value travels in the request, inside the plan, as a loaded bundle's tensors do, so the server reads no file of yours. `-o remote=local` runs what a server runs, and its result equals the nnterp engine's. A small cached operand therefore serves a model you cannot load yourself, as a counterfactual read saved from one NDIF run and patched into another.
 
-A request carries at most 512 MiB of loaded tensors over a document's loads (`clab/steps/__init__.py` `LOADED`). A document that loads more is refused before anything is sent, with each load's size. Run it where the file is, on the nnterp or hooks engine:
+A request carries at most 512 MiB of loaded tensors over a document's loads (`nnspec/steps/__init__.py` `LOADED`). A document that loads more is refused before anything is sent, with each load's size. Run it where the file is, on the nnterp or hooks engine:
 
 ```text
-clab: harvest, held: the values this document loads hold 805.7 MiB of tensors (harvest 402.8 MiB, held 402.8 MiB), and a request carries at most 512 MiB inside its plan; …
+nnspec: harvest, held: the values this document loads hold 805.7 MiB of tensors (harvest 402.8 MiB, held 402.8 MiB), and a request carries at most 512 MiB inside its plan; …
 ```
 
 ## Pitfalls

@@ -1,6 +1,6 @@
 ---
 title: Usage Index
-one_liner: How to write and run a clab document, one page per part of the format and per stage of a run.
+one_liner: How to write and run an nnspec document, one page per part of the format and per stage of a run.
 tags: [usage, index]
 related: [docs/index.md, docs/patterns/index.md, docs/reference/index.md]
 ---
@@ -41,4 +41,4 @@ Find the part of the document you are writing or the stage of the run you are at
 
 - [running](running.md) — How do I run a document, and why would two runs differ? The CLI and Python, batch size, padding, readout, memory, the corpus root and tp.
 - [engines](engines.md) — Which engine runs it? nnterp, hooks, ndif and vllm: what each serves, devices, options, quantized and sharded models.
-- [output](output.md) — How do I read a run back? clab show, clab table, plan.results, the manifest's positions, the run record, and loading a saved value elsewhere.
+- [output](output.md) — How do I read a run back? nnspec show, nnspec table, plan.results, the manifest's positions, the run record, and loading a saved value elsewhere.

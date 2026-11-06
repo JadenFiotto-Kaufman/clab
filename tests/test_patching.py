@@ -9,12 +9,12 @@ import pytest
 import torch
 from conftest import BATCH_SIZE, ROOT, TRIP, by_reference, document, edited, placed, plan_of, same, snapshot, stand_in
 
-import clab
-from clab import Plan
-from clab.cli import main
-from clab.format.sweeps import points
-from clab.ops import edits
-from clab.plan import PlanError, entries
+import nnspec
+from nnspec import Plan
+from nnspec.cli import main
+from nnspec.format.sweeps import points
+from nnspec.ops import edits
+from nnspec.plan import PlanError, entries
 
 SAVED = ["iia", "logit_diff"]
 
@@ -51,7 +51,7 @@ def test_the_run_record_says_how_it_ran(filled):
     run = filled["nnterp"].run
     assert (run.engine, run.batch_size, run.device, run.options) == ("nnterp", BATCH_SIZE, "cpu", {"tp": 1})
     assert (run.dtype, run.devices) == (["float32"], ["cpu"])               # the model's parameters, where it is
-    assert {"clab", "nnsight", "nnterp", "transformers", "torch", "python"} <= set(run.versions)
+    assert {"nnspec", "nnsight", "nnterp", "transformers", "torch", "python"} <= set(run.versions)
     assert run.tokens["pairs.input"][0] == ["<s>", "▁If", "▁today", "▁is", "▁Th", "urs", "day", ",", "▁tom",
                                             "orrow", "▁is"]
     assert placed(filled["nnterp"])["patched.patch"] == [[10], [8], [8], [8]]    # the last token, BOS-prefixed rows
@@ -98,7 +98,7 @@ def test_remote_local_is_bit_equal_to_local(engines, filled):
 
 def test_the_way_home_through_a_stand_in_server(engines, filled, monkeypatch):
     """The way home, against this design's own model of a server (`conftest.stand_in`), not nnsight's server
-    code. The ndif engine's request names clab's plan, engine and steps by class reference with nothing of clab
+    code. The ndif engine's request names nnspec's plan, engine and steps by class reference with nothing of nnspec
     shipped by value, and what comes home is the results and the run record, never the plan, which the
     client assigns into its own plan."""
     import cloudpickle
@@ -106,7 +106,7 @@ def test_the_way_home_through_a_stand_in_server(engines, filled, monkeypatch):
     plan = plan_of("patching")
     home, trip = stand_in(engines, plan, monkeypatch)
     assert trip == TRIP
-    assert not any(m.split(".")[0] in ("clab", "nnterp") for m in cloudpickle.cloudpickle._PICKLE_BY_VALUE_MODULES)
+    assert not any(m.split(".")[0] in ("nnspec", "nnterp") for m in cloudpickle.cloudpickle._PICKLE_BY_VALUE_MODULES)
     assert home is plan and same(home.results, filled["nnterp"].results)
     assert home.run is not None and placed(home) == placed(filled["nnterp"])
 
@@ -117,7 +117,7 @@ def test_the_by_reference_check_sees_a_function_shipped_by_value(engines, monkey
     from nnsight.schema.request import RequestModel
     from nnsight.tracing.backend import Backend
 
-    from clab import steps
+    from nnspec import steps
 
     plan = plan_of("patching")
     client = engines("ndif", plan.model, remote=True)
@@ -190,10 +190,10 @@ def test_a_loaded_plan_tables_the_rows_a_datasets_options_left(engines, tmp_path
     assert [r["target"] for r in rows] == [r["target"] for r in plan.data["pairs"].rows or []]
 
 
-def test_clab_run_takes_a_path_or_a_plan_and_a_name_or_an_engine(engines, filled, tmp_path):
-    plan = clab.run(document("patching"), engine="hooks", out=str(tmp_path / "a"), batch_size=BATCH_SIZE)
-    again = clab.run(Plan(document("patching")), engine=engines("hooks", plan.model), out=str(tmp_path / "b"),
-                     batch_size=BATCH_SIZE)
+def test_nnspec_run_takes_a_path_or_a_plan_and_a_name_or_an_engine(engines, filled, tmp_path):
+    plan = nnspec.run(document("patching"), engine="hooks", out=str(tmp_path / "a"), batch_size=BATCH_SIZE)
+    again = nnspec.run(Plan(document("patching")), engine=engines("hooks", plan.model), out=str(tmp_path / "b"),
+                       batch_size=BATCH_SIZE)
     assert same(plan.results, filled["hooks"].results) and same(again.results, plan.results)
     assert repr(again) == "Plan(patching, run on hooks, 2 results)"
 
@@ -255,11 +255,11 @@ def test_hooks_refuses_what_lives_inside_a_forward(engines, name, component):
 def test_an_option_the_engine_does_not_declare_is_refused_before_anything_loads(monkeypatch):
     """`load` checks the options against the engine's constructor before calling it: an unknown key is named
     with the ones the engine takes, and a value of another type is refused."""
-    from clab.engines import load, options
+    from nnspec.engines import load, options
 
     model = plan_of("patching").model
     for where in ("nnterp", "ndif"):
-        monkeypatch.setattr(f"clab.engines.{where}.StandardizedTransformer", lambda *a, **k: pytest.fail("loaded"))
+        monkeypatch.setattr(f"nnspec.engines.{where}.StandardizedTransformer", lambda *a, **k: pytest.fail("loaded"))
     with pytest.raises(ValueError, match="unknown engine 'bogus'; valid: nnterp, hooks, ndif, vllm"):
         load("bogus", model)
     assert list(options("nnterp")) == ["tp"] and list(options("ndif")) == ["remote"]
@@ -277,32 +277,32 @@ def test_an_option_the_engine_does_not_declare_is_refused_before_anything_loads(
 
 def test_an_option_the_engine_cannot_honor_is_refused_by_name():
     with pytest.raises(ValueError, match="device: the ndif engine cannot honor 'cuda': the server places the model"):
-        clab.run(document("patching"), engine="ndif", device="cuda")
+        nnspec.run(document("patching"), engine="ndif", device="cuda")
     with pytest.raises(ValueError, match=r"device: the ndif engine places a local model on one torch device \('cpu', "
                                          r"'cuda:0'\), not 'auto'"):
-        clab.run(document("patching"), engine="ndif", device="auto", remote="local")
+        nnspec.run(document("patching"), engine="ndif", device="auto", remote="local")
     with pytest.raises(ValueError, match=r"^model: 'device_map': where the model runs is a run option: --device$"):
-        clab.run(edited("patching", lambda d: d["model"].update(device_map="auto")), engine="hooks")
+        nnspec.run(edited("patching", lambda d: d["model"].update(device_map="auto")), engine="hooks")
 
 
 def test_a_loaded_engine_takes_no_device_or_option(engines):
     plan = plan_of("patching")
     with pytest.raises(ValueError, match="the loaded ndif engine runs on cpu with {'remote': 'local'}; device and "
                                          "options are given when an engine loads"):
-        clab.run(plan, engine=engines("ndif", plan.model, remote="local"), remote=True)
+        nnspec.run(plan, engine=engines("ndif", plan.model, remote="local"), remote=True)
     with pytest.raises(ValueError, match="the loaded hooks engine runs on cpu"):
-        clab.run(plan, engine=engines("hooks", plan.model), device="cuda")
+        nnspec.run(plan, engine=engines("hooks", plan.model), device="cuda")
 
 
 def test_the_run_record_names_the_versions_and_where_ndif_ran(engines, monkeypatch):
-    """`versions` is what served the run where the model is (here this process), clab's with its commit; under
+    """`versions` is what served the run where the model is (here this process), nnspec's with its commit; under
     remote=True the server places the model, so the run's device is None."""
-    from clab.cli import how
-    from clab.steps import version
+    from nnspec.cli import how
+    from nnspec.steps import version
 
     run = engines("nnterp", plan_of("patching").model).execute(plan_of("patching"), batch_size=2).run
-    assert run is not None and list(run.versions) == ["clab", "nnsight", "nnterp", "torch", "transformers", "python"]
-    assert run.versions["clab"] == version() and version().startswith("0.0.1+")    # a checkout: git describe's commit
+    assert run is not None and list(run.versions) == ["nnspec", "nnsight", "nnterp", "torch", "transformers", "python"]
+    assert run.versions["nnspec"] == version() and version().startswith("0.0.1+")    # a checkout: git describe's commit
     home, _ = stand_in(engines, plan_of("patching"), monkeypatch)
     assert home.run is not None and (home.run.device, home.run.devices) == (None, ["cpu"])
     assert how(home.run) == "device placed by the server, remote true"
@@ -313,9 +313,9 @@ def test_the_cli_says_a_refusal_from_the_server_in_one_line(monkeypatch, capsys)
 
     def refused(*args, **kwargs):
         raise RemoteError("Traceback (most recent call last):\n  File ...\nValueError: patched.patch: row 0: no")
-    monkeypatch.setattr(clab, "run", refused)
+    monkeypatch.setattr(nnspec, "run", refused)
     assert main(["run", document("patching"), "--engine", "ndif"]) == 1
-    assert capsys.readouterr().err == "clab: ValueError: patched.patch: row 0: no\n"
+    assert capsys.readouterr().err == "nnspec: ValueError: patched.patch: row 0: no\n"
 
 
 def test_the_cli_takes_the_run_options(tmp_path, capsys, engines):
@@ -327,21 +327,21 @@ def test_the_cli_takes_the_run_options(tmp_path, capsys, engines):
     assert run is not None and (run.engine, run.device, run.options, run.dtype, run.devices) == \
         ("ndif", "cpu", {"remote": "local"}, ["float32"], ["cpu"])
     assert main(["run", document("patching"), "-o", "remote=local", "--out", str(out)]) == 1
-    assert "clab: the nnterp engine takes no 'remote'; its options: tp (where the model runs is `device`, given as " \
+    assert "nnspec: the nnterp engine takes no 'remote'; its options: tp (where the model runs is `device`, given as " \
         "--device)" in capsys.readouterr().err
     assert main(["run", document("patching"), "-o", "device_map=auto", "--out", str(out)]) == 1
-    assert "clab: the nnterp engine takes no 'device_map'; its options: tp (where" in capsys.readouterr().err
+    assert "nnspec: the nnterp engine takes no 'device_map'; its options: tp (where" in capsys.readouterr().err
     assert main(["run", document("patching"), "-o", "device=cuda", "--out", str(out)]) == 1
-    assert "clab: -o device: it is given as --device" in capsys.readouterr().err
+    assert "nnspec: -o device: it is given as --device" in capsys.readouterr().err
     assert main(["run", document("patching"), "-o", "remote", "--out", str(out)]) == 1
-    assert "clab: -o 'remote': an option is KEY=VALUE" in capsys.readouterr().err
+    assert "nnspec: -o 'remote': an option is KEY=VALUE" in capsys.readouterr().err
 
 
 def test_an_engine_option_goes_to_its_constructor_and_is_recorded(monkeypatch, tmp_path, capsys):
-    """An engine's options are its constructor's keyword parameters: given by name to `clab.run` or `-o`, refused
+    """An engine's options are its constructor's keyword parameters: given by name to `nnspec.run` or `-o`, refused
     when undeclared or of another type, and recorded in the run after their defaults."""
-    from clab.engines import ENGINES, engine, load
-    from clab.engines.hooks import HooksEngine
+    from nnspec.engines import ENGINES, engine, load
+    from nnspec.engines.hooks import HooksEngine
 
     class Scratch(HooksEngine):
         def __init__(self, model, *, device: str = "cpu", width: int = 1):
@@ -350,22 +350,22 @@ def test_an_engine_option_goes_to_its_constructor_and_is_recorded(monkeypatch, t
 
     monkeypatch.setitem(ENGINES, "scratch", Scratch)
     engine("scratch")(Scratch)
-    filled = clab.run(document("patching"), engine="scratch", out=str(tmp_path / "a"), batch_size=BATCH_SIZE, width=3)
+    filled = nnspec.run(document("patching"), engine="scratch", out=str(tmp_path / "a"), batch_size=BATCH_SIZE, width=3)
     assert filled.run is not None and filled.run.options == {"width": 3}
     assert Plan.load(str(tmp_path / "a")).run.options == {"width": 3}  # type: ignore
     loaded: Any = load("scratch", plan_of("patching").model)
-    again = clab.run(document("patching"), engine=loaded, out=str(tmp_path / "b"), batch_size=BATCH_SIZE)
+    again = nnspec.run(document("patching"), engine=loaded, out=str(tmp_path / "b"), batch_size=BATCH_SIZE)
     assert again.run is not None and again.run.options == {"width": 1}
     assert main(["run", document("patching"), "--engine", "scratch", "-o", "width=2",
                  "--batch-size", str(BATCH_SIZE), "--out", str(tmp_path / "c")]) == 0
     assert "(batch size 2, device cpu, width 2)" in capsys.readouterr().out
     with pytest.raises(ValueError, match="the scratch engine takes no 'nope'; its options: width \\(where"):
-        clab.run(document("patching"), engine="scratch", nope=1)
+        nnspec.run(document("patching"), engine="scratch", nope=1)
     with pytest.raises(ValueError, match="width: 'x' is not int"):
-        clab.run(document("patching"), engine="scratch", width="x")
+        nnspec.run(document("patching"), engine="scratch", width="x")
     with pytest.raises(ValueError, match="the loaded scratch engine runs on cpu .*; device and options are given "
                                          "when an engine loads"):
-        clab.run(document("patching"), engine=loaded, width=2)
+        nnspec.run(document("patching"), engine=loaded, width=2)
 
 
 @pytest.mark.parametrize("kind", ["nnterp", "hooks"])
@@ -463,7 +463,7 @@ def test_a_step_out_of_cuda_memory_stops_the_run_naming_what_it_held_and_saves_t
     step, the batch size, torch's first sentences and every value the run holds with its shape, dtype and device;
     the steps before it are recorded (`run.stopped`, their costs) and saved to `out` (`iia`, and no `logit_diff`),
     which `show` says and `table` refuses by name."""
-    from clab import steps
+    from nnspec import steps
 
     op = steps.KINDS["op"]
 
@@ -481,8 +481,8 @@ def test_a_step_out_of_cuda_memory_stops_the_run_naming_what_it_held_and_saves_t
                r"iia \[4, 1\] float32 on cpu, each on the model's device until the run ends; run with a smaller "
                r"--batch-size, or name and save fewer values")
     with pytest.raises(ValueError, match=refusal + f"; the steps before it are saved in {out}$"):
-        clab.run(document("patching"), engine=engines(kind, plan_of("patching").model), out=str(out),
-                 batch_size=BATCH_SIZE)
+        nnspec.run(document("patching"), engine=engines(kind, plan_of("patching").model), out=str(out),
+                   batch_size=BATCH_SIZE)
     assert sorted(os.listdir(out)) == ["iia.safetensors", "manifest.json", "tokens.json"]
     back = Plan.load(str(out))
     assert back.run is not None and re.match(refusal + "$", back.run.stopped or "")
@@ -492,11 +492,11 @@ def test_a_step_out_of_cuda_memory_stops_the_run_naming_what_it_held_and_saves_t
     assert shown[3].startswith("  stopped: steps.logit_diff: out of CUDA memory at batch size 2")
     assert shown[-1].split()[:2] == ["iia", "iia"] and not any(line.startswith("  logit_diff") for line in shown)
     assert main(["table", str(out), "logit_diff"]) == 1
-    assert capsys.readouterr().err.startswith("clab: 'logit_diff' has no result: the run stopped before its step; "
+    assert capsys.readouterr().err.startswith("nnspec: 'logit_diff' has no result: the run stopped before its step; "
                                               "steps.logit_diff: out of CUDA memory")
     assert main(["run", document("patching"), "--engine", kind, "--batch-size", str(BATCH_SIZE), "--out", str(out)]) == 1
     said = capsys.readouterr().err.splitlines()[-1]           # after the loader's progress bar
-    assert said.startswith("clab: steps.logit_diff: out of CUDA memory at batch size 2 (") and said.endswith(str(out))
+    assert said.startswith("nnspec: steps.logit_diff: out of CUDA memory at batch size 2 (") and said.endswith(str(out))
 
 
 def test_an_oom_at_a_later_point_of_a_swept_step_keeps_the_points_before_it_and_show_prints_the_rest_blank(
@@ -504,7 +504,7 @@ def test_an_oom_at_a_later_point_of_a_swept_step_keeps_the_points_before_it_and_
     """pos_sweep's `logit_diff` runs out of memory at its second point: the refusal names the point and lists the
     run's values by coordinate, the first point's cost is recorded and the others are not, `iia` (every point
     finished) is saved and `logit_diff` is not, and `show` prints `—` for the points the run never reached."""
-    from clab import steps
+    from nnspec import steps
 
     op = steps.KINDS["op"]
 
@@ -524,8 +524,8 @@ def test_an_oom_at_a_later_point_of_a_swept_step_keeps_the_points_before_it_and_
                                          r"iia\[pos=-3\] \[4, 1\] float32 on cpu, logit_diff\[pos=-1\] \[4, 1\] float32 "
                                          r"on cpu, each on the model's device until the run ends; run with a smaller "
                                          rf"--batch-size, or name and save fewer values; the steps before it are saved in {out}$"):
-        clab.run(document("pos_sweep"), engine=engines("nnterp", plan_of("pos_sweep").model), out=str(out),
-                 batch_size=BATCH_SIZE)
+        nnspec.run(document("pos_sweep"), engine=engines("nnterp", plan_of("pos_sweep").model), out=str(out),
+                   batch_size=BATCH_SIZE)
     assert sorted(os.listdir(out)) == ["iia.safetensors", "manifest.json", "tokens.json"]
     back = Plan.load(str(out))
     assert back.run is not None and list(back.run.costs["logit_diff"]) == ["pos=-1"]
@@ -545,7 +545,7 @@ def test_the_oom_refusal_lists_a_dicts_tensors_and_says_when_nothing_is_held():
     batches of the fit's `batch_size` whatever the run's, it names that batch size and says to lower it."""
     from collections import ChainMap
 
-    from clab.steps import out_of_memory_refusal, value_text
+    from nnspec.steps import out_of_memory_refusal, value_text
 
     top3 = {"ids": torch.zeros(4, 1, 3, dtype=torch.int64), "probs": torch.zeros(4, 1, 3), "tokens": [[["a"]]]}
     assert value_text(top3) == "{ids [4, 1, 3] int64 on cpu, probs [4, 1, 3] float32 on cpu}"

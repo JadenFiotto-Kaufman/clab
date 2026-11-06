@@ -3,14 +3,14 @@ title: One Session
 one_liner: "Why does a document run the same locally and on an NDIF server, and what must the server have?"
 tags: [concepts, session, ndif, remote, design]
 related: [docs/usage/engines.md, docs/concepts/plan-lifecycle.md, docs/developing/architecture.md, docs/developing/engines.md]
-sources: [clab/engines/nnterp.py, clab/engines/ndif.py, clab/engines/vllm.py, clab/engines/__init__.py, clab/steps/__init__.py, clab/plan.py]
+sources: [nnspec/engines/nnterp.py, nnspec/engines/ndif.py, nnspec/engines/vllm.py, nnspec/engines/__init__.py, nnspec/steps/__init__.py, nnspec/plan.py]
 ---
 
 # One Session
 
 ## The idea
 
-A clab run is one nnsight session. The engine opens it, and `clab.steps.run` does the whole run inside it: preflight, every step, the run record. One value comes home at the end, a dict. It holds:
+An nnspec run is one nnsight session. The engine opens it, and `nnspec.steps.run` does the whole run inside it: preflight, every step, the run record. One value comes home at the end, a dict. It holds:
 
 - the results;
 - the run record;
@@ -29,7 +29,7 @@ client                                   inside the session (the server, under n
   dump(out)
 ```
 
-Five design constraints keep it so. Each is a rule a change to clab keeps, and each has a consequence for what you write and run; where the code holds each is [developing/architecture.md](../developing/architecture.md#where-the-code-holds-the-five-constraints).
+Five design constraints keep it so. Each is a rule a change to nnspec keeps, and each has a consequence for what you write and run; where the code holds each is [developing/architecture.md](../developing/architecture.md#where-the-code-holds-the-five-constraints).
 
 ## One session per run, and `remote` is the only difference
 
@@ -47,7 +47,7 @@ Data that the plan only refers to is read where the run is. A hub dataset's rows
 
 Every decision that depends on what the model computes is made inside the session, next to the tensor. Such decisions include where a generated row stopped, which decode call a scoped write lands at, what an op returns, and whether a row is `alignment_missing`. Preflight sits inside too, so the tokens, sizes and served components it checks belong to the model that actually runs.
 
-The client decides only from the document, the data files, the bundle headers and the engine's declarations: compile, then `execute`'s checks (`clab/steps/__init__.py` `start_run`; [plan-lifecycle.md](plan-lifecycle.md#4-preflight-the-model-in-hand-no-forward-yet)). Values come home once, after the last step, and never mid-run to steer what happens next. Under ndif, then, a refusal from compile or from `execute`'s checks arrives before anything is sent, and a preflight or step refusal arrives from the server.
+The client decides only from the document, the data files, the bundle headers and the engine's declarations: compile, then `execute`'s checks (`nnspec/steps/__init__.py` `start_run`; [plan-lifecycle.md](plan-lifecycle.md#4-preflight-the-model-in-hand-no-forward-yet)). Values come home once, after the last step, and never mid-run to steer what happens next. Under ndif, then, a refusal from compile or from `execute`'s checks arrives before anything is sent, and a preflight or step refusal arrives from the server.
 
 ## The engine and its model are the only client-side objects in the session
 
@@ -55,8 +55,8 @@ Besides the modules it calls, the session body closes over the engine, the plan 
 
 This is also why an engine holds nothing else: no open files, no handles, nothing that would not serialize. Any of them would ship with every request, or fail to. The protocol an engine follows is [developing/engines.md](../developing/engines.md).
 
-## Nothing of clab ships by value; it resolves by import on the server
+## Nothing of nnspec ships by value; it resolves by import on the server
 
-The request names `clab.engines.ndif`, `clab.plan` and `clab.steps` by reference, and nnterp's model classes the same way. The only clab code that travels is the session block's own few lines, which nnsight always sends as source. Everything those lines call is imported on the server from its installed clab.
+The request names `nnspec.engines.ndif`, `nnspec.plan` and `nnspec.steps` by reference, and nnterp's model classes the same way. The only nnspec code that travels is the session block's own few lines, which nnsight always sends as source. Everything those lines call is imported on the server from its installed nnspec.
 
-So the server must have clab installed at your version, with its dependencies. A change to your local clab has no effect on a server that does not have it. The run record says which clab ran: `plan.run.versions` is read inside the session, so after a true remote run it lists the server's versions. [engines.md](../usage/engines.md#what-the-server-must-have) lists what else a server needs.
+So the server must have nnspec installed at your version, with its dependencies. A change to your local nnspec has no effect on a server that does not have it. The run record says which nnspec ran: `plan.run.versions` is read inside the session, so after a true remote run it lists the server's versions. [engines.md](../usage/engines.md#what-the-server-must-have) lists what else a server needs.

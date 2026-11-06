@@ -3,7 +3,7 @@ title: Attention Experiments
 one_liner: "Where does a head look? Patterns, previous-token and induction stripes, knocking out heads or keys, patching a pattern, queries after RoPE."
 tags: [patterns, attention]
 related: [docs/usage/sites.md, docs/usage/engines.md, docs/usage/interventions.md, docs/usage/positions.md, docs/usage/output.md, docs/patterns/head-and-neuron-patching.md, docs/patterns/ablation.md, docs/concepts/positions.md, docs/concepts/values-and-layout.md]
-sources: [clab/ops/edits.py, clab/compile/interventions.py, clab/steps/batches.py]
+sources: [nnspec/ops/edits.py, nnspec/compile/interventions.py, nnspec/steps/batches.py]
 ---
 
 # Attention Experiments
@@ -32,7 +32,7 @@ A `key` selector counted from the start picks the same keys on every row, and an
 ```
 
 ```python
-from clab import Plan
+from nnspec import Plan
 
 plan = Plan.load("out/attention_knockout")
 pattern, tokens = plan.results["clean.pattern"], plan.run.tokens["pairs.input"]

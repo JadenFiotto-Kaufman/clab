@@ -3,12 +3,12 @@ title: Writing a Document
 one_liner: "How do I write a document? The root keys, one patching experiment read top to bottom, how steps name each other's values, and saves."
 tags: [usage, document]
 related: [docs/usage/data.md, docs/usage/sites.md, docs/usage/positions.md, docs/usage/interventions.md, docs/usage/ops.md, docs/usage/running.md, docs/usage/output.md, docs/concepts/plan-lifecycle.md, docs/concepts/names-and-sweeps.md]
-sources: [clab/plan.py, clab/compile/__init__.py]
+sources: [nnspec/plan.py, nnspec/compile/__init__.py]
 ---
 
 # Writing a Document
 
-A clab document is one JSON object that declares a whole experiment: the checkpoint, the data, the steps that run in order, and the values to keep. `clab run` checks it, runs it on the model and writes the kept values to a directory. This page reads `documents/patching.json` from top to bottom, then covers how steps name each other's values and `saves`.
+An nnspec document is one JSON object that declares a whole experiment: the checkpoint, the data, the steps that run in order, and the values to keep. `nnspec run` checks it, runs it on the model and writes the kept values to a directory. This page reads `documents/patching.json` from top to bottom, then covers how steps name each other's values and `saves`.
 
 ## The root keys
 
@@ -68,19 +68,19 @@ The steps and the saves:
 `saves` brings `iia` and `logit_diff` home, one file each. Running it and reading it back:
 
 ```text
-$ clab run documents/patching.json
+$ nnspec run documents/patching.json
 patching on nnterp (batch size 8, device cpu, tp 1) -> out/patching
   iia.safetensors         iia         [4,1]
   logit_diff.safetensors  logit_diff  [4,1]
   out/patching/manifest.json
-$ clab table out/patching iia logit_diff
+$ nnspec table out/patching iia logit_diff
 row  pos  pos_token  input                              cf_answer  iia  base_answer  logit_diff
 0    10   ▁is        If today is Thursday, tomorrow is   Sunday    0.0   Friday      -0.027417995035648346
 1    8    ▁is        If today is Friday, tomorrow is     Monday    0.0   Saturday    0.18085992336273193
 ...
 ```
 
-The corpus checkpoint has random weights, so the numbers mean nothing; the wiring is the point. Row 0's last token sits at position 10 rather than 8 because ` Thursday` is three tokens on this tokenizer. Reading the table and the manifest is [output.md](output.md). Running options, and `clab compile`, which checks a document before any model loads, are [running.md](running.md#check-before-you-run). Each entry's mechanics are [interventions.md](interventions.md), `pos` is [positions.md](positions.md), and the metrics are [ops.md](ops.md).
+The corpus checkpoint has random weights, so the numbers mean nothing; the wiring is the point. Row 0's last token sits at position 10 rather than 8 because ` Thursday` is three tokens on this tokenizer. Reading the table and the manifest is [output.md](output.md). Running options, and `nnspec compile`, which checks a document before any model loads, are [running.md](running.md#check-before-you-run). Each entry's mechanics are [interventions.md](interventions.md), `pos` is [positions.md](positions.md), and the metrics are [ops.md](ops.md).
 
 ## How steps name each other's values
 

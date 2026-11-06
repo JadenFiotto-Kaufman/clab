@@ -3,12 +3,12 @@ title: An Operand Does Not Fit
 one_liner: "Why a swap, add, kl or cosine refuses its operand: layout, width, positions, selected heads, layers, coordinates, dataset, a same-forward entry, or two inputs of different lengths, with the fix for each message."
 tags: [errors, operands, interventions, layout, refusals]
 related: [docs/usage/interventions.md, docs/usage/ops.md, docs/concepts/values-and-layout.md, docs/usage/positions.md, docs/errors/index.md, docs/errors/symptom-index.md]
-sources: [clab/compile/arguments.py, clab/compile/interventions.py, clab/compile/schedule.py, clab/compile/preflight.py]
+sources: [nnspec/compile/arguments.py, nnspec/compile/interventions.py, nnspec/compile/schedule.py, nnspec/compile/preflight.py]
 ---
 
 # An Operand Does Not Fit
 
-An operand is a named value an op takes beside the value it acts on: `swap`'s and `add`'s `with`, `scale`'s `factor`, `kl`'s `against`, `cosine`'s `with`. An operand that cannot meet that value element for element is refused (`clab/compile/arguments.py` `mismatch`). Compile refuses it where the document decides it, and preflight where the model's order or the tokenized rows do.
+An operand is a named value an op takes beside the value it acts on: `swap`'s and `add`'s `with`, `scale`'s `factor`, `kl`'s `against`, `cosine`'s `with`. An operand that cannot meet that value element for element is refused (`nnspec/compile/arguments.py` `mismatch`). Compile refuses it where the document decides it, and preflight where the model's order or the tokenized rows do.
 
 ## What an operand may be
 
@@ -163,7 +163,7 @@ patched.patch: operand 'counterfactual.v_cf' was read on pairs.counterfactual_in
 patched.look_there at num_heads=0: operand 'counterfactual.their_pattern' was read on pairs.counterfactual_inputs[0], row 0 of which is 9 tokens; pairs.input has 11 there, so their key axes do not line up
 ```
 
-A read and a write at the same unscoped `pos` on two inputs pair position i with position i. The first message is `pos: 5` on both; it names each input's position, counted along its row, and the token there. On a row whose two prompts tokenize to different lengths, a position pairs across prompts of different lengths only where every token between it and the end it is counted from is the same on both, whatever the two tokens it pairs (`clab/compile/interventions.py` `check_window`). On `weekdays/train`'s first row, `-5` pairs `day` with `▁Saturday` and runs, and `5` and `-6` are refused ([positions.md](../usage/positions.md#static-width-or-ragged)). The fix is a scope on each side that names the token in its own row, as `documents/entity_patch.json` does:
+A read and a write at the same unscoped `pos` on two inputs pair position i with position i. The first message is `pos: 5` on both; it names each input's position, counted along its row, and the token there. On a row whose two prompts tokenize to different lengths, a position pairs across prompts of different lengths only where every token between it and the end it is counted from is the same on both, whatever the two tokens it pairs (`nnspec/compile/interventions.py` `check_window`). On `weekdays/train`'s first row, `-5` pairs `day` with `▁Saturday` and runs, and `5` and `-6` are refused ([positions.md](../usage/positions.md#static-width-or-ragged)). The fix is a scope on each side that names the token in its own row, as `documents/entity_patch.json` does:
 
 ```json
 {"v_cf": {"site": "target", "pos": {"scope": {"column": "pairs.counterfactual_inputs_variables[0].entity"}, "index": -1}}}

@@ -3,7 +3,7 @@ title: Sweeps
 one_liner: "How do I run one document at many settings? What a sweep may stand for, labels that zip or cross, each point's cost, and reading swept results."
 tags: [usage, sweeps, grid, labels]
 related: [docs/concepts/names-and-sweeps.md, docs/usage/output.md, docs/usage/sites.md, docs/usage/generate.md, docs/patterns/head-and-neuron-patching.md, docs/patterns/logit-lens.md]
-sources: [clab/format/sweeps.py, clab/compile/__init__.py, clab/plan.py, clab/output/table.py]
+sources: [nnspec/format/sweeps.py, nnspec/compile/__init__.py, nnspec/plan.py, nnspec/output/table.py]
 ---
 
 # Sweeps
@@ -24,7 +24,7 @@ Write `{"sweep": [v1, v2, ...]}` where a value goes, and the document runs once 
 - **A write swept against an unswept read writes the read's one value at every point.** At `pos=-2`, the counterfactual's last-token value goes onto the base's second-to-last token.
 - **To patch each position from the same position, sweep the read's `pos` too.** Both sweeps are labelled `pos`, so their points pair up ([activation-patching.md](../patterns/activation-patching.md#a-layer-by-position-map)).
 
-`clab show` lists the axis and the points' shape:
+`nnspec show` lists the axis and the points' shape:
 
 ```text
 result      step        dims       axes  shape
@@ -49,9 +49,9 @@ A sweep is refused on `kind`, `op`, `site`, `component`, `input`, `of`, `train`,
 Each value of a sweep is a number, a string, a boolean or a list of them, listed once: a point is keyed by its value, so a repeat is refused (`label 'layers' sweeps 0 twice`). To vary a `pos` object, sweep a scalar inside it: `{"frame": 0, "index": {"sweep": [-1, -2]}}`.
 
 ```text
-clab: sites.target.component: a sweep cannot stand for 'component'
-clab: steps.forced.interventions.logits.pos.scope.column: {'sweep': ['days.base_answer', 'days.cf_answer']} is not a column reference, …; a scope's column takes no sweep (its occurrence does)
-clab: steps.patched.interventions.patch.pos: a sweep's values are numbers, strings, booleans or lists of them, each point keyed by its value; …
+nnspec: sites.target.component: a sweep cannot stand for 'component'
+nnspec: steps.forced.interventions.logits.pos.scope.column: {'sweep': ['days.base_answer', 'days.cf_answer']} is not a column reference, …; a scope's column takes no sweep (its occurrence does)
+nnspec: steps.patched.interventions.patch.pos: a sweep's values are numbers, strings, booleans or lists of them, each point keyed by its value; …
 ```
 
 ## Labels: zip or cross
@@ -123,17 +123,17 @@ The same rule decides every pair of sweeps:
 Two sweeps under one label over different values are refused. Give one of them its own label to cross them, or the same values to pair them:
 
 ```text
-clab: sites.dst.layers: label 'layers' is also the sweep at sites.src.layers, over [0, 1]; one label is one axis, …
+nnspec: sites.dst.layers: label 'layers' is also the sweep at sites.src.layers, over [0, 1]; one label is one axis, …
 ```
 
-A label is letters, digits and underscores, because a coordinate is written `<label>=<value>`. Before you trust a grid, check the `axes` column of `clab show`: a grid that zipped has one axis where you expected two.
+A label is letters, digits and underscores, because a coordinate is written `<label>=<value>`. Before you trust a grid, check the `axes` column of `nnspec show`: a grid that zipped has one axis where you expected two.
 
 ## What a sweep costs
 
 - A forward or generation depends on the step's options and its writes alone ([FORMAT.md#sweeps](../../FORMAT.md#sweeps)).
 - Points that differ only in what they read share one forward, which visits every site any of them reads.
 - Each point that changes a write, an operand or an option runs its own forward. A label that a write holds is the forward's, though a read, or an op after the write's last edit, holds it too.
-- Each point's `schedule` in the manifest names the forward that served it. `clab show` prints one cost row per forward, with the points it served (`all 4 points`).
+- Each point's `schedule` in the manifest names the forward that served it. `nnspec show` prints one cost row per forward, with the points it served (`all 4 points`).
 - A value is made once per distinct point on the axes it depends on (its `axes`). A read that does not depend on a step's sweep is one value, not identical copies.
 
 `documents/head_patching.json` sweeps `select: {"num_heads": ...}` on the `target` site. The counterfactual step only reads that site, so its four points share one forward. `patched` writes there, so it runs four: five forwards for four heads. `documents/generate_probe.json` sweeps the frame of a read, so its three points share one generation, and its ids, `patched`, are one `[4, 3]` tensor.
@@ -153,13 +153,13 @@ When a sweep only chooses which part of one forward you read, the points share o
 Each pair gives equal values, from the same one forward or generation ([running.md](running.md#when-two-runs-give-the-same-numbers)). An op sees one point at a time, so it can reduce or compare along an axis but never across points. The wider read lets the document combine settings: a `mean` over `layers` works on the `layers: ":"` lens and is refused on the swept one:
 
 ```text
-clab: steps.avg at layers=0: a reduction cannot remove 'layers'; the value is ['rows', 'pos']
+nnspec: steps.avg at layers=0: a reduction cannot remove 'layers'; the value is ['rows', 'pos']
 ```
 
 Sweep when each point is a different intervention: the layer, head, position or dose a *write* acts at. A read used as the write's operand may leave out an axis the write has, and then broadcasts over it. An axis the operand keeps must hold the write's indices ([FORMAT.md#ops](../../FORMAT.md#ops) states the operand rule). So in head patching an unnarrowed read of every head does not serve a one-head swap. Sweep the counterfactual read's `select` with the write's; its points still share one forward:
 
 ```text
-clab: steps.patched.interventions.patch.ops[0].with at num_heads=0: 'counterfactual.v_cf' holds every num_heads, and this write's selection holds [0]; …
+nnspec: steps.patched.interventions.patch.ops[0].with at num_heads=0: 'counterfactual.v_cf' holds every num_heads, and this write's selection holds [0]; …
 ```
 
 ## Reading swept results
@@ -169,22 +169,22 @@ A swept save holds one value per point, keyed by the point's coordinate, which i
 | where | key | example |
 |---|---|---|
 | `plan.results[name]` in Python | the value for one axis; a tuple in axis order for several; a list value as a tuple | `-1`, `(0, 1)`, `(0, 1, 2, 3)` |
-| output files, `clab show`, `plan.run.costs`, `plan.run.tokens` | text, `label=value` joined by commas | `pos=-1`, `src=0,dst=1`, `intermediate_size=[0,1,2,3]` |
-| `clab table` and `plan.table`, column `at` | an object | `{"src":0,"dst":1}` |
+| output files, `nnspec show`, `plan.run.costs`, `plan.run.tokens` | text, `label=value` joined by commas | `pos=-1`, `src=0,dst=1`, `intermediate_size=[0,1,2,3]` |
+| `nnspec table` and `plan.table`, column `at` | an object | `{"src":0,"dst":1}` |
 | a compiled step's `at` in `manifest.json` | the *index* on each axis, meaningful only inside its plan | `{"pos": 2}` for `pos=-3` |
 
 ```python
-from clab import Plan
+from nnspec import Plan
 plan = Plan.load("out/pos_sweep")
 plan.results["iia"][-2]          # the [rows, pos] tensor at pos=-2
 ```
 
-`plan.sweeps` lists the axes by label, each with its values: `{'num_heads': Axis(values=[0, 1, 2, 3])}` for `documents/head_patching.json`. A coordinate tuple follows the order of `plan.sweeps`, which is the order of the `axes` column in `clab show`. Axes follow the format's root keys (`data`, `sites`, `interventions`, `featurizers`, `steps`), then document order inside each key. The order of keys in your file does not matter: a featurizer's `seed` sweep comes before a step's `pos` sweep even when `featurizers` is written after `steps`. `clab table` groups rows by point, in that order.
+`plan.sweeps` lists the axes by label, each with its values: `{'num_heads': Axis(values=[0, 1, 2, 3])}` for `documents/head_patching.json`. A coordinate tuple follows the order of `plan.sweeps`, which is the order of the `axes` column in `nnspec show`. Axes follow the format's root keys (`data`, `sites`, `interventions`, `featurizers`, `steps`), then document order inside each key. The order of keys in your file does not matter: a featurizer's `seed` sweep comes before a step's `pos` sweep even when `featurizers` is written after `steps`. `nnspec table` groups rows by point, in that order.
 
-**A swept `pos`'s coordinate is not the table's `pos` column.** `at` holds the swept value; `pos` holds the position the tabled value's read landed on. On `documents/pos_sweep.json`, `clab table out iia` prints row 0 with `at` `{"pos":-2}` beside `pos` 10: the patch's position is in `at`, the logits read's in `pos`. Give a write's `pos` sweep its own label (`"label": "patch_pos"`) to keep the two names apart.
+**A swept `pos`'s coordinate is not the table's `pos` column.** `at` holds the swept value; `pos` holds the position the tabled value's read landed on. On `documents/pos_sweep.json`, `nnspec table out iia` prints row 0 with `at` `{"pos":-2}` beside `pos` 10: the patch's position is in `at`, the logits read's in `pos`. Give a write's `pos` sweep its own label (`"label": "patch_pos"`) to keep the two names apart.
 
 Reading the output files is covered in [usage/output.md](output.md).
 
 ## Pitfalls
 
-- **Values swept over different axes cross in a table.** `clab table out iia m`, with `iia` swept over `pos` and `m` over `layers`, prints a row per example at every pair of points. Values that share an axis join on it. An unswept value's row repeats beside every point of a swept one ([output.md](output.md#clab-table)).
+- **Values swept over different axes cross in a table.** `nnspec table out iia m`, with `iia` swept over `pos` and `m` over `layers`, prints a row per example at every pair of points. Values that share an axis join on it. An unswept value's row repeats beside every point of a swept one ([output.md](output.md#nnspec-table)).

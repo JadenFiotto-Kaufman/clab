@@ -1,5 +1,5 @@
 """Every input token is a position, BOS and a chat template's markers included, numbered one way everywhere: a
-document's `pos`, a record's `positions`, `clab table`'s `pos` and `key`, an attention pattern's
+document's `pos`, a record's `positions`, `nnspec table`'s `pos` and `key`, an attention pattern's
 `key` axis, and a refusal's token counts.
 
 The chat cases run on a tiny Qwen3 whose template renders a chat as Qwen3-8B's does (checked below where
@@ -14,9 +14,9 @@ from conftest import BATCH_SIZE, on_each, placed, plan_of, same
 from huggingface_hub import try_to_load_from_cache
 from transformers import AutoTokenizer
 
-from clab import Plan
-from clab.cli import main
-from clab.format.sweeps import points
+from nnspec import Plan
+from nnspec.cli import main
+from nnspec.format.sweeps import points
 
 TINY = {"key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
         "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998", "dtype": "float32"}
@@ -199,8 +199,8 @@ def test_the_table_and_the_run_record_number_positions_and_keys_as_the_document_
             [(r, k) for r, row in enumerate(tokens) for k in range(len(row))]
 
 
-def test_clab_table_prints_the_documents_positions(engines, tmp_path, capsys):
-    """`clab table --csv`: `pos: 3` is position 3 on every row, labelled with the token there."""
+def test_nnspec_table_prints_the_documents_positions(engines, tmp_path, capsys):
+    """`nnspec table --csv`: `pos: 3` is position 3 on every row, labelled with the token there."""
     plan = doc(TINY, DAYS, {"f": forward({"third": {"site": LOGITS, "pos": 3}})}, ["f.third"])
     filled = run(engines, plan)
     filled.dump(str(tmp_path))
@@ -336,7 +336,7 @@ def test_a_refusal_counts_tokens_as_positions(engines):
 def test_a_scopes_occurrence_takes_a_sweep_as_the_grammar_says(engines):
     """`occurrence` is typed as what it accepts, a selector or a sweep of one, as `frame` and `index` are: a sweep
     makes a point per occurrence, each at that occurrence's positions."""
-    from clab.plan import Pos
+    from nnspec.plan import Pos
 
     plan = doc(TINY, [{"input": "one two one two"}], {"f": forward({"x": {
         "site": LAYER0, "pos": {"scope": {"text": "one", "occurrence": {"sweep": [0, 1]}}}}})}, ["f.x"])
@@ -350,7 +350,7 @@ def test_a_turn_the_template_wrote_a_header_for_says_the_header_is_positions():
     """`{"turn": "system"}` on a chat with no system message: where the template wrote a system header of its own
     before the first message (Llama 3's `Cutting Knowledge Date` block), the refusal says that header is positions
     and not a message; where it wrote none (the tiny Qwen3's), the row simply has no such message."""
-    from clab.compile import positions
+    from nnspec.compile import positions
 
     llama3 = ("<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n\nToday Date: 26 Jul 2024\n\n<|eot_id|>"
               "<|start_header_id|>user<|end_header_id|>\n\nhi<|eot_id|>")
@@ -413,7 +413,7 @@ def test_a_before_record_may_sit_in_a_call_its_frame_does_not_name():
     said as generated token 0, held by call 1, is recorded at position 4 of a 5-token prompt, the prefill's last
     position, call 0's; the last generated token, which no call holds, at the position before it; in the prefill
     at the position before the token."""
-    from clab.compile.positions import resolve
+    from nnspec.compile.positions import resolve
 
     before = {"frame": "1:", "scope": {"text": "x", "before": True}, "index": ":"}
     prompt, said = 5, [7, 8, 9]                   # generated tokens 0, 1, 2 sit at positions 5, 6, 7

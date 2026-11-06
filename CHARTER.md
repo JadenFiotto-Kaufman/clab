@@ -1,4 +1,4 @@
-# clab — charter
+# nnspec — charter
 
 You are building, from scratch, a small library that runs interpretability
 experiments on transformer language models from declarative JSON documents.
@@ -74,7 +74,7 @@ anything unstated are yours):
   — sites/locations, interventions — that steps reference by name; the same
   things may also be written inline in a step where they are used once.
 - The format is engine-agnostic: any engine built to run interp workflows
-  could ingest one of these documents. clab ships two — nnterp (primary) and
+  could ingest one of these documents. nnspec ships two — nnterp (primary) and
   plain-pytorch hooks (the extensibility proof) — and both conform to a small
   protocol: `engine.execute(plan, **kwargs)` as the single entry point, with
   `.forward`, `.generate` and the like taking intervention data.
@@ -89,7 +89,7 @@ anything unstated are yours):
 - Generic logic for loading data, batching, and targeting token positions
   lives outside the engines; engines expose the primitives it needs to stay
   generic.
-- A root `address.py` is the standard vocabulary of the locations clab
+- A root `address.py` is the standard vocabulary of the locations nnspec
   allows.
 - The result of a run is the filled plan: every step's result slots filled
   in place, swept steps as lists of points. The results and the run record,
@@ -141,7 +141,7 @@ place. How you draw that line is yours.
 
 ## Process
 
-- Work in this repo (`~/wd/clab`, its own git repo — never run git from the
+- Work in this repo (`~/wd/nnspec`, its own git repo — never run git from the
   home directory). Build in milestones, one PR per milestone for the owner to
   review before the next begins. You propose the milestone cut in your first
   PR's description; something like "one intervention document end to end" is

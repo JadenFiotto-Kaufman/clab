@@ -16,12 +16,12 @@ import torch
 from conftest import (BATCH_SIZE, FORWARD, GEMMA2, INSIDE, ROOT, THREADS, close, document, edited, on_each, placed, plain,
                       plan_of, same, snapshot, within)
 
-from clab import Plan
-from clab.cli import main
-from clab.format.sweeps import points
-from clab import ops
-from clab.ops import edits
-from clab.plan import OpStep, PlanError, record_of
+from nnspec import Plan
+from nnspec.cli import main
+from nnspec.format.sweeps import points
+from nnspec import ops
+from nnspec.ops import edits
+from nnspec.plan import OpStep, PlanError, record_of
 
 ROWS = [
     {"input": "If the count is one, next is", "counterfactual_inputs": ["two"], "base_answer": " two", "cf_answer": " three"},
@@ -357,7 +357,7 @@ def test_a_later_step_names_a_top_k_steps_members(engines, tmp_path, capsys):
     is with its labels: `eq` of `top3.ids` with an `argmax` of the logits is 1 at the first pick alone, `argmax` of the
     ids over `k` is the index of the largest id, a `mean` of the probs is the mean of `top3`'s; a top_k over another
     axis has `values` (a `mean` of them, to the bit), and over a list of axes `ids.<axis>` (`t.ids.rows`, an `eq` of it
-    too); each member saves under its own name, loads back, and `clab table` prints it as `top3`'s table labels it,
+    too); each member saves under its own name, loads back, and `nnspec table` prints it as `top3`'s table labels it,
     on both engines alike."""
     def change(d):
         d["steps"]["clean"]["interventions"]["h"] = {"site": {"component": "layer_output", "layers": 0}, "pos": -1}
@@ -398,7 +398,7 @@ def test_a_later_step_names_a_top_k_steps_members(engines, tmp_path, capsys):
 def test_a_top_k_over_a_list_of_axes_saves_an_index_per_axis_and_loads_back(engines, tmp_path, capsys, monkeypatch):
     """A `top_k` over `["rows", "pos"]` is `ids`, an object of one tensor per ranked axis, beside `values`: its file
     holds `ids/pos`, `ids/rows` and `values`, the manifest records each one's shape and dtype, `Plan.load` gives
-    the value back with its `ids` in the order `over` names them, `clab show` prints its shape, a dump of the
+    the value back with its `ids` in the order `over` names them, `nnspec show` prints its shape, a dump of the
     loaded plan is the same bytes, and the table of the loaded plan is the run's."""
     def change(d):
         d["steps"]["counterfactual"]["interventions"]["h"] = {
@@ -489,7 +489,7 @@ def test_a_bundle_carries_the_header_its_featurizer_checks(filled, tmp_path):
     from safetensors import safe_open
     with safe_open(str(tmp_path / "basis.safetensors"), "pt") as f:
         assert sorted(f.keys()) == ["basis", "mean"]
-        assert f.metadata() == {"format": "clab/1", "kind": "pca", "k": "4",
+        assert f.metadata() == {"format": "nnspec/1", "kind": "pca", "k": "4",
                                 "model.key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
                                 "model.revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998",
                                 "model.dtype": "float32", "component": "layer_output", "layer": "0", "width": "16",
@@ -497,7 +497,7 @@ def test_a_bundle_carries_the_header_its_featurizer_checks(filled, tmp_path):
 
 
 def test_a_bundle_is_the_same_bytes_every_time_it_is_written(filled, tmp_path):
-    """safetensors orders a header as it likes; clab writes it with sorted keys."""
+    """safetensors orders a header as it likes; nnspec writes it with sorted keys."""
     files = []
     for out in ("a", "b", "c"):
         filled["pca_harvest", "hooks"].dump(str(tmp_path / out))

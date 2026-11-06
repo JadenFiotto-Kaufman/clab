@@ -10,7 +10,7 @@ import pytest
 import torch
 from conftest import BATCH_SIZE, TRIP, edited, plan_of, same, stand_in
 
-from clab.plan import Forward, Plan, PlanError
+from nnspec.plan import Forward, Plan, PlanError
 
 NAME = "attribution_patching"
 METRIC = {"site": {"component": "lm_head_output"}, "pos": -1,
@@ -81,7 +81,7 @@ def test_the_engines_and_a_server_take_the_same_gradient_to_the_bit(engines, mon
 def test_the_schedule_takes_one_backward_per_value_differentiated():
     """Preflight writes what the forward differentiates into its schedule: the metric's read, and each `grad` read
     it serves, two entries naming it served by one backward."""
-    from clab.engines import load
+    from nnspec.engines import load
 
     plan = forward({"a": grad("metric"), "b": grad("metric", site={"component": "layer_output", "layers": 1}),
                     "metric": METRIC})

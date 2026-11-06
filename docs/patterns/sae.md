@@ -3,7 +3,7 @@ title: Sparse Autoencoders
 one_liner: "How do I use a sparse autoencoder? Splice a published one in, check its L0, ablate features, find max-activating examples, train one."
 tags: [patterns, sae, dictionary-learning, features, jumprelu, topk, max-activating]
 related: [docs/usage/featurizers.md, docs/usage/fit.md, docs/usage/bundles.md, docs/usage/ops.md, docs/usage/sweeps.md, docs/usage/output.md, docs/errors/symptom-index.md]
-sources: [clab/featurizers/sae.py, clab/featurizers/__init__.py, clab/featurizers/bundles.py, clab/ops/transforms.py]
+sources: [nnspec/featurizers/sae.py, nnspec/featurizers/__init__.py, nnspec/featurizers/bundles.py, nnspec/ops/transforms.py]
 ---
 
 # Sparse Autoencoders
@@ -16,7 +16,7 @@ The corpus documents load four dictionaries, each a random 16-to-32 fixture at l
 |---|---|---|
 | `documents/sae_published_jumprelu.json` | JumpReLU, laid out as Gemma Scope publishes one | `documents/artifacts/sae_gemma_scope.safetensors` |
 | `documents/sae_published_topk.json` | TopK, laid out as SAELens publishes one | `documents/artifacts/sae_saelens.safetensors` |
-| `documents/sae_feature_ablation.json` | a clab bundle, `relu`, centered | `documents/artifacts/sae.safetensors` |
+| `documents/sae_feature_ablation.json` | an nnspec bundle, `relu`, centered | `documents/artifacts/sae.safetensors` |
 | `documents/sae_train_ablation.json` | the one `documents/sae_train.json` trains | `documents/artifacts/fit.dictionary.safetensors` |
 
 ## Splice a published dictionary in
@@ -59,11 +59,11 @@ A dictionary loaded at the wrong layer, with the wrong `centered`, or a TopK fil
 "mean_l0": {"kind": "op", "op": "mean", "of": "l0"}
 ```
 
-- **What it counts.** `active` is 1 where a latent is above zero and 0 where it is not, so `l0` is each row and position's count. `clab table <out> l0` gives 10 on every row of `sae_published_jumprelu.json` and 4 on `sae_published_topk.json`.
-- **Read every token after BOS for a dictionary-wide number** (`"pos": {"index": "1:"}`). Positions past a row's own stay missing through these steps, and `mean_l0` averages the rest: 9.94 on the JumpReLU fixture, as counting the saved latents in Python gives. Save `mean_l0` and print it with `clab table OUT mean_l0`, one row holding `value`; `clab show` takes no name.
+- **What it counts.** `active` is 1 where a latent is above zero and 0 where it is not, so `l0` is each row and position's count. `nnspec table <out> l0` gives 10 on every row of `sae_published_jumprelu.json` and 4 on `sae_published_topk.json`.
+- **Read every token after BOS for a dictionary-wide number** (`"pos": {"index": "1:"}`). Positions past a row's own stay missing through these steps, and `mean_l0` averages the rest: 9.94 on the JumpReLU fixture, as counting the saved latents in Python gives. Save `mean_l0` and print it with `nnspec table OUT mean_l0`, one row holding `value`; `nnspec show` takes no name.
 - **Compare that mean with the release's, not one token's count.** Stated `centered: true`, the JumpReLU fixture still gives 10 at the last token of every row, while the mean after BOS moves to 10.65.
 - **For a TopK release, count the tokens above its `k`.** Stated `relu`, a TopK file changes exactly the tokens with more than `k` positive pre-activations, and their L0 then exceeds `k`. After `l0`, `{"kind": "op", "op": "gt", "of": "l0", "with": 4}` and a `mean` of it give the share of tokens above `sae_published_topk.json`'s `k` of 4. It is exactly 0 under the right `activation`, and 1.0 with that file stated `relu` ([featurizers.md](../usage/featurizers.md#a-topk-file-stated-as-relu)).
-- **A recomputation outside clab can differ on a tie.** A pre-activation that ties its JumpReLU threshold at float precision can count differently; check a recomputation against the mean, not token by token.
+- **A recomputation outside nnspec can differ on a tie.** A pre-activation that ties its JumpReLU threshold at float precision can count differently; check a recomputation against the mean, not token by token.
 
 ## Ablate features
 
@@ -108,10 +108,10 @@ A latent's max-activating examples are a `top_k` step over `["rows", "pos"]` of 
 "top": {"kind": "op", "op": "top_k", "of": "base.latents", "k": 3, "over": ["rows", "pos"]}
 ```
 
-`features` indexes the `select` list: 0, 1 and 2 are latents 19, 24 and 31. `clab table` prints each pick's row, position and token:
+`features` indexes the `select` list: 0, 1 and 2 are latents 19, 24 and 31. `nnspec table` prints each pick's row, position and token:
 
 ```text
-clab table out/maxact top
+nnspec table out/maxact top
 features  k  row  pos  pos_token  input                              value
 0         0  0    9    orrow      If today is Thursday, tomorrow is  0.04615912586450577
 0         1  1    7    orrow      If today is Friday, tomorrow is    0.045574791729450226

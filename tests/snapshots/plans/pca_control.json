@@ -20,7 +20,7 @@
    "header": {
     "component": "layer_output",
     "document": "pca_harvest",
-    "format": "clab/1",
+    "format": "nnspec/1",
     "k": "4",
     "kind": "pca",
     "layer": "0",

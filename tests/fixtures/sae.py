@@ -1,13 +1,13 @@
 """Writes documents/artifacts/sae.safetensors, the sparse autoencoder sae_feature_ablation.json loads: a random
 16 -> 32 dictionary for the tiny Llama's layer_output at layer 0, drawn from a seeded generator. A fixture: its
 mechanics are real and its latents mean nothing. Run from the corpus root: `uv run python tests/fixtures/sae.py`.
-It is written as clab writes a bundle, its header's keys sorted: the same bytes on every run."""
+It is written as nnspec writes a bundle, its header's keys sorted: the same bytes on every run."""
 
 import torch
 
-from clab.output import write_safetensors
+from nnspec.output import write_safetensors
 
-HEADER = {"format": "clab/1", "kind": "sae", "model.key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
+HEADER = {"format": "nnspec/1", "kind": "sae", "model.key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
           "model.revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998", "model.dtype": "float32",
           "component": "layer_output", "layer": "0", "width": "16", "document": "sae", "activation": "relu",
           "centered": "true", "latents": "32"}

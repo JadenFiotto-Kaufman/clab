@@ -2,7 +2,7 @@
 
 `plan.run.costs` holds every run of every step: its seconds, peak memory (null off CUDA), model calls, the input
 tokens they fed with their padding and the rows' own of them (`real`), and the points it served, exact for a forward, a swept step, an op and a fit, and the server's under ndif,
-which come home in the run record; `clab show` prints them. (A generation's are pinned in test_generate.py; the
+which come home in the run record; `nnspec show` prints them. (A generation's are pinned in test_generate.py; the
 points one forward serves in test_shared.py.)
 
 A forward stops right after the schedule's stop site, its deepest, on the nnterp, hooks and ndif engines, the last
@@ -24,13 +24,13 @@ import torch
 from torch._subclasses.fake_tensor import FakeTensor
 from conftest import BATCH_SIZE, TRIP, document, edited, plan_of, same, stand_in
 
-import clab
-from clab import Plan
-from clab.cli import main
-from clab.compile.state import Findings
-from clab.format.sweeps import coordinate_text, points, put
-from clab.plan import entries, runnable
-from clab.steps.batches import bind_ops, op_binding
+import nnspec
+from nnspec import Plan
+from nnspec.cli import main
+from nnspec.compile.state import Findings
+from nnspec.format.sweeps import coordinate_text, points, put
+from nnspec.plan import entries, runnable
+from nnspec.steps.batches import bind_ops, op_binding
 
 COST = {"seconds", "memory", "forwards", "tokens", "real"}
 
@@ -133,7 +133,7 @@ def test_memory_is_each_cuda_devices_peak_and_a_remote_run_measures_none(engines
     called: list[str] = []
     for call in ("synchronize", "reset_peak_memory_stats", "max_memory_allocated"):
         monkeypatch.setattr(torch.cuda, call, lambda *_, call=call: called.append(call) or 7)
-    monkeypatch.setattr("clab.steps.cuda_devices", lambda engine: ["cuda:0"])
+    monkeypatch.setattr("nnspec.steps.cuda_devices", lambda engine: ["cuda:0"])
     plan = plan_of("logit_lens")
     local = engines("nnterp", plan.model).execute(plan, batch_size=BATCH_SIZE).run
     assert all(c["memory"] == {"cuda:0": 7} for costs in local.costs.values() for c in costs.values())
@@ -149,15 +149,15 @@ def test_what_the_model_does_once_is_done_before_the_first_step(monkeypatch):
     order, before the first step's timer starts, so that no step's cost holds either."""
     from nnterp import order
 
-    from clab.engines import load
-    from clab.steps import measure_cost
+    from nnspec.engines import load
+    from nnspec.steps import measure_cost
     seen: list[Any] = []
     compute = order.compute
     monkeypatch.setattr(order, "compute", lambda model: seen.append("order") or compute(model))
     plan = plan_of("logit_lens")
     engine = load("ndif", plan.model, remote="local")
     shell: Any = engine.model
-    monkeypatch.setattr("clab.steps.measure_cost", lambda devices, cost, call, synced: seen.append(
+    monkeypatch.setattr("nnspec.steps.measure_cost", lambda devices, cost, call, synced: seen.append(
         ("step", shell.dispatched)) or measure_cost(devices, cost, call, synced))
     engine.execute(plan, batch_size=BATCH_SIZE)
     assert seen == ["order"] + [("step", True)] * 5          # the lens's one forward, then two ops at two points
@@ -172,7 +172,7 @@ def test_every_forward_the_model_runs_is_a_steps(kind, name, expected):
     makes before the first step to measure the forward order (`rank`), once per engine; hooks measured it on a meta
     shell at load, so none. The nnterp engine's shell is given its weights first, which its run would load before
     its first step, so that the hook is on the module that runs."""
-    from clab.engines import load
+    from nnspec.engines import load
 
     plan = plan_of(name)
     engine: Any = load(kind, plan.model)
@@ -320,7 +320,7 @@ def test_the_stop_site_is_where_both_engines_end_the_forward(engines, kind, monk
     """A schedule whose stop is the first of two sites (written so by hand, since preflight writes the last):
     both engines run block 0 alone (the first batch's; the refusal ends the step) and read nothing past it, and
     the read at block 3 the forward never reached is refused by name, the same on each; `stop` means one thing."""
-    from clab.compile import preflight, schedule
+    from nnspec.compile import preflight, schedule
 
     def early(engine, plan, name, step, served):
         schedule.write_schedule(engine, plan, name, step, served)
@@ -423,7 +423,7 @@ def test_under_readout_at_reads_a_write_after_the_last_block_keeps_the_head(engi
 def test_the_manifest_records_the_readout_even_at_its_default(engines, tmp_path):
     for readout in ("full", "at-reads"):
         engine = engines("nnterp", logits_at(-1).model)
-        clab.run(logits_at(-1), engine=engine, out=str(tmp_path / readout), batch_size=BATCH_SIZE, readout=readout)
+        nnspec.run(logits_at(-1), engine=engine, out=str(tmp_path / readout), batch_size=BATCH_SIZE, readout=readout)
         with open(tmp_path / readout / "manifest.json") as f:
             assert json.load(f)["run"]["readout"] == readout
         back = Plan.load(str(tmp_path / readout)).run
@@ -435,9 +435,9 @@ def test_a_readout_is_refused_by_name_unless_it_is_one_of_the_two(engines, capsy
     with pytest.raises(ValueError, match=r"^readout 'last': one of 'full', 'at-reads' \(--readout\)$"):
         engines("hooks", plan.model).execute(plan, batch_size=BATCH_SIZE, readout="last")
     assert main(["run", document("gpt2_reach"), "--readout", "last"]) == 1
-    assert capsys.readouterr().err == "clab: readout 'last': one of 'full', 'at-reads' (--readout)\n"
+    assert capsys.readouterr().err == "nnspec: readout 'last': one of 'full', 'at-reads' (--readout)\n"
     assert main(["run", document("gpt2_reach"), "-o", "readout=at-reads"]) == 1
-    assert capsys.readouterr().err == "clab: -o readout: it is given as --readout\n"
+    assert capsys.readouterr().err == "nnspec: -o readout: it is given as --readout\n"
 
 
 @pytest.mark.parametrize("kind", ["nnterp", "hooks"])
@@ -525,8 +525,8 @@ def test_records_alike_are_resolved_checked_and_bound_once(monkeypatch):
     layers change nothing either finds), the engine's sizes are read at load and not during the run, and in each
     batch the records that reach one selection share its tensors, and every write the batch's rows, the swaps one
     copy of their operand at the batch's rows, and the scales one tensor of their number."""
-    from clab.compile import positions, preflight
-    from clab.engines import load, standard
+    from nnspec.compile import positions, preflight
+    from nnspec.engines import load, standard
 
     def change(d):
         p = d["steps"]["patched"]["interventions"]
@@ -562,7 +562,7 @@ def test_records_alike_are_resolved_checked_and_bound_once(monkeypatch):
 def test_a_gates_number_with_is_bound_once_per_batch(monkeypatch):
     """head_gates, untrained, interpolating toward a number: each batch of its body binds the number once, one tensor
     for its writes at all five layers, as it binds `scale`'s `factor` (an optional `with` is a value given)."""
-    from clab.engines import load
+    from nnspec.engines import load
 
     def toward_zero(d):
         d["steps"]["fit"].update(epochs=0, objective={"sq": 1.0, "heads.mask": 0.0001})
@@ -603,16 +603,16 @@ def test_binding_a_write_leaves_nothing_for_the_collector():
     assert left == []
 
 
-def test_clabs_version_is_worked_out_once_per_process(monkeypatch):
-    """Every run records clab's version with its commit (`steps.versions`), which a checkout's `git describe`
+def test_nnspecs_version_is_worked_out_once_per_process(monkeypatch):
+    """Every run records nnspec's version with its commit (`steps.versions`), which a checkout's `git describe`
     gives: a process asks for it once, whatever number of runs it makes."""
     import subprocess
 
-    from clab import steps
+    from nnspec import steps
 
     asked: list = []
     run = subprocess.run
     monkeypatch.setattr(subprocess, "run", lambda *a, **k: asked.append(a) or run(*a, **k))
     steps.version.cache_clear()
-    said = {steps.versions()["clab"] for _ in range(3)}
+    said = {steps.versions()["nnspec"] for _ in range(3)}
     assert len(said) == 1 and len(asked) <= 1

@@ -1,5 +1,5 @@
 """One rank of a tensor-parallel run, for `test_tp.py`: `torchrun --nproc-per-node=<tp> tests/tp_ranks.py <tp>
-<device> <out> <name>...` runs each document named (with `CHANGES`) through `clab.run` on the nnterp engine at `tp` on
+<device> <out> <name>...` runs each document named (with `CHANGES`) through `nnspec.run` on the nnterp engine at `tp` on
 `device`, rank 0 writing `<out>/<name>`, and saves what this rank got, its results and run record or the refusal's
 message, to `<out>/<name>.rank<RANK>.pt`."""
 
@@ -26,8 +26,8 @@ def planned(name: str):
 if __name__ == "__main__":
     import torch
 
-    import clab
-    from clab.engines import load
+    import nnspec
+    from nnspec.engines import load
 
     tp, device, out, names = int(sys.argv[1]), sys.argv[2], sys.argv[3], sys.argv[4:]
     loaded: dict = {}
@@ -37,7 +37,7 @@ if __name__ == "__main__":
         try:
             if key not in loaded:
                 loaded[key] = load("nnterp", plan.model, device, tp=tp)
-            filled = clab.run(plan, engine=loaded[key], out=os.path.join(out, name), batch_size=BATCH_SIZE)
+            filled = nnspec.run(plan, engine=loaded[key], out=os.path.join(out, name), batch_size=BATCH_SIZE)
             got = {"results": filled.results, "run": filled.run}
         except ValueError as e:
             got = {"refused": str(e)}

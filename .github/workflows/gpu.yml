@@ -16,7 +16,7 @@ on:
   workflow_dispatch:
     inputs:
       python:
-        description: "A python on the runner whose torch runs on its CUDA driver, with clab's dependencies installed"
+        description: "A python on the runner whose torch runs on its CUDA driver, with nnspec's dependencies installed"
         required: false
 
 permissions:
@@ -39,14 +39,14 @@ jobs:
         with:
           enable-cache: false
 
-      - name: A venv over the runner's python, clab installed without dependencies
+      - name: A venv over the runner's python, nnspec installed without dependencies
         run: |
-          uv venv --python "$BASE_PYTHON" --system-site-packages "$RUNNER_TEMP/clab-gpu"
-          uv pip install --python "$RUNNER_TEMP/clab-gpu/bin/python" --no-deps -e .
+          uv venv --python "$BASE_PYTHON" --system-site-packages "$RUNNER_TEMP/nnspec-gpu"
+          uv pip install --python "$RUNNER_TEMP/nnspec-gpu/bin/python" --no-deps -e .
 
       - name: A CUDA device and the checkpoint are there
         run: |
-          "$RUNNER_TEMP/clab-gpu/bin/python" - <<'PY'
+          "$RUNNER_TEMP/nnspec-gpu/bin/python" - <<'PY'
           import torch
           from huggingface_hub import try_to_load_from_cache
 
@@ -58,13 +58,13 @@ jobs:
           PY
 
       - name: tests/test_real.py
-        run: '"$RUNNER_TEMP/clab-gpu/bin/python" -m pytest tests/test_real.py -q -p no:cacheprovider -rs'
+        run: '"$RUNNER_TEMP/nnspec-gpu/bin/python" -m pytest tests/test_real.py -q -p no:cacheprovider -rs'
 
       - name: tests/test_device.py
         if: ${{ !cancelled() }}
-        run: '"$RUNNER_TEMP/clab-gpu/bin/python" -m pytest tests/test_device.py -q -p no:cacheprovider -rs'
+        run: '"$RUNNER_TEMP/nnspec-gpu/bin/python" -m pytest tests/test_device.py -q -p no:cacheprovider -rs'
 
       # Skips, saying so, where the runner's python has no vllm or lacks the checkpoint the file pins.
       - name: tests/test_vllm.py
         if: ${{ !cancelled() }}
-        run: '"$RUNNER_TEMP/clab-gpu/bin/python" -m pytest tests/test_vllm.py -q -p no:cacheprovider -rs'
+        run: '"$RUNNER_TEMP/nnspec-gpu/bin/python" -m pytest tests/test_vllm.py -q -p no:cacheprovider -rs'

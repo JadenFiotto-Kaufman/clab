@@ -14,10 +14,10 @@ import torch
 from conftest import BATCH_SIZE, DOCUMENTS, ROOT, TRIP, dims, edited, on_each, placed, same, stand_in
 from safetensors import safe_open
 
-from clab import Plan
-from clab.format.sweeps import points
-from clab.ops import metrics
-from clab.plan import PlanError, Sweep
+from nnspec import Plan
+from nnspec.format.sweeps import points
+from nnspec.ops import metrics
+from nnspec.plan import PlanError, Sweep
 
 GPT2 = {"key": "hf-internal-testing/tiny-random-gpt2", "revision": "71034c5d8bde858ff824298bdedc65515b97d2b9"}
 TINY = {"key": "hf-internal-testing/tiny-random-LlamaForCausalLM",

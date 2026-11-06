@@ -20,10 +20,10 @@ import torch
 from conftest import BATCH_SIZE, GENERATE, ROOT, TRIP, close, edited, on_each, placed, plain, plan_of, same, snapshot, stand_in
 from transformers import AutoTokenizer, LogitsProcessor, LogitsProcessorList
 
-from clab import Plan, output
-from clab.compile import positions
-from clab.format.sweeps import points
-from clab.plan import PlanError, entries
+from nnspec import Plan, output
+from nnspec.compile import positions
+from nnspec.format.sweeps import points
+from nnspec.plan import PlanError, entries
 
 PROMPT = [11, 9, 9, 9]                  # each weekday prompt's tokens, BOS included
 # Two words the model says on every row, ending on tokens 0 and 3 (`Handler`; `▁energ calc`): a scope's two
@@ -1248,7 +1248,7 @@ def test_generated_steer_scores_each_call_as_its_whole_logits_score_after(filled
 def test_a_per_call_read_holds_one_number_a_call(engines, monkeypatch):
     """What the engine hands back for `p` is the metric at each call, `[rows, 1]` (its part over the prompt the
     prefill's last position's, `[rows, 1]`), where `l`'s is each call's logits, `[rows, 1, vocab_size]`."""
-    import clab.steps.generate as generation
+    import nnspec.steps.generate as generation
     held: dict[str, set] = {}
     real = generation.run_engine_generate
 

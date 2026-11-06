@@ -15,9 +15,9 @@ from bitsandbytes.functional import has_avx512bf16
 from conftest import BATCH_SIZE, edited, same
 from huggingface_hub import try_to_load_from_cache
 
-from clab.engines import load
-from clab.engines.standard import loading
-from clab.plan import QUANTIZED
+from nnspec.engines import load
+from nnspec.engines.standard import loading
+from nnspec.plan import QUANTIZED
 
 KEY, REVISION = "meta-llama/Llama-3.2-1B", "4e20de362430cd3b72f300e6b0f18e50e7166e08"
 CACHED = isinstance(try_to_load_from_cache(KEY, "model.safetensors", revision=REVISION), str)
@@ -27,7 +27,7 @@ DEVICES = ["cpu", pytest.param("cuda", marks=pytest.mark.skipif(not torch.cuda.i
 HELD = {"nf4": ["bfloat16", "uint8"], "fp4": ["bfloat16", "uint8"], "int8": ["float16", "int8"]}
 # On a CPU with AVX512-BF16 bitsandbytes repacks a 4-bit weight for its own kernel at the first forward, in blocks of
 # 32 output features, and asserts the tiny Llama's 16 are a multiple of 32 ("N must be divisible by block_n"): every
-# nf4 and fp4 forward on such a CPU fails there, before clab or the engines do anything.
+# nf4 and fp4 forward on such a CPU fails there, before nnspec or the engines do anything.
 REPACKED_ON_CPU = has_avx512bf16()
 
 
@@ -50,7 +50,7 @@ def on_both(name: str, dtype: str, device: str, change=lambda d: None) -> dict:
 
 
 @pytest.mark.parametrize("name", list(QUANTIZED))
-def test_clab_builds_the_config_nnsight_builds_for_each_name(monkeypatch, name):
+def test_nnspec_builds_the_config_nnsight_builds_for_each_name(monkeypatch, name):
     """`loading` keeps its own table (the plan imports nothing of nnsight); this catches it drifting from nnsight's:
     the same compute dtype, and a quantizer config equal field by field. `fp8` is built for a stand-in GPU of
     compute capability 9.0, faked for the two builders' checks alone (bitsandbytes, which reads the GPU when it is
@@ -150,7 +150,7 @@ def test_the_logit_lens_on_llama_under_nf4_is_close_to_float32():
 @pytest.mark.parametrize("kind", ["nnterp", "hooks"])
 def test_fp8_is_refused_below_compute_capability_8_9(kind, monkeypatch):
     for where in ("nnterp", "hooks"):
-        monkeypatch.setattr(f"clab.engines.{where}.StandardizedTransformer", lambda *a, **k: pytest.fail("loaded"))
+        monkeypatch.setattr(f"nnspec.engines.{where}.StandardizedTransformer", lambda *a, **k: pytest.fail("loaded"))
     major, minor = torch.cuda.get_device_capability()
     with pytest.raises(ValueError, match=rf"^model.dtype 'fp8' needs a GPU of compute capability 8.9 or later; "
                                          rf"cuda:0 \(.*\) is {major}.{minor}$"):

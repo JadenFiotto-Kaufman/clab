@@ -1,4 +1,4 @@
-"""The documents that train or load a featurizer run from `clab run` on both engines, their numbers pinned
+"""The documents that train or load a featurizer run from `nnspec run` on both engines, their numbers pinned
 per engine at one batch size, the engines agreeing to the bit; and the numbers that pin what a fit, a bundle
 and an edit of a featurizer's coordinates mean.
 
@@ -35,12 +35,12 @@ from conftest import (
 )
 from safetensors.torch import load_file, save_file
 
-from clab import Plan, featurizers, ops
-from clab.cli import main
-from clab.featurizers.gate import Gate
-from clab.featurizers.subspace import Subspace
-from clab.format.sweeps import points
-from clab.plan import Featurizer, Fit, Model, OpStep, PlanError, entries, record_of
+from nnspec import Plan, featurizers, ops
+from nnspec.cli import main
+from nnspec.featurizers.gate import Gate
+from nnspec.featurizers.subspace import Subspace
+from nnspec.format.sweeps import points
+from nnspec.plan import Featurizer, Fit, Model, OpStep, PlanError, entries, record_of
 
 TINY = {"key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
         "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998", "dtype": "float32"}
@@ -166,7 +166,7 @@ def test_a_fit_steps_once_per_minibatch_in_an_order_its_seed_and_epoch_shuffle(e
     """das with `batch_size: 1` makes two minibatches of its two training rows an epoch: 20 optimizer steps
     over 10 epochs, its history pinned. With the rotation's own seed fixed, another fit seed changes only the
     order the rows are shuffled in, and that changes the trajectory."""
-    from clab.steps.fit import OPTIMIZERS
+    from nnspec.steps.fit import OPTIMIZERS
 
     def change(d, seed=0):
         d["steps"]["fit"].update(batch_size=1, seed=seed)
@@ -192,7 +192,7 @@ def test_each_run_of_a_fits_body_is_freed_before_the_next_runs(engines, monkeypa
     """das with `batch_size: 1` runs its body three times an epoch, two minibatches and the scored pass; no run
     starts while an earlier run's namespace is alive, so a scored pass never holds two copies of the training
     rows' values."""
-    import clab.steps.fit as fit
+    import nnspec.steps.fit as fit
     run_body, namespaces, alive = fit.run_body, [], []
 
     def counted(*args):
@@ -504,7 +504,7 @@ def test_projecting_out_a_probes_direction_moves_the_logits_and_its_zero_is_the_
 
 def test_the_probes_direction_runs_the_same_on_every_engine(engines, monkeypatch):
     """nnterp, hooks and ndif under `remote="local"` give the same numbers, the tensors among them; through the
-    stand-in server the request ships nothing of clab by value and the same numbers come home, the tensors made
+    stand-in server the request ships nothing of nnspec by value and the same numbers come home, the tensors made
     where the run is."""
     got = [engines(kind, TINY_MODEL, **options).execute(probe(direction), batch_size=BATCH_SIZE).results
            for kind, options in (("nnterp", {}), ("hooks", {}), ("ndif", {"remote": "local"}))]
@@ -534,7 +534,7 @@ def test_a_later_fits_body_names_an_earlier_fits_tensor_as_a_value_made_before_i
 def test_a_run_stopped_before_a_constant_is_drawn_keeps_its_refusal_and_the_steps_before(engines, monkeypatch):
     """ablation_pair's constant `c` is drawn from `mean`, so a run out of CUDA memory at `mean` stops before `c` and
     its `vector` exist: the run's refusal stands, the steps before it are recorded, and `c.vector` has no result."""
-    from clab import steps
+    from nnspec import steps
 
     op = steps.KINDS["op"]
 
@@ -1702,8 +1702,8 @@ def test_noise_in_a_fit_body_draws_by_dataset_row_in_any_minibatch(engines, monk
 
 
 def test_a_fits_eval_records_and_tables_by_dataset_row(engines):
-    """A record's `positions` and `clab table` number a fit's eval values by dataset row as they number a forward's: the
-    eval's read of every token resolves on each row to that row's own positions, the plain forward's, and its
+    """A record's `positions` and `nnspec table` number a fit's eval values by dataset row as they number a forward's:
+    the eval's read of every token resolves on each row to that row's own positions, the plain forward's, and its
     table's rows are the plain forward's, row, position and token, with the same values."""
     plan = jittered()
     filled = engines("hooks", plan.model).execute(plan, batch_size=4)
@@ -2005,10 +2005,10 @@ def test_every_kinds_loaded_tensors_are_checked_against_a_draw_from_its_header(t
      "sae_train_ablation", "latents"),
     ("g", {"kind": "gate"}, {"theta": torch.ones(5)}, None, "width"),
 ])
-def test_a_clab_header_that_records_no_field_the_draw_needs_is_refused_at_compile(tmp_path, file, header, tensors,
+def test_an_nnspec_header_that_records_no_field_the_draw_needs_is_refused_at_compile(tmp_path, file, header, tensors,
                                                                                  document, lacking):
-    """A clab bundle's header records every field a draw from it needs, its `width` and the kind's fields it is drawn
-    from (an sae's `latents`), which clab writes: a hand-made one without is refused at compile naming the file, the
+    """An nnspec bundle's header records every field a draw from it needs, its `width` and the kind's fields it is drawn
+    from (an sae's `latents`), which nnspec writes: a hand-made one without is refused at compile naming the file, the
     field and the kind, where it was not checked and its wrong tensor (`b_dec` `[16, 2]`) met torch's error at the
     run, or a gate's `theta` met another stage's refusal."""
     root = corpus_copy(tmp_path)

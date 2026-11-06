@@ -1,6 +1,6 @@
 ---
 title: Developing Index
-one_liner: "How clab is built and how to change it: architecture, compile and run, extending, the engine protocol, testing and contributing."
+one_liner: "How nnspec is built and how to change it: architecture, compile and run, extending, the engine protocol, testing and contributing."
 tags: [developing, index]
 related: [docs/index.md, docs/concepts/index.md]
 ---
@@ -9,11 +9,11 @@ related: [docs/index.md, docs/concepts/index.md]
 
 Up: [docs/index.md](../index.md) — all sections.
 
-For changing clab itself: read architecture first, then the page for the part you are changing.
+For changing nnspec itself: read architecture first, then the page for the part you are changing.
 
-## How clab is built
+## How nnspec is built
 
-- [architecture](architecture.md) — How clab is built: the chain from document to output directory, the import direction, one concept per module, and where the code holds the five constraints that keep a document running the same everywhere.
+- [architecture](architecture.md) — How nnspec is built: the chain from document to output directory, the import direction, one concept per module, and where the code holds the five constraints that keep a document running the same everywhere.
 - [compile-and-run](compile-and-run.md) — The two passes and the run: compile's checks with the document alone, preflight's with the model, the schedule each forward runs, how steps.run walks a plan, and what belongs to the engine.
 - [engines](engines.md) — The engine protocol and how to add an engine: the constructor and options, what execute must do, the members steps.run and preflight read, a bound schedule site by site, where a forward stops, and where an engine refuses.
 

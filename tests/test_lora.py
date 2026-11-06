@@ -13,10 +13,10 @@ from safetensors import safe_open
 from safetensors.torch import save_file
 from test_fit import TINY, corpus_copy
 
-from clab import Plan
-from clab.featurizers.lora import Lora
-from clab.format.sweeps import points
-from clab.plan import PlanError
+from nnspec import Plan
+from nnspec.featurizers.lora import Lora
+from nnspec.format.sweeps import points
+from nnspec.plan import PlanError
 
 G = torch.Generator().manual_seed(5)
 
@@ -327,7 +327,7 @@ def test_each_engine_ranks_the_premix_before_the_attention_output(engines):
 
 
 def test_a_live_operand_the_engine_had_not_read_is_named():
-    from clab.steps import batches
+    from nnspec.steps import batches
     with pytest.raises(RuntimeError, match=r"operand 'premix@0' is a read of this forward the engine had not made"):
         batches.live_operand({}, {"live": "premix@0"})
 

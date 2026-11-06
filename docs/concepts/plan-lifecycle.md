@@ -3,14 +3,14 @@ title: Plan Lifecycle
 one_liner: "What happens between a document and its results, and which stage raised a refusal?"
 tags: [concepts, lifecycle, compile, preflight, refusals]
 related: [docs/usage/running.md, docs/usage/engines.md, docs/concepts/one-session.md, docs/usage/output.md, docs/errors/index.md, docs/developing/compile-and-run.md]
-sources: [clab/plan.py, clab/compile/__init__.py, clab/compile/preflight.py, clab/engines/__init__.py, clab/engines/vllm.py, clab/steps/__init__.py, clab/output/__init__.py, clab/cli.py]
+sources: [nnspec/plan.py, nnspec/compile/__init__.py, nnspec/compile/preflight.py, nnspec/engines/__init__.py, nnspec/engines/vllm.py, nnspec/steps/__init__.py, nnspec/output/__init__.py, nnspec/cli.py]
 ---
 
 # Plan Lifecycle
 
 ## The idea
 
-A document reaches its results through six stages. Each stage knows more than the one before it, decides what that knowledge allows, and refuses whatever it is the first stage able to check. Once you know which stage refused, you know what was wrong and how much had already happened. `clab run` and `clab.run` go through every stage. The calls behind them, for stopping partway in Python, are in [running.md](../usage/running.md#the-four-calls-behind-clabrun); how each stage is built is [developing/compile-and-run.md](../developing/compile-and-run.md).
+A document reaches its results through six stages. Each stage knows more than the one before it, decides what that knowledge allows, and refuses whatever it is the first stage able to check. Once you know which stage refused, you know what was wrong and how much had already happened. `nnspec run` and `nnspec.run` go through every stage. The calls behind them, for stopping partway in Python, are in [running.md](../usage/running.md#the-four-calls-behind-nnspecrun); how each stage is built is [developing/compile-and-run.md](../developing/compile-and-run.md).
 
 ```text
 document ─Plan(path)─▶ plan ─compile()─▶ compiled plan ─engines.load()─▶ engine
@@ -46,7 +46,7 @@ steps.patched.input: no dataset 'pears'; datasets: pairs
 data.pairs.take: take 400, and the dataset has 4 rows; take keeps at most as many as there are
 ```
 
-`clab compile DOC` is this stage alone: it prints what would run, or the refusal ([running.md](../usage/running.md#check-before-you-run)). Compiling a compiled plan returns it unchanged. Compile runs before any engine loads, so a document it refuses never costs a model load. Under the `ndif` engine, such a document never reaches the server.
+`nnspec compile DOC` is this stage alone: it prints what would run, or the refusal ([running.md](../usage/running.md#check-before-you-run)). Compiling a compiled plan returns it unchanged. Compile runs before any engine loads, so a document it refuses never costs a model load. Under the `ndif` engine, such a document never reaches the server.
 
 ## 3. Load: the engine and its model
 
@@ -66,7 +66,7 @@ device 'cuda:0': no CUDA device is visible (torch.cuda.is_available() is False);
 
 `engine.execute(plan)` starts the run. Two things come before preflight:
 
-- **`execute` checks the plan against the engine**, on the client, before any session opens (`clab/steps/__init__.py` `start_run`). It refuses an uncompiled plan, a model block other than the one the engine loaded, a `grad` entry the engine cannot take, and under ndif loads larger than a request carries. The vllm engine's `execute` first refuses what vLLM cannot do: a fit, a write at the recomputed attention pattern, a generate option its sampling cannot map. These checks read only the plan and the engine's declarations. Under nnterp and ndif the model is still a shell with no weights, and nothing has been sent. [developing/engines.md](../developing/engines.md#execute) lists them all.
+- **`execute` checks the plan against the engine**, on the client, before any session opens (`nnspec/steps/__init__.py` `start_run`). It refuses an uncompiled plan, a model block other than the one the engine loaded, a `grad` entry the engine cannot take, and under ndif loads larger than a request carries. The vllm engine's `execute` first refuses what vLLM cannot do: a fit, a write at the recomputed attention pattern, a generate option its sampling cannot map. These checks read only the plan and the engine's declarations. Under nnterp and ndif the model is still a shell with no weights, and nothing has been sent. [developing/engines.md](../developing/engines.md#execute) lists them all.
 - **The run puts every dataset's rows in view.** Rows that are not in the plan are read again: a hub dataset's always, a file dataset's after `Plan.load`. Rows whose digest differs from the one compile recorded are refused:
 
   ```text
@@ -125,11 +125,11 @@ Under nnterp and hooks, every stage runs in your process. So it does under vllm,
 
 ## Which stage refused
 
-`clab run` prints a refusal as `clab: <where>: <what>`, and the `<where>` says which stage raised it. Some prefixes are shared between stages, so match on the first clause too.
+`nnspec run` prints a refusal as `nnspec: <where>: <what>`, and the `<where>` says which stage raised it. Some prefixes are shared between stages, so match on the first clause too.
 
 | the message starts with | first clause, for example | raised by | what had happened |
 |---|---|---|---|
-| `no document at …`, `batch_size …`, `padding '…'`, `readout '…'` | `batch_size 0: a batch holds one row or more` | the command line or `clab.run`, before the document is read | nothing read |
+| `no document at …`, `batch_size …`, `padding '…'`, `readout '…'` | `batch_size 0: a batch holds one row or more` | the command line or `nnspec.run`, before the document is read | nothing read |
 | a document path: `steps.<step>…`, `data.<name>…`, `saves[i]`, `featurizers.<name>…`, `model: …` | `steps.iia: unknown step kind 'opp'` | Plan or compile | nothing loaded |
 | `unknown engine …`, `the <engine> engine takes no …`, `model.key '<key>' at revision …`, `model.<key>: the <engine> engine …`, `device…`, `remote:`, `tp …`, `-o …` | `the hooks engine takes no 'tp'` | load | the document compiled; no weight loaded |
 | `plan is not compiled`, `the plan's model is not the one this engine loaded`, a `grad` entry's `<step>.<entry>:`, a load's size `<step>: the values this document loads hold …`, and on vllm a fit, a pattern write and a generate option | `patched.h: a grad entry takes the model's gradient` | `execute`'s checks, on the client before the session | the engine loaded, under nnterp and ndif as a shell with no weights; nothing sent, no forward |
@@ -142,7 +142,7 @@ Four forms add to a message:
 
 - **At a sweep point**, compile adds ` at <label>=<value>` to the path: `steps.patched.interventions.patch.pos.frame at frame=1: frame 1: …`. Preflight names the point the same way in each refusal of a step's own checks or its schedule (`counterfactual.v_cf at layers=9: layer 9; the model has 2 layers`). So does every refusal of a featurizer's use, at compile (its bundle's header, a gate's `over`) and in preflight (its width, its layer, a features `select`). A refusal of a component the engine does not serve is of no point and names none.
 - **A bundle's entry** is refused at its own path, then ` in <step path>`: `interventions.b.w.ops[0].with in steps.patched: 'nope.v' names no value produced before this step; …`.
-- **Several document errors** print one per line, only the first prefixed `clab:` (`clab: model: Field required`, then `steps.iia: unknown step kind 'bogus'; …`). So do the `datasets` library's two-line messages.
+- **Several document errors** print one per line, only the first prefixed `nnspec:` (`nnspec: model: Field required`, then `steps.iia: unknown step kind 'bogus'; …`). So do the `datasets` library's two-line messages.
 - **`--batch-size`, `--padding` and `--readout` are refused before the document is read**, and so are an `-o` without `=` and one naming a flag (`-o device=cpu`). `--engine`, `--device` and every other `-o` key (`-o remote=local`) are refused after it compiles. A broken document run with `--batch-size 0` reports `batch_size 0: …`; run with `--device gpu`, it reports its own refusal.
 
 Each refusal, with its cause and fix, is listed by message in [errors/index.md](../errors/index.md).

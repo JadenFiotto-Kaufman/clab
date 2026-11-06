@@ -3,7 +3,7 @@ title: Trained Subspaces
 one_liner: "Where is a variable stored? DAS and DBM, scored held out against PCA and random subspaces of matched rank."
 tags: [patterns, subspaces, das, dbm, pca, interchange-intervention, controls]
 related: [docs/usage/fit.md, docs/usage/featurizers.md, docs/usage/bundles.md, docs/usage/sweeps.md, docs/patterns/activation-patching.md, docs/patterns/head-masking.md]
-sources: [clab/featurizers/subspace.py, clab/featurizers/gate.py, clab/featurizers/pca.py, clab/steps/fit.py]
+sources: [nnspec/featurizers/subspace.py, nnspec/featurizers/gate.py, nnspec/featurizers/pca.py, nnspec/steps/fit.py]
 ---
 
 # Trained Subspaces
@@ -77,7 +77,7 @@ The unswept control's steps after the fit, beside `das.json`'s own held-out ones
 On the corpus model the trained points sit inside the seeds' spread. `das.json` swept as above, with the `mean` step `held_mean`:
 
 ```text
-clab table out/das_swept held_mean
+nnspec table out/das_swept held_mean
 at                      value
 {"epochs":0,"seed":0}   -0.006963685154914856
 {"epochs":0,"seed":1}   -0.002706684172153473
@@ -91,6 +91,6 @@ The corpus documents are not matched as they stand: `das.json` is rank 8, `pca_c
 
 ## Pitfalls
 
-- **The learning rate on a wide model.** A `subspace` trains `theta`, a width × width matrix whose `theta − thetaᵀ` gives the rotation through the Cayley transform (`clab/featurizers/subspace.py` `Subspace`). Adam moves every entry of it by about `lr` per step, so a rate that suits the corpus's 16-wide fixture can scramble a wide model's rotation and leave the curve flat at the floor. Start near 1e-3 and sweep `lr` before reading a flat curve as no subspace; count the optimizer steps too ([fit.md](../usage/fit.md#epochs-minibatches-and-the-learning-rate)).
+- **The learning rate on a wide model.** A `subspace` trains `theta`, a width × width matrix whose `theta − thetaᵀ` gives the rotation through the Cayley transform (`nnspec/featurizers/subspace.py` `Subspace`). Adam moves every entry of it by about `lr` per step, so a rate that suits the corpus's 16-wide fixture can scramble a wide model's rotation and leave the curve flat at the floor. Start near 1e-3 and sweep `lr` before reading a flat curve as no subspace; count the optimizer steps too ([fit.md](../usage/fit.md#epochs-minibatches-and-the-learning-rate)).
 - **`apply` is not an interchange.** A subspace's `apply` replaces the value with its projection onto the subspace, discarding the complement; the interchange is the `encode`, `swap`, `decode` bracket.
 - **The fixture model is random.** Every number these documents give on the tiny Llama shows the mechanics, nothing about where a trained model keeps a variable.

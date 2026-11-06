@@ -2,7 +2,7 @@
 __pycache__/
 uv.lock
 out/
-clab.egg-info/
+nnspec.egg-info/
 documents/artifacts/*
 !documents/artifacts/sae.safetensors
 !documents/artifacts/sae_gemma_scope.safetensors

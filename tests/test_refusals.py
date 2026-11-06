@@ -6,9 +6,9 @@ from typing import Callable
 import pytest
 from conftest import BATCH_SIZE, dims, edited, plan_of, same
 
-from clab.engines import load
-from clab.format.sweeps import points
-from clab.plan import PlanError
+from nnspec.engines import load
+from nnspec.format.sweeps import points
+from nnspec.plan import PlanError
 
 # -- the plan and compile ---------------------------------------------------------------------------------
 
@@ -456,7 +456,7 @@ def test_a_whole_scope_write_is_named_as_what_its_operand_meets(engines):
 def test_the_rows_of_a_scope_that_disagree_are_named_by_count():
     """Each count with its rows, in the order the rows first hold it, a run of rows as its ends; a row reached at no
     position holds 0; past four runs a count's rows are its first three runs and how many there are."""
-    from clab.compile.arguments import row_counts
+    from nnspec.compile.arguments import row_counts
     assert row_counts([[4]] * 8 + [[4, 5]]) == "1 position on rows 0-7 and 2 positions on row 8"
     assert row_counts([[3], [4, 5, 6], "alignment_missing", [3]]) == \
         "1 position on rows 0, 3, 3 positions on row 1 and 0 positions on row 2"
@@ -521,7 +521,7 @@ SHARDING = "tensor parallelism is a run option: -o tp=N"
                                                         "-o max_len=N")])
 def test_a_model_key_no_engine_takes_is_refused_at_compile(key, why):
     """A loader key that respells one the model block owns (`key`, `revision`, `dtype` and a quantization in it), or
-    names a run option, is refused by name at compile with the key or option to write, so `clab compile` refuses it
+    names a run option, is refused by name at compile with the key or option to write, so `nnspec compile` refuses it
     before any engine; the document reads, as a run's plan read back does (test_cli.py pins that). Each reached the
     engine before: `_commit_hash` (which transformers drops), `device_mesh` and `tp_size: 1` loaded and ran,
     `tp_size: "cpu"` was refused as a cache miss, and the other new ones by the loader as an argument it did not
@@ -537,8 +537,8 @@ def test_a_model_key_no_engine_takes_is_refused_at_compile(key, why):
 def test_a_loader_refuses_a_model_key_it_cannot_honor(kind):
     """An engine given a model block directly, which no compile judged, refuses each key of `OWNED` by name as it
     loads, before its loader sees it."""
-    from clab.engines import ENGINES
-    from clab.plan import OWNED
+    from nnspec.engines import ENGINES
+    from nnspec.plan import OWNED
     for key, why in OWNED.items():
         model = edited("patching", lambda d: d["model"].update({key: "cpu"})).model
         with pytest.raises(ValueError, match=f"^model.{key}: the {kind} engine cannot honor it: {re.escape(why)}$"):
@@ -570,7 +570,7 @@ def test_a_device_no_engine_can_place_a_model_on_is_refused_before_anything_load
     """Every engine's constructor (`standard.loading`, before its loader; `load` too) refuses a device that is no
     torch device or device map (the ndif engine by its own message, which test_patching pins), a CUDA device where
     none is visible, and one past those that are (a stand-in says two are)."""
-    from clab.engines import ENGINES
+    from nnspec.engines import ENGINES
 
     model = plan_of("patching").model
     if kind != "ndif":
@@ -596,7 +596,7 @@ def test_a_key_the_loader_rejects_is_reported_as_that_key(kind):
     """The reason is the loader's one line that names the key, without the report of every class nnsight's loader
     tried, so a misspelled key is refused by name on both engines alike: as hooks loads, and on nnterp, whose meta
     shell takes the misspelling and loads its weights before the first step of a run that calls the model, there."""
-    from clab.engines import ENGINES
+    from nnspec.engines import ENGINES
     plan = edited("patching", lambda d: d["model"].update(attn_implementation="nonsense"))
     with pytest.raises(ValueError, match=f"^model.attn_implementation: the {kind} engine's loader rejects it: "):
         ENGINES[kind](plan.model)
@@ -685,7 +685,7 @@ def test_a_quantized_dtype_names_what_it_computes_in():
 def unloadable(monkeypatch):
     """No engine can load a model: a refusal must come before anything loads (a meta shell included)."""
     for where in ("nnterp", "hooks", "ndif"):
-        monkeypatch.setattr(f"clab.engines.{where}.StandardizedTransformer", lambda *a, **k: pytest.fail("loaded"))
+        monkeypatch.setattr(f"nnspec.engines.{where}.StandardizedTransformer", lambda *a, **k: pytest.fail("loaded"))
     return monkeypatch
 
 

@@ -3,20 +3,20 @@ title: A Position Does Not Fit a Row
 one_liner: "Why a run refuses with 'row i: … is not in its input' or 'index … does not fit the row's …': a prefill position that names nothing on one row, how to see that row's tokens, and the fix for each message."
 tags: [errors, positions, scope, preflight, refusals]
 related: [docs/usage/positions.md, docs/concepts/positions.md, docs/errors/alignment-missing.md, docs/errors/index.md, docs/usage/data.md]
-sources: [clab/compile/positions.py, clab/compile/preflight.py]
+sources: [nnspec/compile/positions.py, nnspec/compile/preflight.py]
 ---
 
 # A Position Does Not Fit a Row
 
-In the prefill (frame 0, and the one call of every `forward` step), the data alone decides where a `pos` lands on each row. So clab resolves every row before any forward and refuses a text, an occurrence or a static index that a row does not have, naming the entry and the row (`clab/compile/positions.py` `prefill_positions`). An open-ended index that picks none of a short row's tokens is not refused for a read, nor is any miss beyond the prefill: the row is `alignment_missing` ([alignment-missing.md](alignment-missing.md)). A write there is refused.
+In the prefill (frame 0, and the one call of every `forward` step), the data alone decides where a `pos` lands on each row. So nnspec resolves every row before any forward and refuses a text, an occurrence or a static index that a row does not have, naming the entry and the row (`nnspec/compile/positions.py` `prefill_positions`). An open-ended index that picks none of a short row's tokens is not refused for a read, nor is any miss beyond the prefill: the row is `alignment_missing` ([alignment-missing.md](alignment-missing.md)). A write there is refused.
 
 ## See the row's tokens
 
 Each message names a row. A row's positions are its input tokens, BOS first and a chat template's markers included ([positions.md](../usage/positions.md#recipes)). A refusal writes no output directory, but the compiled plan already holds every input's tokens by then, so the step-by-step calls show the row that failed:
 
 ```python
-from clab import Plan
-from clab.engines import load
+from nnspec import Plan
+from nnspec.engines import load
 
 compiled = Plan("documents/my_experiment.json").compile()
 engine = load("nnterp", compiled.model, "cpu")

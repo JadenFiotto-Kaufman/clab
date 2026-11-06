@@ -3,12 +3,12 @@ title: An Answer Does Not Line Up
 one_liner: "Why a metric refuses its answer column ('is 3 tokens; the read has 1 position', 'no one logit for logit_diff', 'predicts … in the input'): how answers are tokenized and lined up with the read, and the fix for each message."
 tags: [errors, answers, metrics, tokens, refusals]
 related: [docs/usage/ops.md, docs/usage/data.md, docs/patterns/generation-experiments.md, docs/patterns/probing.md, docs/errors/index.md, docs/errors/symptom-index.md]
-sources: [clab/compile/answers.py, clab/ops/metrics.py]
+sources: [nnspec/compile/answers.py, nnspec/ops/metrics.py]
 ---
 
 # An Answer Does Not Line Up
 
-A metric that scores a column (`match`, `token_prob`, `token_logit`, `logit_diff`, `cross_entropy`) tokenizes each row's answer as written, without special tokens, and scores answer token i at the read's position i. [data.md](../usage/data.md#answer-columns) says how answer columns and their flags are written, and [ops.md](../usage/ops.md#metrics) what each metric scores. Preflight checks every row against its read before any forward and refuses a row it cannot score, naming the op step, the column and the row (`clab/compile/answers.py` `check_tokens`). An answer that runs and scores the wrong spelling is not refused: [symptom-index.md](symptom-index.md#answers-and-metrics) lists those.
+A metric that scores a column (`match`, `token_prob`, `token_logit`, `logit_diff`, `cross_entropy`) tokenizes each row's answer as written, without special tokens, and scores answer token i at the read's position i. [data.md](../usage/data.md#answer-columns) says how answer columns and their flags are written, and [ops.md](../usage/ops.md#metrics) what each metric scores. Preflight checks every row against its read before any forward and refuses a row it cannot score, naming the op step, the column and the row (`nnspec/compile/answers.py` `check_tokens`). An answer that runs and scores the wrong spelling is not refused: [symptom-index.md](symptom-index.md#answers-and-metrics) lists those.
 
 ## `… is k tokens; the read has n position(s) on that row`
 

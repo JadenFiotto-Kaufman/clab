@@ -3,12 +3,12 @@ title: Logit Lens
 one_liner: "What does each layer predict? The logit lens and its wiring check, top_k per layer, kl between lenses, and a tuned lens."
 tags: [patterns, lens, logit-lens, tuned-lens, readout, layers, kl, top_k, affine]
 related: [docs/usage/sites.md, docs/usage/ops.md, docs/concepts/values-and-layout.md, docs/usage/sweeps.md, docs/usage/positions.md, docs/usage/featurizers.md, docs/usage/fit.md]
-sources: [clab/ops/transforms.py, clab/ops/metrics.py, clab/format/address.py, clab/compile/interventions.py, clab/engines/nnterp.py, clab/featurizers/affine.py, documents/tuned_lens.json, tests/snapshots/tuned_lens.nnterp.json]
+sources: [nnspec/ops/transforms.py, nnspec/ops/metrics.py, nnspec/format/address.py, nnspec/compile/interventions.py, nnspec/engines/nnterp.py, nnspec/featurizers/affine.py, documents/tuned_lens.json, tests/snapshots/tuned_lens.nnterp.json]
 ---
 
 # Logit Lens
 
-The logit lens decodes a layer's residual stream through the model's own final norm and head, as if that layer were the last, to see where in depth a prediction forms. In clab it is the `readout` op on a residual-stream site whose `layers` is a selector: every layer in one forward, one value with a `layers` axis.
+The logit lens decodes a layer's residual stream through the model's own final norm and head, as if that layer were the last, to see where in depth a prediction forms. In nnspec it is the `readout` op on a residual-stream site whose `layers` is a selector: every layer in one forward, one value with a `layers` axis.
 
 ## The document
 
@@ -27,12 +27,12 @@ The logit lens decodes a layer's residual stream through the model's own final n
 }
 ```
 
-`lens.logits` is laid out `layers, rows, pos, vocab_size`, and each metric of it keeps the `layers` axis: `p_answer` is the answer's probability at every layer, row and position. `clab table out/logit_lens_all p_answer top1` prints one line per layer and row, with the model's layer in the `layer` column. `documents/logit_lens.json` is the same lens as a sweep, a point per layer; its points differ only in what they read, so one forward serves both, and the numbers are the same ([sweeps.md](../usage/sweeps.md#widen-the-read-instead)).
+`lens.logits` is laid out `layers, rows, pos, vocab_size`, and each metric of it keeps the `layers` axis: `p_answer` is the answer's probability at every layer, row and position. `nnspec table out/logit_lens_all p_answer top1` prints one line per layer and row, with the model's layer in the `layer` column. `documents/logit_lens.json` is the same lens as a sweep, a point per layer; its points differ only in what they read, so one forward serves both, and the numbers are the same ([sweeps.md](../usage/sweeps.md#widen-the-read-instead)).
 
 `readout` takes a residual-stream component whole ([ops.md](../usage/ops.md#transforms) lists them). Another component, or a site that selects part of `hidden_size`, is refused inside an entry:
 
 ```text
-clab: steps.f.interventions.x.ops[0]: readout projects a residual-stream value; mlp_norm_output is not one: read one of token_embeddings, layer_input, attention_output, layer_mid, mlp_output, layer_output
+nnspec: steps.f.interventions.x.ops[0]: readout projects a residual-stream value; mlp_norm_output is not one: read one of token_embeddings, layer_input, attention_output, layer_mid, mlp_output, layer_output
 ```
 
 As a step, `{"kind": "op", "op": "readout", "of": "f.x"}` over a saved read gives the entry form's numbers up to their last bits. A read of another component is refused there the same way (`steps.r.of: 'f.x' is read at mlp_norm_output: ...`).
@@ -87,7 +87,7 @@ Read `lm_head_output` beside `logits` to see which one the lens matches before r
 
 ## What each layer would say: `top_k`
 
-`top3` above is, per layer, row and position, the three most likely ids, their `probs` (a float32 softmax over the vocabulary) and, because it is a step, their decoded `tokens`. It is saved as `top3.json`; `clab table --csv OUT top3` prints each cell whole:
+`top3` above is, per layer, row and position, the three most likely ids, their `probs` (a float32 softmax over the vocabulary) and, because it is a step, their decoded `tokens`. It is saved as `top3.json`; `nnspec table --csv OUT top3` prints each cell whole:
 
 ```text
 layer,row,pos,pos_token,input,value
@@ -139,7 +139,7 @@ On the corpus model two epochs take the held-out KL at layer 0 from 0.0032 nats 
 
 ## Variations
 
-- **The last few tokens.** `"pos": {"index": "-3:"}` on both `logits` and `final` lenses each row's last three tokens, the last included. `kl` pairs position with position. `clab table OUT to_final` prints a line per layer, row and position, its `pos` and `pos_token` saying which token. On row 0 those are 8, 9 and 10 (`▁tom`, `orrow`, `▁is`), with `to_final` 0.0 at layer 1 on each.
+- **The last few tokens.** `"pos": {"index": "-3:"}` on both `logits` and `final` lenses each row's last three tokens, the last included. `kl` pairs position with position. `nnspec table OUT to_final` prints a line per layer, row and position, its `pos` and `pos_token` saying which token. On row 0 those are 8, 9 and 10 (`▁tom`, `orrow`, `▁is`), with `to_final` 0.0 at layer 1 on each.
 - **Every position.** `"pos": {"index": ":"}` lenses every prompt token. A one-token answer column is then scored at every position of its row, a ragged value NaN past each row's own tokens.
 - **Keep only the score.** `"ops": [{"op": "readout"}, {"op": "token_prob", "token": "prompts.base_answer"}]` inside the entry gives the `token_prob` step's numbers up to their last bits ([above](#the-document)). It holds no vocabulary-wide logits past each batch, and `layers × rows × positions × vocab_size` adds up quickly on a real model.
 - **Sublayers.** `attention_output` and `mlp_output` lens what one sublayer writes; `layer_mid` the stream between them.

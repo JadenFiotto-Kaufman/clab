@@ -6,7 +6,7 @@ it with the last residual add), what vLLM cannot do is refused by name, the run 
 transformers engine agrees within vLLM's kernels' rounding, not to the bit.
 
 The CPU-only suite skips this file: it needs vLLM importable, a CUDA device and the checkpoint in the local Hugging
-Face cache. It runs from a venv whose torch runs on your driver, with vLLM, nnsight, nnterp and clab installed, from
+Face cache. It runs from a venv whose torch runs on your driver, with vLLM, nnsight, nnterp and nnspec installed, from
 the repo root:
 
     CUDA_VISIBLE_DEVICES=0 HF_HUB_OFFLINE=1 <venv>/bin/python -m pytest tests/test_vllm.py -q
@@ -24,9 +24,9 @@ import torch
 from conftest import BATCH_SIZE, document, edited, same
 from huggingface_hub import try_to_load_from_cache
 
-from clab import Plan
-from clab.engines import load
-from clab.plan import Model
+from nnspec import Plan
+from nnspec.engines import load
+from nnspec.plan import Model
 
 KEY, REVISION = "HuggingFaceTB/SmolLM2-135M-Instruct", "12fd25f77366fa6b3b4b768ec3050bf629380bac"
 CACHED = isinstance(try_to_load_from_cache(KEY, "model.safetensors", revision=REVISION), str)
@@ -75,7 +75,7 @@ def patching_plan() -> Plan:
 
 def encoded(engine, built: Plan, column: str) -> list[list[int]]:
     """Each row's token ids for a column of the plan's dataset, as the run encodes them."""
-    from clab.format import data
+    from nnspec.format import data
 
     rows = built.data["pairs"].rows
     assert rows is not None

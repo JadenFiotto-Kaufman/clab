@@ -3,7 +3,7 @@ title: Featurizers
 one_liner: "How do I use a learned or loaded space in an entry? Declaring each kind, encode, decode and apply, selecting features, its tensors as values, and a published SAE."
 tags: [usage, featurizers, encode, decode, apply, sae, subspace, gate, affine, constant]
 related: [docs/usage/fit.md, docs/usage/bundles.md, docs/usage/interventions.md, docs/usage/ops.md, docs/patterns/trained-subspaces.md, docs/patterns/head-masking.md, docs/patterns/sae.md, docs/patterns/probing.md, docs/patterns/lora.md, docs/patterns/logit-lens.md, docs/patterns/ablation.md]
-sources: [clab/featurizers/__init__.py, clab/featurizers/subspace.py, clab/featurizers/gate.py, clab/featurizers/pca.py, clab/featurizers/sae.py, clab/featurizers/linear.py, clab/featurizers/lora.py, clab/featurizers/affine.py, clab/featurizers/constant.py, clab/ops/edits.py, clab/compile/uses.py, clab/compile/__init__.py, clab/plan.py]
+sources: [nnspec/featurizers/__init__.py, nnspec/featurizers/subspace.py, nnspec/featurizers/gate.py, nnspec/featurizers/pca.py, nnspec/featurizers/sae.py, nnspec/featurizers/linear.py, nnspec/featurizers/lora.py, nnspec/featurizers/affine.py, nnspec/featurizers/constant.py, nnspec/ops/edits.py, nnspec/compile/uses.py, nnspec/compile/__init__.py, nnspec/plan.py]
 ---
 
 # Featurizers
@@ -65,8 +65,8 @@ An entry uses a featurizer in one of three shapes:
 An op's value has no one site, and `decode` closes an `encode` of its own entry, so both are refused as steps:
 
 ```text
-clab: steps.x.of: 'm' is an op's value, which no one site made, and a featurizer's encode acts on a value at its site: encode a read (an entry's value), or encode inside the entry that reads
-clab: steps.x: decode closes an encode of its own entry, so it runs inside the entry that encodes, after the encode and the edits of its coordinates; as a step there is none to close (detokenize turns a generation's ids into text)
+nnspec: steps.x.of: 'm' is an op's value, which no one site made, and a featurizer's encode acts on a value at its site: encode a read (an entry's value), or encode inside the entry that reads
+nnspec: steps.x: decode closes an encode of its own entry, so it runs inside the entry that encodes, after the encode and the edits of its coordinates; as a step there is none to close (detokenize turns a generation's ids into text)
 ```
 
 ## The dtype a featurizer computes in
@@ -93,7 +93,7 @@ The manifest's `results.<name>.dtype` records each value's ([values and layout](
 A latent that is already zero at a row's position changes nothing there; save the plain `encode` read beside the ablation to see which those were. A pick outside the featurizer's coordinates is refused before any forward, at the point that makes it: with `{"sweep": [0, 1, 2, 40]}` above,
 
 ```text
-clab: zeroed.ablate at features=40: select features 40 outside the 32 features of 'dictionary'
+nnspec: zeroed.ablate at features=40: select features 40 outside the 32 features of 'dictionary'
 ```
 
 ## Brackets
@@ -101,8 +101,8 @@ clab: zeroed.ablate at features=40: select features 40 outside the 32 features o
 Each `decode` closes the most recent `encode` not yet closed. Taking `decode` out of `das_apply.json`'s `patch`, or the `encode` out of `v_cf`, is refused when the document compiles:
 
 ```text
-clab: steps.patched.interventions.patch.ops[1]: the entry writes back here with the encode of 'rot' (ops[0]) still open; close it with {'op': 'decode', 'featurizer': 'rot'} after its edits
-clab: steps.patched.interventions.patch.ops[1].with: 'counterfactual.v_cf' is in the site's own layout; this bracket is in the coordinates of 'rot', so an operand is encoded as it is
+nnspec: steps.patched.interventions.patch.ops[1]: the entry writes back here with the encode of 'rot' (ops[0]) still open; close it with {'op': 'decode', 'featurizer': 'rot'} after its edits
+nnspec: steps.patched.interventions.patch.ops[1].with: 'counterfactual.v_cf' is in the site's own layout; this bracket is in the coordinates of 'rot', so an operand is encoded as it is
 ```
 
 An operand between a pair must be in the same coordinates: a value read through the same encodes with the same `select`s, or a number. Compile also refuses a `decode` with no `encode` open, a `decode` of a featurizer other than the open one, and an `encode` or `apply` of a featurizer inside its own `encode`.
@@ -120,7 +120,7 @@ An `encode`'s, `decode`'s or `apply`'s `featurizer` may be a sweep over featuriz
   {"op": "decode", "featurizer": {"sweep": ["rot_a", "rot_b"], "label": "rot"}}]}
 ```
 
-- **The coordinates are the names.** A swept save is keyed `rot="rot_a"` in the output files, and `clab table`'s `at` is `{"rot":"rot_a"}`.
+- **The coordinates are the names.** A swept save is keyed `rot="rot_a"` in the output files, and `nnspec table`'s `at` is `{"rot":"rot_a"}`.
 - **A `decode` carries its `encode`'s sweep**: the same label and the same names, so the two zip. A `decode` of one name, or under another label, closes another featurizer's `encode` at some point, refused naming the point (`… at rot="rot_b": decode of 'rot_a', and the open encode is of 'rot_b'`).
 - **Each point is checked as that featurizer's use is.** A kind that does not serve the op, or a width the featurizer has at another site, is refused naming the point.
 - **A write runs a forward per point.** A read that only encodes shares one forward, each point's value encoded with its own featurizer ([sweeps.md](sweeps.md#what-a-sweep-costs)).
@@ -205,7 +205,7 @@ A featurizer's tensors, those its bundle holds, are values by name: `<featurizer
 
 ## Loading a published sparse autoencoder
 
-An `sae` reads a published safetensors file with no clab header, holding `W_enc`, `W_dec`, `b_enc`, `b_dec` and, for a JumpReLU, `threshold` (SAELens and Gemma Scope lay theirs out this way). The file says nothing about how it encodes or where it was trained, so the document states three fields, which have no default for a published file. From `documents/sae_published_jumprelu.json`:
+An `sae` reads a published safetensors file with no nnspec header, holding `W_enc`, `W_dec`, `b_enc`, `b_dec` and, for a JumpReLU, `threshold` (SAELens and Gemma Scope lay theirs out this way). The file says nothing about how it encodes or where it was trained, so the document states three fields, which have no default for a published file. From `documents/sae_published_jumprelu.json`:
 
 ```json
 "dictionary": {"kind": "sae", "file_path": "documents/artifacts/sae_gemma_scope.safetensors",
@@ -235,7 +235,7 @@ The `site` check compares your use with your claim; it cannot check the claim. W
 
 ### A TopK file stated as `relu`
 
-- **Only a published file can be stated so.** A clab bundle records its `activation`, and `relu` on a `topk` bundle is refused: `header 'activation' is 'topk'; this document expects 'relu'`.
+- **Only a published file can be stated so.** An nnspec bundle records its `activation`, and `relu` on a `topk` bundle is refused: `header 'activation' is 'topk'; this document expects 'relu'`.
 - **The check is the share of tokens with more than `k` active latents.** Stated `relu`, a TopK file changes exactly the tokens with more than `k` positive pre-activations, whose L0 then exceeds `k`. Under the right `activation` that share is exactly 0. The steps are in [sae.md](../patterns/sae.md#check-its-l0).
 - **On the fixture**, `documents/sae_published_topk.json` with its latents read at every token after the first (`{"index": "1:"}`), the share is 0 under `topk` (L0 4) and 1.0 under `relu` without `k` (L0 13 to 22).
 - **On a trained dictionary the mean L0 shows it too.** `documents/sae_train.json` on GPT-2 (`openai-community/gpt2` at `607a30d783dfa663caf39e06633721c8d4cfcd7e`) trains one with these changes: layer 6, `"latents": 2048, "activation": "topk", "k": 16`, the objective `dictionary.reconstruction` alone, the 49 rows of `natural_domains_arithmetic/data/weekdays`, `batch_size` 7, `lr` 0.001 and 60 epochs.

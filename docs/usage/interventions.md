@@ -3,7 +3,7 @@ title: Interventions
 one_liner: "How do I read or write a value at a site? Entries, edits, the order they run in, operands, gradients, writes across layers, named bundles and the null control."
 tags: [usage, interventions]
 related: [docs/usage/ops.md, docs/usage/sites.md, docs/usage/positions.md, docs/usage/sweeps.md, docs/usage/featurizers.md, docs/patterns/activation-patching.md, docs/patterns/head-and-neuron-patching.md]
-sources: [clab/compile/interventions.py, clab/compile/arguments.py, clab/steps/batches.py, clab/ops/edits.py]
+sources: [nnspec/compile/interventions.py, nnspec/compile/arguments.py, nnspec/steps/batches.py, nnspec/ops/edits.py]
 ---
 
 # Interventions

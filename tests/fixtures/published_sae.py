@@ -1,14 +1,14 @@
 """Writes documents/artifacts/sae_gemma_scope.safetensors and documents/artifacts/sae_saelens.safetensors, the
 published sparse autoencoders sae_published_jumprelu.json and sae_published_topk.json load: random 16 -> 32
 dictionaries for the tiny Llama's layer_output at layer 0, drawn from seeded generators and laid out as the two
-trainers publish them, with no clab header. Gemma Scope's holds a JumpReLU `threshold` (and its encoder does not
+trainers publish them, with no nnspec header. Gemma Scope's holds a JumpReLU `threshold` (and its encoder does not
 subtract `b_dec`); SAELens's does not. Fixtures: their mechanics are real and their latents mean nothing. Run
-from the corpus root: `uv run python tests/fixtures/published_sae.py`. They are written as clab writes a bundle,
+from the corpus root: `uv run python tests/fixtures/published_sae.py`. They are written as nnspec writes a bundle,
 their headers' keys sorted: the same bytes on every run."""
 
 import torch
 
-from clab.output import write_safetensors
+from nnspec.output import write_safetensors
 
 if __name__ == "__main__":
     g = torch.Generator().manual_seed(1)

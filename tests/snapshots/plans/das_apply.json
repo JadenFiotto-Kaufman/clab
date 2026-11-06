@@ -21,7 +21,7 @@
    "header": {
     "component": "layer_output",
     "document": "das",
-    "format": "clab/1",
+    "format": "nnspec/1",
     "k": "8",
     "kind": "subspace",
     "layer": "0",
