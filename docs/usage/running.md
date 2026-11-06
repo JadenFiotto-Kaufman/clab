@@ -57,12 +57,14 @@ What is checked when:
 
 | stage | what it checks | a refusal it gives |
 |---|---|---|
-| `clab compile`: reading and compiling, no model | each record's fields, every reference, column, save and sweep, the data files, bundle headers, a `generate` option's type | `steps.iia.of: 'patched.logits' names no value produced before this step; …` |
+| `clab compile`: reading and compiling, no model | each record's fields, every reference, column, save and sweep, the data files, bundle headers, a `generate` option's type, a model block key no engine takes (`torch_dtype`, `device`) | `steps.iia.of: 'patched.logits' names no value produced before this step; …` |
 | `clab run`, before the checkpoint loads | the document's path, `--batch-size`, `--padding`, `--readout`, `--device`, the engine and its options ([cli.md](../reference/cli.md#clab-run) lists each refusal) | `device 'gpu': not a torch device …` |
 | after the model loads, before any forward | positions, layers, `select` indices and answer tokens, against the tokenizer and the model's sizes; a component the engine does not serve | `counterfactual.v_cf: layer 5; the model has 2 layers` |
 | when the step runs | an option the model's `generate` rejects; running out of CUDA memory | `answer: generate rejected 'bogus_opt': …` |
 
-Offline, a checkpoint the cache lacks is refused as the engine loads it. For a first run on a large dataset, add `"take": 8` to the dataset ([data.md](data.md#narrowing-and-renaming-rows)). Which stage gave a refusal is [plan-lifecycle.md](../concepts/plan-lifecycle.md#which-stage-refused).
+**What `clab compile` cannot tell you.** It reads no checkpoint and asks the hub nothing about one, so a checkpoint or `revision` the local cache lacks compiles. Offline, the engine's load is the first stage that knows, and refuses it (`model.key '<key>' at revision '<revision>': the nnterp engine cannot load it: HF_HUB_OFFLINE is set …`). A model block key the loader rejects, and every check after the model loads, are past compile too.
+
+For a first run on a large dataset, add `"take": 8` to the dataset ([data.md](data.md#narrowing-and-renaming-rows)). Which stage gave a refusal is [plan-lifecycle.md](../concepts/plan-lifecycle.md#which-stage-refused).
 
 ## When a step runs out of memory
 

@@ -16,9 +16,9 @@ Decide everything as early as the information allows.
 
 | what it needs | where it runs | how it refuses |
 |---|---|---|
-| a record's own shape: fields, types, an op's arguments against its signature, a featurizer's fields | building the plan: the validators in `clab/plan.py` | `PlanError`, starting with the document path |
+| a record's own shape: fields, types, an op's arguments against its signature, a featurizer's fields, a model block key no engine takes (`OWNED`) | building the plan: the validators in `clab/plan.py` | `PlanError`, starting with the document path |
 | the document, the data files, bundle headers | compile, `clab/compile/` | `fail(path, message)` in `clab/plan.py`: a `PlanError` starting with the document path |
-| an option, a model block key, a device or a `dtype` the engine cannot honor | the engine's constructor, `clab/engines/__init__.py` `load` and `clab/engines/standard.py` `build` | `ValueError` naming the option or key |
+| an option, a device or a `dtype` the engine cannot honor; a model block key its loader rejects; a checkpoint or revision the loader cannot get (offline, one the cache lacks) | the engine's constructor, `clab/engines/__init__.py` `load` and `clab/engines/standard.py` `build` | `ValueError` naming the option or key |
 | the plan against the engine's declarations (`gradless`, `LOADED`, the model block, the run options) | the engine's `execute`, through `clab/steps/__init__.py` `start_run`, on the client before the session | `ValueError` starting with `<step>.<entry>`, `<step>`, or naming the option |
 | the tokenizer, a size of the model, what the engine serves, forward order | preflight, `clab/compile/preflight.py` (the schedule's sites, `clab/compile/schedule.py`) | `ValueError` starting with `<step>.<entry>` |
 

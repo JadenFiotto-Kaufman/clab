@@ -91,6 +91,7 @@ A refusal is the line `clab run` prints for the same document, on stderr, and ex
 ```text
 clab: no document at 'documents/nope.json'
 clab: steps.iia.of: 'patched.nothing' names no value produced before this step; known: counterfactual.v_cf, patched.logits, patched.patch
+clab: model: 'torch_dtype': the dtype is spelled `dtype`
 ```
 
 What it cannot tell is [running.md](../usage/running.md#check-before-you-run).

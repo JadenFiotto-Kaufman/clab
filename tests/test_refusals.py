@@ -500,20 +500,38 @@ def test_a_grad_entry_is_refused_by_name_where_the_engine_takes_no_gradient(engi
                     "gradient in pieces; run it at tp 1") and forwards == 0 and plan.run is None
 
 
-@pytest.mark.parametrize("kind", ["nnterp", "hooks", "ndif"])
-@pytest.mark.parametrize("key, why", [("device", r"where the model runs is a run option: --device"),
-                                      ("device_map", r"where the model runs is a run option: --device"),
+QUANTIZATION = r"a quantization is spelled in `dtype` \(`nf4`, `fp4`, `int8`, `fp8`\)"
+SHARDING = "tensor parallelism is a run option: -o tp=N"
+
+
+@pytest.mark.parametrize("key, why", [("device", "where the model runs is a run option: --device"),
+                                      ("device_map", "where the model runs is a run option: --device"),
                                       ("dispatch", "the engine places its model itself"),
                                       ("torch_dtype", "the dtype is spelled `dtype`"),
-                                      ("quantization_config",
-                                       r"a quantization is spelled in `dtype` \(`nf4`, `fp4`, `int8`, `fp8`\)"),
-                                      ("tp_plan", "tensor parallelism is a run option: -o tp=N"),
-                                      ("distributed_config", "tensor parallelism is a run option: -o tp=N")])
-def test_a_loader_refuses_a_model_key_it_cannot_honor(kind, key, why):
-    from clab.engines import ENGINES
-    plan = edited("patching", lambda d: d["model"].update({key: "cpu"}))
-    with pytest.raises(ValueError, match=f"^model.{key}: the {kind} engine cannot honor it: {why}$"):
-        ENGINES[kind](plan.model)
+                                      ("quantization_config", QUANTIZATION), ("load_in_4bit", QUANTIZATION),
+                                      ("load_in_8bit", QUANTIZATION),
+                                      ("_commit_hash", "the revision is spelled `revision`"),
+                                      ("pretrained_model_name_or_path", "the checkpoint is spelled `key`"),
+                                      ("repo_id", "the checkpoint is spelled `key`"),
+                                      ("tp_plan", SHARDING), ("tp_size", SHARDING), ("distributed_config", SHARDING),
+                                      ("device_mesh", SHARDING)])
+def test_a_model_key_no_engine_takes_is_refused_as_the_document_is_read(key, why):
+    """A loader key that respells one the model block owns (`key`, `revision`, `dtype` and a quantization in it), or
+    names a run option, is refused by name with the key or option to write as the document is read, so `clab
+    compile` refuses it before any engine. Each reached the engine before: `_commit_hash` (which transformers drops)
+    and `device_mesh` loaded and ran, `tp_size` was refused as a cache miss, and the other new ones by the loader as
+    an argument it did not expect or got twice."""
+    with pytest.raises(PlanError, match=f"^model: '{key}': {why}$"):
+        edited("patching", lambda d: d["model"].update({key: "cpu"}))
+
+
+def test_a_revision_the_cache_lacks_compiles_and_is_refused_as_the_engine_loads():
+    """Compile reads no checkpoint, so a revision the offline cache lacks compiles; the engine's load is the first
+    stage that knows, and refuses it naming the key, the revision and the cache."""
+    plan = edited("patching", lambda d: d["model"].update(revision="0" * 40)).compile()
+    with pytest.raises(ValueError, match=f"^model.key 'hf-internal-testing/tiny-random-LlamaForCausalLM' at revision "
+                                         f"'{'0' * 40}': the hooks engine cannot load it: HF_HUB_OFFLINE is set"):
+        load("hooks", plan.model)
 
 
 @pytest.mark.parametrize("kind", ["nnterp", "hooks", "ndif"])

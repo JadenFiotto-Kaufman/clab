@@ -162,19 +162,48 @@ DATASET = "the dataset whose rows the step's values are aligned to"
 QUANTIZED = {"nf4": "bfloat16", "fp4": "bfloat16", "int8": "float16", "fp8": "bfloat16"}
 
 
+# The loader keys a model block may not hold, and why, each refused by name as the document is read: another
+# spelling of a key the block owns (`key`, `revision`, `dtype`, a quantization in `dtype`), or a run option (where the
+# model runs and how it is sharded), which no engine takes from the block.
+OWNED = {"device": "where the model runs is a run option: --device",
+         "device_map": "where the model runs is a run option: --device",
+         "dispatch": "the engine places its model itself",
+         "torch_dtype": "the dtype is spelled `dtype`",
+         "quantization_config": "a quantization is spelled in `dtype` (`nf4`, `fp4`, `int8`, `fp8`)",
+         "load_in_4bit": "a quantization is spelled in `dtype` (`nf4`, `fp4`, `int8`, `fp8`)",
+         "load_in_8bit": "a quantization is spelled in `dtype` (`nf4`, `fp4`, `int8`, `fp8`)",
+         "_commit_hash": "the revision is spelled `revision`",
+         "pretrained_model_name_or_path": "the checkpoint is spelled `key`",
+         "repo_id": "the checkpoint is spelled `key`",
+         "tp_plan": "tensor parallelism is a run option: -o tp=N",
+         "tp_size": "tensor parallelism is a run option: -o tp=N",
+         "distributed_config": "tensor parallelism is a run option: -o tp=N",
+         "device_mesh": "tensor parallelism is a run option: -o tp=N"}
+
+
 class Model(Record):
     """The pinned checkpoint: `key`, `revision` and `dtype`, torch's spelling of a float dtype or one of nnsight's
     names for a quantization: `nf4` and `fp4` hold the weights in bitsandbytes' 4 bits (NormalFloat, FloatPoint) and
     `int8` in its LLM.int8() 8 bits, on the CPU or on CUDA, with bitsandbytes installed; `fp8` holds them in
     transformers' block-wise 8-bit floats, on a GPU of compute capability 8.9 or later. A quantized model computes in
-    `bfloat16` (`int8` in `float16`), which is the dtype its values have. Every other key goes to the
-    engine's loader untouched (`attn_implementation`, ...), and a loader refuses what it cannot honor; where
-    the model runs (`device`) is a run option, not the document's. The attention interior needs
-    `attn_implementation: "eager"`."""
+    `bfloat16` (`int8` in `float16`), which is the dtype its values have. A key that respells one of the three
+    (`torch_dtype`, `quantization_config`, `_commit_hash`, ...) or names a run option (`device`, `device_map`:
+    `--device`; `tp_plan`, ...: `-o tp=N`) is refused by name as the document is read (`plan.OWNED`). Every other
+    key goes to the engine's loader untouched (`attn_implementation`, ...), which refuses what it cannot honor as
+    the engine loads, as the load refuses a checkpoint or revision the offline cache lacks. The attention interior
+    needs `attn_implementation: "eager"`."""
     model_config = ConfigDict(extra="allow")
     key: str
     revision: str
     dtype: Literal["float32", "float16", "bfloat16", "nf4", "fp4", "int8", "fp8"] = "float32"
+
+    @model_validator(mode="before")
+    @classmethod
+    def _one_spelling(cls, given: Any) -> Any:
+        for key in OWNED if isinstance(given, dict) else ():
+            if key in given:
+                raise ValueError(f"{key!r}: {OWNED[key]}")
+        return given
 
     @property
     def computes(self) -> str:
