@@ -373,7 +373,7 @@ def refused(engines, plan, kind: str = "hooks"):
                                                              "base_answer": " Friday"}]}),
      r"blanked: chats.chat row 0: message 0 \(user\) '  padded  ' is not where the chat template put the messages"),
     ("patching", lambda d: d["steps"]["patched"]["interventions"]["patch"].update(pos=20),
-     r"patched.patch: row 0: tokens 20 do not fit its 11 scope tokens"),
+     r"patched.patch: row 0: index 20 does not fit the row's 11 positions at this frame"),
 ])
 def test_what_needs_the_model_is_checked_before_any_forward(engines, name, change, message):
     text, forwards = refused(engines, edited(name, change).compile())

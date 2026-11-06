@@ -303,9 +303,9 @@ def test_a_refusal_counts_tokens_as_positions(engines):
     filled = run(engines, plan(-1))
     tokens = filled.run.tokens["d.input"]
     assert [len(row) for row in tokens] == [11, 4, 9, 5]
-    with pytest.raises(ValueError, match=r"^f\.x: row 1: tokens 10 do not fit its 4 scope tokens$"):
+    with pytest.raises(ValueError, match=r"^f\.x: row 1: index 10 does not fit the row's 4 positions at this frame$"):
         run(engines, plan(10))
-    with pytest.raises(ValueError, match=r"^f\.x: row 0: tokens 11 do not fit its 11 scope tokens$"):
+    with pytest.raises(ValueError, match=r"^f\.x: row 0: index 11 does not fit the row's 11 positions at this frame$"):
         run(engines, doc(EAGER, DAYS[:1], {"f": forward({"x": {"site": LOGITS, "pos": 11}})}, ["f.x"]))
     last = run(engines, doc(EAGER, DAYS[:1], {"f": forward({"x": {"site": LOGITS, "pos": 10},
                                                             "y": {"site": LOGITS, "pos": -1}})}, ["f.x", "f.y"]))
