@@ -20,6 +20,8 @@ Offline, on CPU, no model loaded, in seconds: `uv run pytest tests/test_docs.py 
   symbol;
 * none of `BANNED` appears, case-insensitively: machine and user names, home paths, and planning files that are
   temporary or gone;
+* every refusal in `clab/` has a row in `docs/errors/index.md` that quotes its opening phrase
+  (`test_every_refusal_has_a_row_in_the_errors_index` says how the phrase is read);
 * every fenced ```json block that holds an object with both `model` and `steps` is a complete document, and
   compiles with the document alone: it is written into the suite's copy of the corpus (`corpus` in conftest.py,
   whose `data/` is the repo's and whose `documents/artifacts/` holds the stand-in bundles the corpus documents
@@ -31,6 +33,7 @@ Fenced code is not prose: links, paths, symbols, line numbers and banned terms a
 
 from __future__ import annotations
 
+import ast
 import functools
 import json
 import os
@@ -339,6 +342,48 @@ def test_no_banned_terms():
              for match in pattern.finditer(line)]
     assert not found, ("environment-specific or temporary names (generalize the requirement, or leave it out):\n"
                        + "\n".join(found))
+
+
+# --------------------------------------------------------------------------- the errors index
+
+
+def message_text(node: ast.expr) -> str:
+    """A message as the code writes it, each part that is not a literal (a `{…}`, a name, a call) a NUL."""
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value
+    if isinstance(node, ast.JoinedStr):
+        return "".join(message_text(part) for part in node.values)
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+        return message_text(node.left) + message_text(node.right)
+    return "\0"
+
+
+def test_every_refusal_has_a_row_in_the_errors_index():
+    """Every refusal in `clab/`, the message of a `fail(path, message)`, `raise ValueError(message)` or `raise
+    PlanError(message)` (each branch of a conditional one), has a row in docs/errors/index.md. A row's key quotes a
+    message's first clause, its text before the first `;`, and may stop at a `:`, a `,` or a parenthesis; so the
+    message's opening phrase is that clause's first run of two words or more between placeholders and those marks,
+    and some key must contain it. A lone word between placeholders (`row <i>:`, `<x> is <type>`) is part of the
+    variable opening; a message with no longer run is all dynamic, and is skipped."""
+    keys = [" ".join(span.split()) for _, line in prose_lines(ROOT / "docs/errors/index.md")
+            if line.startswith("| `") for span in code_spans(line.split(" | ")[0])]
+    missing = []
+    for file in sorted((ROOT / "clab").rglob("*.py")):
+        for node in ast.walk(ast.parse(file.read_text())):
+            if isinstance(node, ast.Raise) and isinstance(node.exc, ast.Call) and node.exc.args \
+                    and getattr(node.exc.func, "id", None) in ("ValueError", "PlanError"):
+                message = node.exc.args[0]
+            elif isinstance(node, ast.Call) and getattr(node.func, "id", None) == "fail":
+                message = node.args[1]
+            else:
+                continue
+            for branch in (message.body, message.orelse) if isinstance(message, ast.IfExp) else (message,):
+                runs = re.split(r"[\0:,()]", message_text(branch).split(";")[0])
+                phrase = next((" ".join(run.split()) for run in runs if len(run.split()) >= 2), None)
+                if phrase and not any(phrase in key for key in keys):
+                    missing.append(f"{rel(file)}:{node.lineno} {phrase!r}")
+    assert not missing, ("refusals without a row in docs/errors/index.md (add one whose key quotes the phrase):\n"
+                         + "\n".join(missing))
 
 
 # --------------------------------------------------------------------------- complete documents compile

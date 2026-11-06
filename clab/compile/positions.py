@@ -162,10 +162,7 @@ def scope_tokens(scope: dict | None, tokens: list[int], occurrences: list[set[in
     if scope.get("until"):
         short = not picked or fixed(which) is not None and len(picked) != fixed(which)
         through = tokens if short else [t for t in tokens if t <= max(max(matches[i]) for i in picked)]
-        if scope.get("before") and 0 in through:
-            raise ValueError(f"{what} with until runs from the frame's first token, position 0, which no position "
-                             "comes before")
-        return through
+        return [] if scope.get("before") and 0 in through else through
     if not matches and "turn" in scope:
         first = min((a for _, a, _ in encoded["turns"]), default=len(encoded["text"]))
         header = re.search(rf"\b{re.escape(scope['turn'])}\b", encoded["text"][:first]) is not None
