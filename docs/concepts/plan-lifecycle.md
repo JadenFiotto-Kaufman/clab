@@ -140,7 +140,7 @@ Under nnterp and hooks, every stage runs in your process. So it does under vllm,
 
 Four forms add to a message:
 
-- **At a sweep point**, compile adds ` at <label>=<value>` to the path: `steps.patched.interventions.patch.pos.frame at frame=1: frame 1: …`. Preflight names the point the same way in each refusal of a step's own checks or its schedule (`counterfactual.v_cf at layers=9: layer 9; the model has 2 layers`). A refusal of a component the engine does not serve, or of a featurizer's width, layer, bundle or `select`, names no point.
+- **At a sweep point**, compile adds ` at <label>=<value>` to the path: `steps.patched.interventions.patch.pos.frame at frame=1: frame 1: …`. Preflight names the point the same way in each refusal of a step's own checks or its schedule (`counterfactual.v_cf at layers=9: layer 9; the model has 2 layers`). So does every refusal of a featurizer's use, at compile (its bundle's header, a gate's `over`) and in preflight (its width, its layer, a features `select`). A refusal of a component the engine does not serve is of no point and names none.
 - **A bundle's entry** is refused at its own path, then ` in <step path>`: `interventions.b.w.ops[0].with in steps.patched: 'nope.v' names no value produced before this step; …`.
 - **Several document errors** print one per line, only the first prefixed `clab:` (`clab: model: Field required`, then `steps.iia: unknown step kind 'bogus'; …`). So do the `datasets` library's two-line messages.
 - **`--batch-size`, `--padding` and `--readout` are refused before the document is read**, and `--engine`, `--device` and `-o` after it compiles. A broken document run with `--batch-size 0` reports `batch_size 0: …`; run with `--device gpu`, it reports its own refusal.

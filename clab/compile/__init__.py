@@ -286,13 +286,14 @@ def operand_axes(cx: Compiling, listed: list, at: dict[str, int], live: dict[str
 
 
 def footprint(cx: Compiling, where: tuple) -> list[tuple]:
-    """The document paths an entry reads: its own, and the sites, interventions and featurizers it names."""
+    """The document paths an entry reads: its own, and the sites, interventions and featurizers it names (a swept
+    `featurizer`, each of its values)."""
     paths, doc = [where], cx.doc
 
     def walk(value: Any) -> None:
         if isinstance(value, dict):
             for k, v in value.items():
-                named = v if isinstance(v, list) else [v]
+                named = v["sweep"] if isinstance(v, dict) and "sweep" in v else v if isinstance(v, list) else [v]
                 if k == "site" and isinstance(v, str):
                     paths.append(("sites", v))
                 if k == "interventions":

@@ -12,29 +12,31 @@ if TYPE_CHECKING:
     from clab.plan import Plan
 
 
-UNSWEPT = ("kind", "op", "site", "component", "input", "interventions", "train", "featurizer", "file_path", "of",
-           "saves")
+UNSWEPT = ("kind", "op", "site", "component", "input", "interventions", "train", "file_path", "of", "saves")
 
 
 def find_sweeps(document: dict) -> dict[tuple, str]:
     """Every `{"sweep": [...], "label"?: "<name>"}` standing for a value, by document path, each with its label:
     the `label` it gives, letters, digits and underscores (a coordinate is `<label>=<value>`, joined by commas),
     else the name of the field it stands for (the last key of its path). A sweep's values are numbers, strings,
-    booleans or lists of them, each point keyed by its value, and hold no sweep: a `pos` sweeps its frame, its index
+    booleans or lists of them, each point keyed by its value, so each listed once (in a fit's body a trained
+    featurizer's bare name and `<fit>.<name>` are one value), and hold no sweep: a `pos` sweeps its frame, its index
     or a scope's occurrence, not the object.
 
     A sweep may stand for any value except under `description`, `model` and `data` (a dataset's rows are compiled
     once, and a step reads them by name), on a name, a kind, a `file_path`, or a featurizer's `over` (a featurizer
-    has one layout at every point). One label is one axis wherever its sweeps stand: sweeps with one label, by
-    default or given, and the same values pair their points (zip), as one sweep reached from two places does (a
-    swept site two steps use), in two ops of one entry, two fields of one op, two entries or an entry and its step's
-    options alike; sweeps with one label and different values are refused, and sweeps with different labels cross.
-    So a read's `layers` swept `{"sweep": [0, 1, 2], "label": "src"}` and a write's
-    `{"sweep": [0, 1, 2], "label": "dst"}` are a 3×3 grid in one step, each point keyed `src=0,dst=2`; swept
-    `{"sweep": [0, 1, 2]}` each, both are labelled `layers`, so they pair up, the diagonal, layer L with layer L,
-    and the grid gives one of them a `label`. A step that uses a swept thing, or references a value that varies,
-    becomes a list of points, one per combination of its axes, each a whole step whose `at` gives its index on each
-    axis; a step no sweep touches runs once.
+    has one layout at every point). The `featurizer` an `encode`, `decode` or `apply` names is a name that takes a
+    sweep: over names from `featurizers` and a fit's trained ones (`fit.probe`), each point that featurizer's use,
+    checked as an unswept one is, and keyed by the name; a `decode` closing a swept `encode` carries the same sweep.
+    One label is one axis wherever its sweeps stand: sweeps with one label, by default or given, and the same values
+    pair their points (zip), as one sweep reached from two places does (a swept site two steps use), in two ops of
+    one entry, two fields of one op, two entries or an entry and its step's options alike; sweeps with one label and
+    different values are refused, and sweeps with different labels cross. So a read's `layers` swept
+    `{"sweep": [0, 1, 2], "label": "src"}` and a write's `{"sweep": [0, 1, 2], "label": "dst"}` are a 3×3 grid in
+    one step, each point keyed `src=0,dst=2`; swept `{"sweep": [0, 1, 2]}` each, both are labelled `layers`, so they
+    pair up, the diagonal, layer L with layer L, and the grid gives one of them a `label`. A step that uses a swept
+    thing, or references a value that varies, becomes a list of points, one per combination of its axes, each a
+    whole step whose `at` gives its index on each axis; a step no sweep touches runs once.
 
     A value of a swept step depends on some of the step's axes, which its record says (`axes`): the sweeps on its
     own entry (its site, its positions, an op's literal argument), those of every value or featurizer its ops name,
@@ -72,6 +74,7 @@ def find_sweeps(document: dict) -> dict[tuple, str]:
             if holds_sweep(value["sweep"]):
                 raise ValueError(f"{where}: a sweep's values hold no sweep")
             check_scalars(where, field, value["sweep"])
+            check_once(document, where, path, label, value["sweep"])
             if label in first and json.dumps(first[label][1]) != json.dumps(value["sweep"]):
                 other, values = first[label]
                 raise ValueError(f"{where}: label {label!r} is also the sweep at {other}, over {values}; one label "
@@ -127,6 +130,26 @@ def check_scalars(where: str, field: str, values: Any) -> None:
             raise ValueError(f"{where}: {said}; {value!r} is an object: sweep a scalar field inside it, {example}")
         if isinstance(value, list) and any(isinstance(v, (dict, list)) for v in value):
             raise ValueError(f"{where}: {said}; {value!r} holds a list or an object")
+
+
+def check_once(document: Mapping[str, Any], where: str, path: tuple, label: str, values: Any) -> None:
+    """Refuses a sweep that lists one value twice: its points are keyed by their values, so the second would run
+    again and its results collapse into the first's. In a fit's body a trained featurizer's bare name is the
+    featurizer the fit trains, `<fit>.<name>` (`compile_fit` writes it so), so the two spellings are one value."""
+    fit = (document.get("steps") or {}).get(path[1]) if path[0] == "steps" and path[2:3] == ("steps",) else None
+    trained = fit.get("train") or [] if isinstance(fit, dict) and fit.get("kind") == "fit" else []
+
+    def meant(v: Any) -> Any:
+        return f"{path[1]}.{v}" if path[-1] == "featurizer" and isinstance(v, str) and v in trained else v
+    spelled = [json.dumps(meant(v)) for v in values] if isinstance(values, list) else []
+    twice = next((i for i, v in enumerate(spelled) if v in spelled[:i]), None)
+    if twice is None:
+        return
+    first = values[spelled.index(spelled[twice])]
+    same = "" if first == values[twice] else (f" ({first!r} and {values[twice]!r} in the body of fit {path[1]!r} are "
+                                              "one featurizer, the one it trains)")
+    raise ValueError(f"{where}: label {label!r} sweeps {meant(values[twice])!r} twice{same}; a sweep's points are "
+                     "its values, each keyed by its value: list each point once")
 
 
 def holds_sweep(value: Any) -> bool:

@@ -74,22 +74,25 @@ def check_bundle_sites(plan: Plan) -> None:
     made at the whole component); every site its featurizer is used at is that component, each layer it picks is
     one of those, and its selection keeps those indices (`select_mismatch`). A layer counted from the last, a site
     that picks several, and a `select` the document alone does not resolve (counted from the end, a slice open at
-    its end) are the model's to resolve, and preflight checks each layer and the selection."""
+    its end) are the model's to resolve, and preflight checks each layer and the selection. A use at a point of a
+    sweep is refused naming the point."""
+    from clab.compile.preflight import naming_point      # the stage whose refusals name their point
     for name, records in uses(plan).items():
         for where, read, at, _, _ in records:
-            site, f = cast(Site, read.site), agreeing_point(plan.featurizers[name], at)
-            if f.header is None:
-                continue
-            known = site.layers is None or isinstance(site.layers, int) and site.layers >= 0
-            for key, ok in (("component", f.header.get("component") == site.component),
-                            ("layer", not known or site.layers in bundles.recorded(f.header.get("layer")))):
-                if not ok:
-                    fail(f"featurizers.{name}.file_path", f"{(f.model_extra or {})['file_path']}: header {key!r} is "
-                         f"{f.header.get(key)!r}; this document uses {name!r} at {site.component} layer "
-                         f"{site.layers} ({where})")
-            why = select_mismatch(name, f, read) if all(read.kept.values()) else None
-            if why:
-                fail(f"featurizers.{name}.file_path", f"{why} ({where})")
+            with naming_point(plan, at):
+                site, f = cast(Site, read.site), agreeing_point(plan.featurizers[name], at)
+                if f.header is None:
+                    continue
+                known = site.layers is None or isinstance(site.layers, int) and site.layers >= 0
+                for key, ok in (("component", f.header.get("component") == site.component),
+                                ("layer", not known or site.layers in bundles.recorded(f.header.get("layer")))):
+                    if not ok:
+                        fail(f"featurizers.{name}.file_path", f"{(f.model_extra or {})['file_path']}: header "
+                             f"{key!r} is {f.header.get(key)!r}; this document uses {name!r} at {site.component} "
+                             f"layer {site.layers} ({where})")
+                why = select_mismatch(name, f, read) if all(read.kept.values()) else None
+                if why:
+                    fail(f"featurizers.{name}.file_path", f"{why} ({where})")
 
 
 def select_mismatch(name: str, f: Featurizer, read: Intervention) -> str | None:
@@ -172,35 +175,38 @@ def check_gate_axes(plan: Plan) -> None:
     """A featurizer over axes (a gate's units, an affine's maps) is used by `apply` alone, on its site's own layout
     (inside no `encode`, whose coordinates are no axes of the site's), whose selection has each axis it names, in
     the selection's order, `layers` only where the site picks several. A refusal names the featurizer's `over` and
-    the use. A loaded one's tensors are checked against its header before (`check_bundle_shapes`)."""
+    the use, and its point where the use is at one of a sweep. A loaded one's tensors are checked against its header
+    before (`check_bundle_shapes`)."""
+    from clab.compile.preflight import naming_point      # the stage whose refusals name their point
     for name, records in uses(plan).items():
         for where, read, at, o, around in records:
-            over = over_of(agreeing_point(plan.featurizers[name], at))
-            if over is None:
-                continue
-            path, site = f"featurizers.{name}.over", cast(Site, read.site)
-            # What the gate meets at a use made before any encode: inside an entry its site's selection, a `layers`
-            # axis first where the site picks several; as a step, its `of`'s layout.
-            laid = list(read.dims or []) if isinstance(o, OpStep) else address.dims(site.component, site.layers)
-            if o.op != "apply":
-                fail(path, f"{over}: {where} encodes {name!r}, and a gate over axes serves apply alone: its units "
-                     "are not the last axis, which an encode makes its coordinates; an interchange through it is "
-                     f"{{'op': 'apply', 'featurizer': {arguments(o)['featurizer']!r}, 'with': <the other value>}}")
-            if around:
-                fail(path, f"{over}: {where} applies {name!r} inside the encode of "
-                     f"{arguments(around[-1])['featurizer']!r}, whose coordinates are no axes of its site's "
-                     "selection; apply it outside the encode")
-            for axis in over:
-                if axis == "layers" and axis not in laid:
-                    fail(path, f"{over}: {where} is at {site.component} layer {site.layers!r}, one layer, whose "
-                         f"selection {laid} has no layers axis; leave layers out of over, or pick the layers as a "
-                         "list or a slice")
-                if axis not in laid:
-                    fail(path, f"{over}: {where}'s selection at {site.component} is laid out {laid}, which has no "
-                         f"{axis!r}")
-            if [a for a in laid if a in over] != over:
-                fail(path, f"{over}: a gate's units are laid out on its axes in the selection's order, and "
-                     f"{where}'s is {laid}: write over as {[a for a in laid if a in over]}")
+            with naming_point(plan, at):
+                over = over_of(agreeing_point(plan.featurizers[name], at))
+                if over is None:
+                    continue
+                path, site = f"featurizers.{name}.over", cast(Site, read.site)
+                # What the gate meets at a use made before any encode: inside an entry its site's selection, a `layers`
+                # axis first where the site picks several; as a step, its `of`'s layout.
+                laid = list(read.dims or []) if isinstance(o, OpStep) else address.dims(site.component, site.layers)
+                if o.op != "apply":
+                    fail(path, f"{over}: {where} encodes {name!r}, and a gate over axes serves apply alone: its units "
+                         "are not the last axis, which an encode makes its coordinates; an interchange through it is "
+                         f"{{'op': 'apply', 'featurizer': {arguments(o)['featurizer']!r}, 'with': <the other value>}}")
+                if around:
+                    fail(path, f"{over}: {where} applies {name!r} inside the encode of "
+                         f"{arguments(around[-1])['featurizer']!r}, whose coordinates are no axes of its site's "
+                         "selection; apply it outside the encode")
+                for axis in over:
+                    if axis == "layers" and axis not in laid:
+                        fail(path, f"{over}: {where} is at {site.component} layer {site.layers!r}, one layer, whose "
+                             f"selection {laid} has no layers axis; leave layers out of over, or pick the layers as a "
+                             "list or a slice")
+                    if axis not in laid:
+                        fail(path, f"{over}: {where}'s selection at {site.component} is laid out {laid}, which has no "
+                             f"{axis!r}")
+                if [a for a in laid if a in over] != over:
+                    fail(path, f"{over}: a gate's units are laid out on its axes in the selection's order, and "
+                         f"{where}'s is {laid}: write over as {[a for a in laid if a in over]}")
 
 
 def units(where: str, name: str, f: Featurizer, read: Intervention, over: list[str], sizes: dict[str, int]
@@ -238,86 +244,96 @@ def units(where: str, name: str, f: Featurizer, read: Intervention, over: list[s
 def write_widths(engine: Engine, plan: Plan) -> None:
     """Each featurizer's width, written on its record (`Featurizer.width`, at every point): the size of the last
     axis of every site it is used at, which is one size, and the width its bundle's header says. A `select` on
-    its features stays within them, and a featurizer a fit trains is used somewhere. A featurizer over axes keeps on
+    its features stays within them, and a featurizer a fit trains is used somewhere at each of the fit's points (a sweep
+    in the body over featurizers it trains leaves the others unused at each point). A featurizer over axes keeps on
     each of them the indices every site it is used at selects, which are one selection, or that its bundle's header
     records (`units`), written on its record too (`Featurizer.kept`): a gate over axes is as wide as it has units,
     in one order at every use, and one that stacks its tensors over them (`Kind.stacked`: an affine over layers) as
     its sites' last axis, its uses listing those indices in any order, since it takes each one's slice by its id
     (the order of the first use is the order its tensors and its bundle's header lay them out in)."""
-    sizes, out, laid = engine.sizes(), {}, {}
+    from clab.compile.preflight import naming_point      # the stage whose refusals name their point
+    sizes, out, laid, used_at = engine.sizes(), {}, {}, {}
     for name, used in uses(plan).items():
         for where, read, at, o, around in used:
-            site, kept = cast(Site, read.site), read.kept
-            f = agreeing_point(plan.featurizers[name], at)
-            over = over_of(f)
-            if over is not None:
-                units_kept, stacked = units(where, name, f, read, over, sizes), KINDS[f.kind].stacked
-                first = laid.setdefault(name, units_kept)
-                # A stacked kind takes each index's slice by its id, so a use may list them in any order; a gate's
-                # units on an axis but `layers` meet the value's in its selection's order.
-                if (first != units_kept if not stacked else
-                        {a: sorted(v) for a, v in first.items()} != {a: sorted(v) for a, v in units_kept.items()}):
-                    other = ", ".join(f"{a} {v}" for a, v in first.items())
-                    lies = "it holds one map per index of" if stacked else "its units lie on"
-                    raise ValueError(f"{where}: {f.kind} {name!r} is over "
-                                     f"{', '.join(f'{a} {v}' for a, v in units_kept.items())} "
-                                     f"here and {other} elsewhere; {lies} one selection of the axes it is "
-                                     "over, so every site it is used at selects the same ones"
-                                     + ("" if stacked else ", in the same order"))
-            last = address.dims(site.component)[-1]
-            width = math.prod(map(len, laid[name].values())) if over is not None and not KINDS[f.kind].stacked \
-                else selectors.width_of(kept[last]) if last in kept else sizes.get(last)
-            if width is None:
-                raise ValueError(f"{where}: {site.component}'s last axis is {last}, which grows with the input; "
-                                 f"featurizer {name!r} needs a feature axis")
-            for outer in around:
-                ref = declared(plan, arguments(outer)["featurizer"])
-                width = instance(plan, agreeing_point(plan.featurizers[ref], at), width, None).size()
-                chosen = (arguments(outer).get("select") or {}).get("features")
-                width = width if chosen is None else len(selectors.select(chosen, width))
-            if out.setdefault(name, width) != width:
-                raise ValueError(f"{where}: featurizer {name!r} is used at width {width} here and {out[name]} "
-                                 "elsewhere; a featurizer has one width")
-            for field in KINDS[f.kind].counts:
-                count = (f.model_extra or {}).get(field)
-                if isinstance(count, int) and count > width:
-                    raise ValueError(f"{where}: featurizer {name!r} has {field} {count}, and it is used at width "
-                                     f"{width} ({site.component}), which has no more than {width} directions; "
-                                     f"{field} is at most {width}")
-            stated = (f.model_extra or {}).get("site")
-            for layer in read.layers or [None]:
-                which = f"picks layer {layer}" if address.stacks(site.layers) else f"is layer {layer}"
-                if stated is not None and \
-                        (stated["component"], selectors.select(stated["layers"], sizes["num_layers"])[0]) != \
-                        (site.component, layer):
-                    raise ValueError(f"{where}: featurizer {name!r} was trained at {stated['component']} layer "
-                                     f"{stated['layers']} (its site); this use is {site.component} layer "
-                                     f"{site.layers!r}" + (f", which {which}" if address.stacks(site.layers) else ""))
-                if f.header is not None and site.layers is not None and \
-                        layer not in bundles.recorded(f.header.get("layer")):
-                    raise ValueError(f"{where}: {(f.model_extra or {})['file_path']}: header 'layer' is "
-                                     f"{f.header.get('layer')!r}; this document uses {name!r} at {site.component} "
-                                     f"layer {site.layers!r}, which {which}")
-                check_input_site(plan, where, at, f, o, layer)
-            why = select_mismatch(name, f, read)
-            if why:
-                raise ValueError(f"{where}: {why}")
-            if f.header is not None and f.header.get("width") != str(width):
-                raise ValueError(f"{where}: {(f.model_extra or {})['file_path']}: header 'width' is "
-                                 f"{f.header.get('width')!r}; this document uses {name!r} at {site.component}, "
-                                 f"whose width is {width}")
-            if f.header is None and f.bundle is not None and KINDS[f.kind].width(f.bundle) != width:
-                raise ValueError(f"{where}: {(f.model_extra or {})['file_path']} has no clab header and is "
-                                 f"{KINDS[f.kind].width(f.bundle)} wide; this document uses {name!r} at "
-                                 f"{site.component}, whose width is {width}")
-            features = (arguments(o).get("select") or {}).get("features")
-            if features is not None:
-                n = instance(plan, f, width, None).size()
-                selected(where, "features", features, n, f"the {n} features of {name!r}")
+            used_at.setdefault(name, []).append(at)
+            with naming_point(plan, at):           # a use at a point of a sweep is refused naming it
+                site, kept = cast(Site, read.site), read.kept
+                f = agreeing_point(plan.featurizers[name], at)
+                over = over_of(f)
+                if over is not None:
+                    units_kept, stacked = units(where, name, f, read, over, sizes), KINDS[f.kind].stacked
+                    first = laid.setdefault(name, units_kept)
+                    # A stacked kind takes each index's slice by its id, so a use may list them in any order; a gate's
+                    # units on an axis but `layers` meet the value's in its selection's order.
+                    if (first != units_kept if not stacked else
+                            {a: sorted(v) for a, v in first.items()} != {a: sorted(v) for a, v in units_kept.items()}):
+                        other = ", ".join(f"{a} {v}" for a, v in first.items())
+                        lies = "it holds one map per index of" if stacked else "its units lie on"
+                        raise ValueError(f"{where}: {f.kind} {name!r} is over "
+                                         f"{', '.join(f'{a} {v}' for a, v in units_kept.items())} "
+                                         f"here and {other} elsewhere; {lies} one selection of the axes it is "
+                                         "over, so every site it is used at selects the same ones"
+                                         + ("" if stacked else ", in the same order"))
+                last = address.dims(site.component)[-1]
+                width = math.prod(map(len, laid[name].values())) if over is not None and not KINDS[f.kind].stacked \
+                    else selectors.width_of(kept[last]) if last in kept else sizes.get(last)
+                if width is None:
+                    raise ValueError(f"{where}: {site.component}'s last axis is {last}, which grows with the input; "
+                                     f"featurizer {name!r} needs a feature axis")
+                for outer in around:
+                    ref = declared(plan, arguments(outer)["featurizer"])
+                    width = instance(plan, agreeing_point(plan.featurizers[ref], at), width, None).size()
+                    chosen = (arguments(outer).get("select") or {}).get("features")
+                    width = width if chosen is None else len(selectors.select(chosen, width))
+                if out.setdefault(name, width) != width:
+                    raise ValueError(f"{where}: featurizer {name!r} is used at width {width} here and {out[name]} "
+                                     "elsewhere; a featurizer has one width")
+                for field in KINDS[f.kind].counts:
+                    count = (f.model_extra or {}).get(field)
+                    if isinstance(count, int) and count > width:
+                        raise ValueError(f"{where}: featurizer {name!r} has {field} {count}, and it is used at width "
+                                         f"{width} ({site.component}), which has no more than {width} directions; "
+                                         f"{field} is at most {width}")
+                stated = (f.model_extra or {}).get("site")
+                for layer in read.layers or [None]:
+                    which = f"picks layer {layer}" if address.stacks(site.layers) else f"is layer {layer}"
+                    if stated is not None and \
+                            (stated["component"], selectors.select(stated["layers"], sizes["num_layers"])[0]) != \
+                            (site.component, layer):
+                        raise ValueError(f"{where}: featurizer {name!r} was trained at {stated['component']} layer "
+                                         f"{stated['layers']} (its site); this use is {site.component} layer "
+                                         f"{site.layers!r}"
+                                         + (f", which {which}" if address.stacks(site.layers) else ""))
+                    if f.header is not None and site.layers is not None and \
+                            layer not in bundles.recorded(f.header.get("layer")):
+                        raise ValueError(f"{where}: {(f.model_extra or {})['file_path']}: header 'layer' is "
+                                         f"{f.header.get('layer')!r}; this document uses {name!r} at {site.component} "
+                                         f"layer {site.layers!r}, which {which}")
+                    check_input_site(plan, where, at, f, o, layer)
+                why = select_mismatch(name, f, read)
+                if why:
+                    raise ValueError(f"{where}: {why}")
+                if f.header is not None and f.header.get("width") != str(width):
+                    raise ValueError(f"{where}: {(f.model_extra or {})['file_path']}: header 'width' is "
+                                     f"{f.header.get('width')!r}; this document uses {name!r} at {site.component}, "
+                                     f"whose width is {width}")
+                if f.header is None and f.bundle is not None and KINDS[f.kind].width(f.bundle) != width:
+                    raise ValueError(f"{where}: {(f.model_extra or {})['file_path']} has no clab header and is "
+                                     f"{KINDS[f.kind].width(f.bundle)} wide; this document uses {name!r} at "
+                                     f"{site.component}, whose width is {width}")
+                features = (arguments(o).get("select") or {}).get("features")
+                if features is not None:
+                    n = instance(plan, f, width, None).size()
+                    selected(where, "features", features, n, f"the {n} features of {name!r}")
     for name, step in walk(plan.steps):
         for f in step.train if step.kind == "fit" else []:
             if f not in out:
                 raise ValueError(f"{name}: {f!r} is trained but used at no site, so its width is unknown")
+            if not any(all(at.get(k) == i for k, i in step.at.items()) for at in used_at[f]):
+                with naming_point(plan, step.at):
+                    raise ValueError(f"{name}: {f!r} is trained but used at no site at this point, where a sweep in "
+                                     "the body names another featurizer, so it would train on no gradient; write one "
+                                     "fit per featurizer it trains, or sweep featurizers the fit does not train")
     for name, width in out.items():
         for f in points(plan.featurizers[name]):
             f.width, f.kept = width, laid.get(name, {})

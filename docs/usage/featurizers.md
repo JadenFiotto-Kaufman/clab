@@ -90,10 +90,10 @@ The manifest's `results.<name>.dtype` records each value's ([values and layout](
 {"op": "decode", "featurizer": "dictionary"}
 ```
 
-A latent that is already zero at a row's position changes nothing there; save the plain `encode` read beside the ablation to see which those were. A pick outside the featurizer's coordinates is refused before any forward:
+A latent that is already zero at a row's position changes nothing there; save the plain `encode` read beside the ablation to see which those were. A pick outside the featurizer's coordinates is refused before any forward, at the point that makes it: with `{"sweep": [0, 1, 2, 40]}` above,
 
 ```text
-clab: zeroed.ablate: select features 40 outside the 32 features of 'dictionary'
+clab: zeroed.ablate at features=40: select features 40 outside the 32 features of 'dictionary'
 ```
 
 ## Brackets
@@ -108,6 +108,25 @@ clab: steps.patched.interventions.patch.ops[1].with: 'counterfactual.v_cf' is in
 An operand between a pair must be in the same coordinates: a value read through the same encodes with the same `select`s, or a number. Compile also refuses a `decode` with no `encode` open, a `decode` of a featurizer other than the open one, and an `encode` or `apply` of a featurizer inside its own `encode`.
 
 Pairs nest: `[encode a, encode b, <edits>, decode b, decode a]` edits `b`'s coordinates of `a`'s coordinates. So `b`'s width is `a`'s `k`, and a `b` with a larger `k` is refused before any forward. A nested pair with nothing between returns the value exactly, as a single one does. An op that changes the layout (`readout`, a metric) may follow the closing `decode`, since by then the value is the site's again.
+
+## A sweep over featurizers
+
+An `encode`'s, `decode`'s or `apply`'s `featurizer` may be a sweep over featurizer names: declared ones, and a fit's trained ones (`fit.rot`). Each point is that featurizer's use, as if the document named it alone. Labels zip, cross and share forwards as every sweep's do ([sweeps.md](sweeps.md#labels-zip-or-cross)). Two drawn subspaces, `rot_a` and `rot_b`, in a bracket:
+
+```json
+"patch": {"site": "target", "pos": -1, "ops": [
+  {"op": "encode", "featurizer": {"sweep": ["rot_a", "rot_b"], "label": "rot"}},
+  {"op": "swap", "with": "counterfactual.v_cf"},
+  {"op": "decode", "featurizer": {"sweep": ["rot_a", "rot_b"], "label": "rot"}}]}
+```
+
+- **The coordinates are the names.** A swept save is keyed `rot="rot_a"` in the output files, and `clab table`'s `at` is `{"rot":"rot_a"}`.
+- **A `decode` carries its `encode`'s sweep**: the same label and the same names, so the two zip. A `decode` of one name, or under another label, closes another featurizer's `encode` at some point, refused naming the point (`… at rot="rot_b": decode of 'rot_a', and the open encode is of 'rot_b'`).
+- **Each point is checked as that featurizer's use is.** A kind that does not serve the op, or a width the featurizer has at another site, is refused naming the point.
+- **A write runs a forward per point.** A read that only encodes shares one forward, each point's value encoded with its own featurizer ([sweeps.md](sweeps.md#what-a-sweep-costs)).
+- **The draw beside the trained, after the fit.** In the steps after `documents/das.json`'s fit, `{"sweep": ["rot", "fit.rot"]}` scores the declared draw and the trained rotation in one document. In the fit's body there is no draw: `rot` there is `fit.rot`, so the sweep names one featurizer twice and is refused.
+- **In a fit's body**, a sweep over featurizers the fit does not train makes the fit a list of points, one training per point. A sweep over the fit's own trained featurizers is refused, since each point would train them all and use one (`fit at r="rot_a": 'rot_b' is trained but used at no site at this point, …`). `train` takes no sweep: write one fit per featurizer it trains.
+- **Sweep a field when one declaration serves.** `documents/random_subspace.json` sweeps its subspace's `seed`; name several featurizers where they differ in kind, `k`, bundle or anything else a field cannot sweep.
 
 ## A gate over named axes
 

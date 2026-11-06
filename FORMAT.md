@@ -1162,21 +1162,24 @@ columns), and an op takes one dataset's rows.
 Every `{"sweep": [...], "label"?: "<name>"}` standing for a value, by document path, each with its label:
 the `label` it gives, letters, digits and underscores (a coordinate is `<label>=<value>`, joined by commas),
 else the name of the field it stands for (the last key of its path). A sweep's values are numbers, strings,
-booleans or lists of them, each point keyed by its value, and hold no sweep: a `pos` sweeps its frame, its index
+booleans or lists of them, each point keyed by its value, so each listed once (in a fit's body a trained
+featurizer's bare name and `<fit>.<name>` are one value), and hold no sweep: a `pos` sweeps its frame, its index
 or a scope's occurrence, not the object.
 
 A sweep may stand for any value except under `description`, `model` and `data` (a dataset's rows are compiled
 once, and a step reads them by name), on a name, a kind, a `file_path`, or a featurizer's `over` (a featurizer
-has one layout at every point). One label is one axis wherever its sweeps stand: sweeps with one label, by
-default or given, and the same values pair their points (zip), as one sweep reached from two places does (a
-swept site two steps use), in two ops of one entry, two fields of one op, two entries or an entry and its step's
-options alike; sweeps with one label and different values are refused, and sweeps with different labels cross.
-So a read's `layers` swept `{"sweep": [0, 1, 2], "label": "src"}` and a write's
-`{"sweep": [0, 1, 2], "label": "dst"}` are a 3×3 grid in one step, each point keyed `src=0,dst=2`; swept
-`{"sweep": [0, 1, 2]}` each, both are labelled `layers`, so they pair up, the diagonal, layer L with layer L,
-and the grid gives one of them a `label`. A step that uses a swept thing, or references a value that varies,
-becomes a list of points, one per combination of its axes, each a whole step whose `at` gives its index on each
-axis; a step no sweep touches runs once.
+has one layout at every point). The `featurizer` an `encode`, `decode` or `apply` names is a name that takes a
+sweep: over names from `featurizers` and a fit's trained ones (`fit.probe`), each point that featurizer's use,
+checked as an unswept one is, and keyed by the name; a `decode` closing a swept `encode` carries the same sweep.
+One label is one axis wherever its sweeps stand: sweeps with one label, by default or given, and the same values
+pair their points (zip), as one sweep reached from two places does (a swept site two steps use), in two ops of
+one entry, two fields of one op, two entries or an entry and its step's options alike; sweeps with one label and
+different values are refused, and sweeps with different labels cross. So a read's `layers` swept
+`{"sweep": [0, 1, 2], "label": "src"}` and a write's `{"sweep": [0, 1, 2], "label": "dst"}` are a 3×3 grid in
+one step, each point keyed `src=0,dst=2`; swept `{"sweep": [0, 1, 2]}` each, both are labelled `layers`, so they
+pair up, the diagonal, layer L with layer L, and the grid gives one of them a `label`. A step that uses a swept
+thing, or references a value that varies, becomes a list of points, one per combination of its axes, each a
+whole step whose `at` gives its index on each axis; a step no sweep touches runs once.
 
 A value of a swept step depends on some of the step's axes, which its record says (`axes`): the sweeps on its
 own entry (its site, its positions, an op's literal argument), those of every value or featurizer its ops name,
