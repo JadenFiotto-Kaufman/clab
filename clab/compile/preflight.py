@@ -114,7 +114,7 @@ def prepare(engine: Engine, plan: Plan, steps: dict, classes: dict[str, list], f
                     step.layers, step.kept, step.width = kept_labels(of, step.dims)     # completed from its producer's
                     if step.op == "select":         # its own, held to the model's sizes and resolved among them
                         step.kept |= select_kept(at_point(plan, name, step.at), of, args, sizes,
-                                                 probe_of(plan, of, classes), compiled)
+                                                 probe_of(plan, of, classes), None, compiled)
                     if why := k_past(step.op, args, of, sizes, probe_of(plan, of, classes)):
                         raise ValueError(f"{at_point(plan, name, step.at)}: {why}")
                     for key, (written, theirs) in references(step.op, args, preflight_resolver(plan, step.at)).items():

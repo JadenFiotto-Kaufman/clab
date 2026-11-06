@@ -32,7 +32,8 @@ from torch import Tensor
 
 from clab import ops
 from clab.compile import dataset_rows
-from clab.compile.preflight import preflight
+from clab.compile.arguments import select_kept
+from clab.compile.preflight import at_point, preflight
 from clab.compile.schedule import READOUTS, values_read_by
 from clab.compile.state import Findings
 from clab.compile.uses import instance, named_values
@@ -369,8 +370,9 @@ def op(engine: Engine, plan: Plan, name: str, step: OpStep, state: ChainMap, bat
     layer it was read at), to which an operand's `layers` axis is aligned (`argument_binding`); a `classes` axis's
     vocabulary is the probe its coordinates are in, and the ids a generation stops on are those of the generation that
     made `of`, through any `permute` of it. `top_k`'s value over a vocabulary's tokens also holds them, decoded,
-    and a `permute`'s record the permutation it drew (`OpStep.permutation`). It calls no model, and its value is put at
-    the point's coordinates on its own axes."""
+    and a `permute`'s record the permutation it drew (`OpStep.permutation`), and a `select`'s the indices it kept along
+    each axis, checked against the value's own entries (an axis whose number only the run knows: `arguments.select_kept`,
+    refused naming the step). It calls no model, and its value is put at the point's coordinates on its own axes."""
     of = value_at(plan, state, step.of, step.at, scope_ids(state))
     record = record_of(plan.steps, step.of, step.at, plan.featurizers)
     dims = record.dims or []
@@ -384,6 +386,10 @@ def op(engine: Engine, plan: Plan, name: str, step: OpStep, state: ChainMap, bat
     vocabulary = lookup(state, record.space[-1]["featurizer"], step.at).classes if "classes" in dims else None
     acts = record.layers if "layers" in dims else record.layers[0] if record.layers else None
     binding = argument_binding(plan, step.op, arguments(step), step.at, dims=dims, layers=acts)
+    if step.op == "select":     # its picks among the value's own entries, which the run alone holds along some axes
+        met = record.model_copy(update={"kept": {a: v for a, v in record.kept.items() if v != []}})
+        step.kept |= select_kept(at_point(plan, name, step.at), met, arguments(step), None,
+                                 {a: (of.shape[dims.index(a)], "the value's") for a in arguments(step)["select"]})
     value = ops.call(step.op, of, bind_arguments(plan, binding, state, scope_ids(state), findings, of, vocabulary,
                                                  dims=dims),
                      engine=engine, dims=dims, layers=acts,
