@@ -73,7 +73,7 @@ clab: steps.logit_diff: out of CUDA memory at batch size 8 (CUDA out of memory. 
 
 ## The corpus root
 
-Data paths (`path`), bundle files (`file_path`) and a `load`'s `from` resolve against the document's corpus root (`clab/plan.py` `corpus_root`), which the manifest records the document's path relative to (`documents/patching.json`):
+Data paths (`path`), bundle files (`file_path`) and a `load`'s `from` resolve against the document's corpus root (`clab/plan.py` `corpus_root`). The manifest records the document's path relative to it (`documents/patching.json`). The root is:
 
 - **The nearest directory holding a `data/` folder**, from the document's own directory up. `"path": "weekdays/train"` reads `data/weekdays/train.json` there, and `documents/real/` shares `data/` with `documents/`.
 - **Where none does, the directory above the document's own**, whatever the working directory.

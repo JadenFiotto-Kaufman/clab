@@ -22,7 +22,7 @@ Compiles the document, loads the engine, runs every step, and writes the output 
 
 | argument | default | meaning |
 |---|---|---|
-| `DOCUMENT` | required | the document's JSON file. Data paths and bundles resolve against the nearest directory above it that holds `data/` |
+| `DOCUMENT` | required | the document's JSON file. Data paths, bundles and a `load`'s `from` resolve against its corpus root: the nearest directory holding `data/`, from the document's own directory up, else the directory above the document's own ([running.md](../usage/running.md#the-corpus-root)) |
 | `--engine` | `nnterp` | the engine: `nnterp`, `hooks`, `ndif`, `vllm`, or one registered beside them ([engines.md](../usage/engines.md)); another name is refused by name |
 | `--out` | `out/<document file name>` in the current directory | the output directory, created when missing and never cleared |
 | `--batch-size` | `8` | how many rows go through the model per forward or generation call; a positive integer |
