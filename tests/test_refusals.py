@@ -500,20 +500,58 @@ def test_a_grad_entry_is_refused_by_name_where_the_engine_takes_no_gradient(engi
                     "gradient in pieces; run it at tp 1") and forwards == 0 and plan.run is None
 
 
-@pytest.mark.parametrize("kind", ["nnterp", "hooks", "ndif"])
-@pytest.mark.parametrize("key, why", [("device", r"where the model runs is a run option: --device"),
-                                      ("device_map", r"where the model runs is a run option: --device"),
+QUANTIZATION = r"a quantization is spelled in `dtype` \(`nf4`, `fp4`, `int8`, `fp8`\)"
+SHARDING = "tensor parallelism is a run option: -o tp=N"
+
+
+@pytest.mark.parametrize("key, why", [("device", "where the model runs is a run option: --device"),
+                                      ("device_map", "where the model runs is a run option: --device"),
                                       ("dispatch", "the engine places its model itself"),
                                       ("torch_dtype", "the dtype is spelled `dtype`"),
-                                      ("quantization_config",
-                                       r"a quantization is spelled in `dtype` \(`nf4`, `fp4`, `int8`, `fp8`\)"),
-                                      ("tp_plan", "tensor parallelism is a run option: -o tp=N"),
-                                      ("distributed_config", "tensor parallelism is a run option: -o tp=N")])
-def test_a_loader_refuses_a_model_key_it_cannot_honor(kind, key, why):
-    from clab.engines import ENGINES
+                                      ("quantization_config", QUANTIZATION), ("load_in_4bit", QUANTIZATION),
+                                      ("load_in_8bit", QUANTIZATION), ("quantization", QUANTIZATION),
+                                      ("_commit_hash", "the revision is spelled `revision`"),
+                                      ("pretrained_model_name_or_path", "the checkpoint is spelled `key`"),
+                                      ("repo_id", "the checkpoint is spelled `key`"),
+                                      ("tp_plan", SHARDING), ("tp_size", SHARDING), ("distributed_config", SHARDING),
+                                      ("device_mesh", SHARDING), ("tensor_parallel_size", SHARDING),
+                                      ("gpu_memory_utilization", "the memory vLLM reserves is a run option: "
+                                                                 "-o memory=F"),
+                                      ("max_model_len", "the longest sequence vLLM serves is a run option: "
+                                                        "-o max_len=N")])
+def test_a_model_key_no_engine_takes_is_refused_at_compile(key, why):
+    """A loader key that respells one the model block owns (`key`, `revision`, `dtype` and a quantization in it), or
+    names a run option, is refused by name at compile with the key or option to write, so `clab compile` refuses it
+    before any engine; the document reads, as a run's plan read back does (test_cli.py pins that). Each reached the
+    engine before: `_commit_hash` (which transformers drops), `device_mesh` and `tp_size: 1` loaded and ran,
+    `tp_size: "cpu"` was refused as a cache miss, and the other new ones by the loader as an argument it did not
+    expect or got twice. The vLLM
+    engine passed the last four to vLLM's engine arguments, where `quantization` got past its refusal of a quantized
+    `dtype` and the other three set what `-o tp`, `-o memory` and `-o max_len` set."""
     plan = edited("patching", lambda d: d["model"].update({key: "cpu"}))
-    with pytest.raises(ValueError, match=f"^model.{key}: the {kind} engine cannot honor it: {why}$"):
-        ENGINES[kind](plan.model)
+    with pytest.raises(PlanError, match=f"^model: '{key}': {why}$"):
+        plan.compile()
+
+
+@pytest.mark.parametrize("kind", ["nnterp", "hooks", "ndif"])
+def test_a_loader_refuses_a_model_key_it_cannot_honor(kind):
+    """An engine given a model block directly, which no compile judged, refuses each key of `OWNED` by name as it
+    loads, before its loader sees it."""
+    from clab.engines import ENGINES
+    from clab.plan import OWNED
+    for key, why in OWNED.items():
+        model = edited("patching", lambda d: d["model"].update({key: "cpu"})).model
+        with pytest.raises(ValueError, match=f"^model.{key}: the {kind} engine cannot honor it: {re.escape(why)}$"):
+            ENGINES[kind](model)
+
+
+def test_a_revision_the_cache_lacks_compiles_and_is_refused_as_the_engine_loads():
+    """Compile reads no checkpoint, so a revision the offline cache lacks compiles; the engine's load is the first
+    stage that knows, and refuses it naming the key, the revision and the cache."""
+    plan = edited("patching", lambda d: d["model"].update(revision="0" * 40)).compile()
+    with pytest.raises(ValueError, match=f"^model.key 'hf-internal-testing/tiny-random-LlamaForCausalLM' at revision "
+                                         f"'{'0' * 40}': the hooks engine cannot load it: HF_HUB_OFFLINE is set"):
+        load("hooks", plan.model)
 
 
 @pytest.mark.parametrize("kind", ["nnterp", "hooks", "ndif"])
@@ -619,12 +657,13 @@ def test_a_metric_over_decode_frame_reads_is_told_a_frame_a_decode_read_can_sati
             d["saves"] = ["kl"]
         return apply
     with pytest.raises(PlanError, match=r"steps\.kl\.against at frame=0: 'counterfactual\.b' has no width compile can "
-                                        r"fix \(an open index, an `until` scope, several occurrences\), and two values "
-                                        r"of different reads pair only at a fixed width, whether one forward or two "
-                                        r"made them; read both at a static "
-                                        r"index without a scope \('index': -1, or '-3:'\), at one occurrence of a scope "
-                                        r"in the prefill, not until, whose rows give its width, or over decode calls at "
-                                        r"a frame of a static number of them with an index of static width "
+                                        r"fix \(an open index beyond the prefill, an `until` scope, several "
+                                        r"occurrences\), and two values of different reads pair only at a fixed "
+                                        r"width, whether one forward or two made them; read both at a static index "
+                                        r"without a scope \('index': -1, or '-3:'\), in the prefill at an open index or "
+                                        r"one occurrence of a scope, not until, whose rows give its width, or over "
+                                        r"decode calls at a frame of a static number of them with an index of static "
+                                        r"width "
                                         r"\(\{'frame': '1:4', 'index': ':3'\}\)$"):
         edited("generate_probe", change({"frame": "1:", "index": ":"})).compile()
     compiled = edited("generate_probe", change({"frame": "1:4", "index": ":3"})).compile()

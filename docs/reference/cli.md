@@ -1,6 +1,6 @@
 ---
 title: Command Line
-one_liner: "Every clab command and flag (run, show, table, describe), with defaults, exit statuses and refusals."
+one_liner: "Every clab command and flag (run, compile, show, table, describe), with defaults, exit statuses and refusals."
 tags: [reference, cli]
 related: [docs/usage/running.md, docs/usage/output.md, docs/usage/engines.md, docs/reference/python-api.md, FORMAT.md]
 sources: [clab/cli.py, clab/__init__.py, clab/docs.py, clab/steps/__init__.py]
@@ -8,7 +8,7 @@ sources: [clab/cli.py, clab/__init__.py, clab/docs.py, clab/steps/__init__.py]
 
 # Command Line
 
-`clab` has four commands: `run`, `show`, `table` and `describe`. They are spelled here as inside the repository's venv ([README.md](../../README.md#install) has the spelling from outside it). This page lists every argument and refusal; the workflow around them is [running.md](../usage/running.md), and reading output is [output.md](../usage/output.md).
+`clab` has five commands: `run`, `compile`, `show`, `table` and `describe`. They are spelled here as inside the repository's venv ([README.md](../../README.md#install) has the spelling from outside it). This page lists every argument and refusal; the workflow around them is [running.md](../usage/running.md), and reading output is [output.md](../usage/output.md).
 
 Every command exits 0 on success. A refusal or error that clab reports is printed to stderr as `clab: <message>`, and the command exits 1. A malformed command line (an unknown flag, a missing argument, a non-integer `--batch-size`, an unknown `WHAT`) gets argparse's usage message and exit status 2 ([errors/index.md](../errors/index.md#errors-that-are-not-clabs)).
 
@@ -69,6 +69,33 @@ pos_sweep on nnterp (batch size 8, device cpu, tp 1) -> out/pos_sweep
 
 Under `--engine ndif`, a refusal raised on the server arrives as nnsight's `RemoteError`, and `clab run` prints its last line. A step that runs out of CUDA memory stops the run: `clab run` prints the refusal, which ends `the steps before it are saved in <out>`, and exits 1 with the finished steps written ([running.md](../usage/running.md#when-a-step-runs-out-of-memory)).
 
+## `clab compile`
+
+```text
+clab compile DOCUMENT
+```
+
+Reads and compiles the document, as `clab run` does before any engine loads, and nothing more: no engine, no model, no output directory. It reads the data files, a hub dataset's rows (from the cache under `HF_HUB_OFFLINE=1`, otherwise from the hub first) and bundle files, and imports transformers only where a `generate` step's options need checking. `DOCUMENT` resolves its data and bundles as under `clab run`. It takes no other argument, since none of `clab run`'s options reaches compile. On success it prints the plan as `clab show` prints a compiled plan that has not run, then exits 0. Each row is one run of a step, in run order, with the step's kind, a forward's or generation's input, the point it runs at (`—` unswept) and the points it serves:
+
+```text
+patching: compiled, not run
+  step            kind     input                           at  serves
+  counterfactual  forward  pairs.counterfactual_inputs[0]  —   —
+  patched         forward  pairs.input                     —   —
+  iia             op       —                               —   —
+  logit_diff      op       —                               —   —
+```
+
+A refusal is the line `clab run` prints for the same document, on stderr, and exit status 1:
+
+```text
+clab: no document at 'documents/nope.json'
+clab: steps.iia.of: 'patched.nothing' names no value produced before this step; known: counterfactual.v_cf, patched.logits, patched.patch
+clab: model: 'torch_dtype': the dtype is spelled `dtype`
+```
+
+What it cannot tell is [running.md](../usage/running.md#check-before-you-run).
+
 ## `clab show`
 
 ```text
@@ -103,6 +130,9 @@ clab: 'held_iia' has a row per example of 'test' and 'fit.train.iia' of 'train';
 clab: 'iia' has a pos column counting positions of pairs.input, and 'counterfactual.v_cf' one counting positions of pairs.counterfactual_inputs[0]: the column does not mean one thing for both, so they do not join; table them one at a time
 clab: 'fit.rot' is a trained featurizer's bundle, which has no rows to table; read it from plan.results
 clab: 'top' is a top_k over rows, whose rows are its picks, and a top_k over rows tables alone; table it by itself
+clab: 'f.a' and 'f.b' share no row and pos together: on no row do they hold the same pos, so they join to no row; table them one at a time, or read at a pos both hold
+clab: 'f.d' and 'f.e' share no layer: 'f.d' holds layer [1] and 'f.e' layer [0], so they join to no row; table them one at a time, or read at a layer both hold
+clab: 'g.never' reached no row (each is alignment_missing), so it holds no position to meet the other's and they join to no row; table them one at a time
 clab: 'topm' has no rows to table: it is laid out ['k'], a top_k over a value with no rows axis, its ids and values one list each; read it from plan.results
 clab: 'logit_diff' has no result: the run stopped before its step; steps.logit_diff: out of CUDA memory …
 clab: data.pairs.path: no file data/weekdays/train.json under the corpus root

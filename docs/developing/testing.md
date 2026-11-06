@@ -193,7 +193,7 @@ From the repo root; it reads `[tool.pyright]` in `pyproject.toml`, checks `clab/
 | `tests/test_tp.py` | the nnterp engine's `tp` under torchrun: its refusals, what every rank holds whole, rank 0 writing |
 | `tests/test_device.py` | on a GPU, every tensor clab builds meets an activation on its device |
 | `tests/test_vllm.py` | on a GPU with vLLM, the vllm engine is bit-equal to plain nnsight on `StandardizedVLLM`, exact in its nulls and repeats, and refuses what vLLM cannot do by name |
-| `tests/test_cli.py` | `clab show` and `clab table`, and what `clab run` prints and refuses |
+| `tests/test_cli.py` | `clab compile`, `clab show` and `clab table`, and what `clab run` prints and refuses |
 | `tests/test_table.py` | `table`: values joined on the keys they share, and what has no rows to table |
 
 What to add for a new op, kind, component or step kind is in [extending.md](extending.md).

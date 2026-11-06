@@ -1,4 +1,5 @@
-"""`clab show` and `clab table`: `Plan.load` and one call each, printed; what `run` prints and refuses."""
+"""`clab compile`, `clab show` and `clab table`: `Plan(path).compile()` or `Plan.load` and one call each, printed;
+what `run` prints and refuses."""
 
 import json
 import os
@@ -8,7 +9,7 @@ import sys
 import pytest
 from conftest import BATCH_SIZE, ROOT, document, edited, plan_of
 
-from clab import cli
+from clab import Plan, cli
 from clab.cli import compact, main, shaped
 
 
@@ -66,17 +67,80 @@ def test_show_prints_a_fits_evals_as_the_steps_after_it(engines, tmp_path, capsy
 
 
 def test_show_on_a_compiled_plan_that_has_not_run_prints_who_serves_whom():
-    """A compiled plan has its schedule before any run: `show` prints which points each run of a step serves
-    (generate_probe's one generation its three frames, `p_answer` one point each), and nothing it would need a
-    run for."""
+    """A compiled plan has its schedule before any run: `show` prints each run of a step with its kind, a
+    generation's input, and which points it serves (generate_probe's one generation its three frames, `p_answer`
+    one point each), and nothing it would need a run for."""
     from clab.cli import show
 
     shown = show(plan_of("generate_probe")).splitlines()
     assert shown[0] == "generate_probe: compiled, not run"
-    assert shown[1].split() == ["step", "at", "serves"]
-    assert [line.split(maxsplit=2) for line in shown[2:]] == [
-        ["counterfactual", "—", "—"], ["patched", "frame=0", "all 3 points"],
-        ["p_answer", "frame=0", "—"], ["p_answer", "frame=1", "—"], ["p_answer", "frame=2", "—"]]
+    assert shown[1].split() == ["step", "kind", "input", "at", "serves"]
+    assert [line.split(maxsplit=4) for line in shown[2:]] == [
+        ["counterfactual", "generate", "pairs.counterfactual_inputs[0]", "—", "—"],
+        ["patched", "generate", "pairs.input", "frame=0", "all 3 points"],
+        ["p_answer", "op", "—", "frame=0", "—"], ["p_answer", "op", "—", "frame=1", "—"],
+        ["p_answer", "op", "—", "frame=2", "—"]]
+
+
+def test_compile_prints_what_would_run_and_exits_0(capsys):
+    """`clab compile DOC` is `Plan(DOC).compile()` and `show` of it: each run of a step in run order with its kind,
+    a forward's input and its sweep points (pos_sweep's patched forward once per position), on stdout, exit 0."""
+    assert main(["compile", document("pos_sweep")]) == 0
+    printed = capsys.readouterr()
+    shown = printed.out.splitlines()
+    assert printed.err == "" and shown[0] == "pos_sweep: compiled, not run"
+    assert [line.split(maxsplit=4)[:4] for line in shown[2:6]] == [
+        ["counterfactual", "forward", "pairs.counterfactual_inputs[0]", "—"],
+        ["patched", "forward", "pairs.input", "pos=-1"], ["patched", "forward", "pairs.input", "pos=-2"],
+        ["patched", "forward", "pairs.input", "pos=-3"]]
+    assert [line.split()[:2] for line in shown[6:]] == [["iia", "op"]] * 3 + [["logit_diff", "op"]] * 3
+
+
+def test_a_run_whose_model_block_holds_a_key_compile_now_refuses_reads_back(engines, tmp_path, capsys):
+    """A run written before compile refused `tp_size`, `_commit_hash` and `device_mesh` in the model block (each
+    loaded and ran) is a record: `Plan.load`, `clab show` and `clab table` read it as they read any run. The document
+    is refused at compile, and by `clab compile`, naming the key."""
+    plan = plan_of("patching")
+    engines("hooks", plan.model).execute(plan, batch_size=BATCH_SIZE).dump(str(tmp_path))
+    with open(tmp_path / "manifest.json") as f:
+        held = json.load(f)
+    held["model"].update(tp_size=1, _commit_hash=held["model"]["revision"], device_mesh=None)
+    with open(tmp_path / "manifest.json", "w") as f:
+        json.dump(held, f)
+    assert (Plan.load(str(tmp_path)).model.model_extra or {})["tp_size"] == 1
+    assert len(Plan.load(str(tmp_path)).table("iia", "logit_diff")) == 4
+    assert main(["show", str(tmp_path)]) == 0 and main(["table", str(tmp_path), "iia"]) == 0
+    capsys.readouterr()
+    with open(document("patching")) as f:
+        doc = json.load(f)
+    doc["model"]["tp_size"] = 1
+    path = tmp_path / "documents" / "sharded.json"
+    path.parent.mkdir()
+    (tmp_path / "data").symlink_to(os.path.join(ROOT, "data"))
+    path.write_text(json.dumps(doc))
+    assert main(["compile", str(path)]) == 1
+    assert capsys.readouterr() == ("", "clab: model: 'tp_size': tensor parallelism is a run option: -o tp=N\n")
+
+
+def test_compile_refuses_as_run_does_in_one_line(tmp_path, capsys):
+    """A document compile refuses, and one that is not there, are each the one `clab:` line on stderr that `clab
+    run` prints for it, and exit status 1, with nothing on stdout and no output directory written."""
+    with open(document("patching")) as f:
+        doc = json.load(f)
+    doc["steps"]["iia"]["of"] = "patched.nothing"
+    path = tmp_path / "documents" / "broken.json"
+    path.parent.mkdir()
+    (tmp_path / "data").symlink_to(os.path.join(ROOT, "data"))
+    path.write_text(json.dumps(doc))
+    refusal = ("clab: steps.iia.of: 'patched.nothing' names no value produced before this step; known: "
+               "counterfactual.v_cf, patched.logits, patched.patch\n")
+    assert main(["compile", str(path)]) == 1
+    assert capsys.readouterr() == ("", refusal)
+    assert main(["run", str(path), "--out", str(tmp_path / "out")]) == 1
+    assert capsys.readouterr().err == refusal
+    assert main(["compile", "nowhere.json"]) == 1
+    assert capsys.readouterr() == ("", "clab: no document at 'nowhere.json'\n")
+    assert not os.path.exists(tmp_path / "out") and not os.path.exists("out/broken")
 
 
 @pytest.mark.parametrize("name", ["generated_contains", "das"])
@@ -150,15 +214,19 @@ def test_a_reader_that_goes_away_mid_print_ends_the_command_quietly(out, monkeyp
     assert main([command[0], out, *command[1:]]) == 0
     assert capsys.readouterr().err == ""
 
-@pytest.mark.parametrize("command", [["show"], ["table", "p_answer"], ["describe", "ops"]])
-def test_show_table_and_describe_import_no_engine(out, command):
-    """T9's P1: a command that reads an output directory or the format imports no engine, so neither nnsight,
-    transformers, nnterp nor sklearn (8.8 s of `clab table` at load 12); `run` alone loads one. Counted in a fresh
-    interpreter, whose modules this suite's have not already imported."""
-    argv = [command[0], *([out] if command[0] != "describe" else []), *command[1:]]
+@pytest.mark.parametrize("command", [["compile"], ["show"], ["table", "p_answer"], ["describe", "ops"]])
+def test_compile_show_table_and_describe_import_no_engine(out, command):
+    """T9's P1: a command that compiles a document or reads an output directory or the format imports no engine, so
+    neither nnsight, nnterp nor sklearn, and but for compile no transformers (8.8 s of `clab table` at load 12); `run`
+    alone loads one. Compile imports transformers for a `generate` step's options (`GenerationConfig`), so the
+    document it compiles here has one. Counted in a fresh interpreter, whose modules this suite's have not already
+    imported."""
+    given = {"compile": [document("generate_probe")], "describe": []}.get(command[0], [out])
+    argv = [command[0], *given, *command[1:]]
+    engines_ = ("nnsight", "nnterp", "sklearn", "clab.engines") + (() if command[0] == "compile" else ("transformers",))
     code = ("import contextlib, io, sys\nfrom clab.cli import main\nwith contextlib.redirect_stdout(io.StringIO()):\n"
             f"    assert main({argv!r}) == 0\n"
-            "print(sorted(m for m in ('nnsight', 'transformers', 'nnterp', 'sklearn', 'clab.engines') if m in sys.modules))")
+            f"print(sorted(m for m in {engines_!r} if m in sys.modules))")
     done = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, cwd=ROOT, check=True)
     assert done.stdout.strip() == "[]"
 

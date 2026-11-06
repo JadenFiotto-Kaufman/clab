@@ -80,7 +80,7 @@ row  pos  pos_token  input                              cf_answer  iia  base_ans
 ...
 ```
 
-The corpus checkpoint has random weights, so the numbers mean nothing; the wiring is the point. Row 0's last token sits at position 10 rather than 8 because ` Thursday` is three tokens on this tokenizer. Reading the table and the manifest is [output.md](output.md). Running options, and the one-line check that compiles a document before any model loads, are [running.md](running.md#check-before-you-run). Each entry's mechanics are [interventions.md](interventions.md), `pos` is [positions.md](positions.md), and the metrics are [ops.md](ops.md).
+The corpus checkpoint has random weights, so the numbers mean nothing; the wiring is the point. Row 0's last token sits at position 10 rather than 8 because ` Thursday` is three tokens on this tokenizer. Reading the table and the manifest is [output.md](output.md). Running options, and `clab compile`, which checks a document before any model loads, are [running.md](running.md#check-before-you-run). Each entry's mechanics are [interventions.md](interventions.md), `pos` is [positions.md](positions.md), and the metrics are [ops.md](ops.md).
 
 ## How steps name each other's values
 

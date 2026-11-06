@@ -9,7 +9,7 @@ import logging
 from typing import TYPE_CHECKING, Any, Callable, cast
 
 from clab.format.address import COMPONENTS
-from clab.plan import QUANTIZED
+from clab.plan import OWNED, QUANTIZED
 
 if TYPE_CHECKING:
     from nnsight.intervention.envoy import Envoy
@@ -153,15 +153,6 @@ def served(component: str, refused: str | dict[int, str] | None, num_layers: int
     return [i for i in range(num_layers) if i not in (refused or {})] if COMPONENTS[component]["per_layer"] else [None]
 
 
-# The model-block keys an engine cannot honor, and why: where the model runs and how it is sharded are run options,
-# and `dtype` is the block's one spelling of the dtype and of a quantization.
-OWNED = {"device": "where the model runs is a run option: --device", "device_map": "where the model runs is a run "
-         "option: --device", "dispatch": "the engine places its model itself",
-         "torch_dtype": "the dtype is spelled `dtype`", "quantization_config": "a quantization is spelled in `dtype` "
-         "(`nf4`, `fp4`, `int8`, `fp8`)", "tp_plan": "tensor parallelism is a run option: -o tp=N",
-         "distributed_config": "tensor parallelism is a run option: -o tp=N"}
-
-
 # The device maps transformers computes, which may spread a model over several devices; any other `device` is one
 # torch device.
 COMPUTED = ("auto", "balanced", "balanced_low_0", "sequential")
@@ -240,8 +231,9 @@ def inputs(batch: dict[str, Tensor], keys: tuple[str, ...], device: str) -> dict
 def build(model: Model, engine: str, call: Callable[[dict[str, Any]], Any]) -> Any:
     """`call` with the model block's keys other than `key`, `revision` and `dtype` (which `loading` reads), as they
     are, once the `pad_token_id` warning (`PADDED`) is filtered off the transformers logger that emits it, the filter
-    (`unpadded`) added once and passing every other message of that logger. A key in `OWNED` is refused by name, and
-    one the loader rejects is reported as that key. A checkpoint the loader cannot get (its `OSError`) is refused as
+    (`unpadded`) added once and passing every other message of that logger. A key the block may not hold
+    (`plan.OWNED`, which compile refuses in a document) is refused by name, and one the loader rejects is reported
+    as that key. A checkpoint the loader cannot get (its `OSError`) is refused as
     `model.key`, saying whether the run is offline and the cache lacks it."""
     from huggingface_hub.constants import HF_HUB_OFFLINE
 

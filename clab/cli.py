@@ -1,8 +1,9 @@
-"""`clab run`, `clab show`, `clab table` and `clab describe`: a thin command line over `clab.run`, a run's output
-directory and the format read off the code (`clab.docs`).
+"""`clab run`, `clab compile`, `clab show`, `clab table` and `clab describe`: a thin command line over `clab.run`,
+`Plan.compile`, a run's output directory and the format read off the code (`clab.docs`).
 
-`show` and `table` are each `Plan.load` and one call: what the run's directory holds as `show` prints it, or
-`plan.table(...)` over its saved values, aligned or as CSV. `describe` prints the format's tables, and `describe
+`compile` is `Plan(path).compile()` and `show` of the compiled plan: what would run, with no model, engine or output
+directory. `show` and `table` are each `Plan.load` and one call: what the run's directory holds as `show` prints it,
+or `plan.table(...)` over its saved values, aligned or as CSV. `describe` prints the format's tables, and `describe
 --markdown` writes them as `FORMAT.md` beside the package, at the repo root.
 
 A refusal is one `clab: <reason>` line on stderr and exit status 1. A reader that goes away (`clab show OUT |
@@ -22,9 +23,11 @@ from clab import docs, output
 from clab.compile import positions
 from clab.compile.schedule import READOUTS
 from clab.docs import WHAT, as_json, describe
+from clab.format import data
 from clab.format.data import PADDINGS
 from clab.format.sweeps import coordinate, coordinate_text
-from clab.plan import Plan, Run, entries, made_by, name, points, projections, runnable, saved_value_axes, serving
+from clab.plan import (Forward, Plan, Run, entries, made_by, name, points, projections, runnable, saved_value_axes,
+                        serving)
 
 
 def how(run: Run) -> str:
@@ -38,14 +41,16 @@ def show(filled: Plan) -> str:
     """A filled plan as text: how it ran (of what was installed, clab's and python's versions; where it stopped,
     if it did), what each step cost (`costs`), where each entry resolved (`resolved`), then each result with the
     step that made it, its dims (per coordinate when swept and its points differ), its sweep axes and its shape
-    (`shaped`: counted over its points when swept). A compiled plan that has not run: its name, and which points
-    each run of a step will serve (`served`)."""
+    (`shaped`: counted over its points when swept). A compiled plan that has not run: its name, then each run of a
+    step in run order (`runnable`) with its kind, a forward's or a generation's input as the run record names it, the
+    point it runs at and which points it will serve (`served`)."""
     run = filled.run
     if run is None:
-        rows = [[step, coordinate_text(filled, p.at) or "—", served(filled, entry, points_)]
+        rows = [[step, p.kind, data.input_name(p.input) if isinstance(p, Forward) else "—",
+                 coordinate_text(filled, p.at) or "—", served(filled, entry, points_)]
                 for step, entry in runnable(filled.steps).items() for p, points_ in serving(filled, step)]
         return "\n".join([f"{name(filled)}: compiled, not run"]
-                         + ["  " + line for line in aligned([["step", "at", "serves"]] + rows)])
+                         + ["  " + line for line in aligned([["step", "kind", "input", "at", "serves"]] + rows)])
     lines = [f"{name(filled)}: run on {run.engine}, {how(run)}, batch size {run.batch_size}, padding {run.padding}, "
              f"readout {run.readout}, "
              f"started {run.started}, {run.seconds} s",
@@ -219,8 +224,10 @@ def option(text: str) -> tuple[str, Any]:
 
 
 def main(argv: list[str] | None = None) -> int:
-    # The engines (nnsight, transformers, nnterp) are imported by `run` alone, which loads one: `show`, `table` and
-    # `describe` read an output directory or the format, and `run` refuses an engine no one registered by name.
+    # The engines (nnsight, nnterp, and the model's transformers classes) are imported by `run` alone, which loads one,
+    # and refuses an engine no one registered by name. `compile` reads a document and what it names (data files, a hub
+    # dataset's rows, bundles), importing transformers only for a `generate` step's options (`GenerationConfig`);
+    # `show`, `table` and `describe` read an output directory or the format, and import none of it.
     parser = argparse.ArgumentParser(prog="clab")
     commands = parser.add_subparsers(dest="command", required=True)
     run = commands.add_parser("run", help="run a document end to end")
@@ -238,6 +245,9 @@ def main(argv: list[str] | None = None) -> int:
     run.add_argument("--device", help="where the engine places the model (default the engine's own: cpu, or cuda:0 for vllm)")
     run.add_argument("-o", dest="options", action="append", default=[], metavar="KEY=VALUE",
                      help="an option of the engine's (`clab describe engines`), the value read as JSON, else as text")
+    check = commands.add_parser("compile", help="check a document with no model: compile it and print what would "
+                                                "run, or its refusal")
+    check.add_argument("document")
     look = commands.add_parser("show", help="print what a run's output directory holds")
     look.add_argument("out")
     rows = commands.add_parser("table", help="print saved values of a run's output directory as one table")
@@ -271,8 +281,11 @@ def command(args: argparse.Namespace) -> int:
         else:
             print(describe(args.what))
         return 0
-    if args.command in ("show", "table"):
+    if args.command in ("compile", "show", "table"):
         try:
+            if args.command == "compile":   # what `clab run` compiles before any engine loads, and nothing more
+                print(show(Plan(args.document).compile()))
+                return 0
             filled = Plan.load(args.out)
             if args.command == "show":
                 print(show(filled))

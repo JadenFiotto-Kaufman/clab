@@ -47,6 +47,7 @@ from clab.plan import (
     Intervention,
     Labelled,
     Load,
+    OWNED,
     OpStep,
     Plan,
     PlanError,
@@ -73,9 +74,14 @@ from clab.plan import (
 
 
 def compile(plan: Plan) -> Plan:
-    """The plan compiled: a new `Plan`, `compiled=True`."""
+    """The plan compiled: a new `Plan`, `compiled=True`. First of all, a model block key no engine takes (`OWNED`:
+    another spelling of `key`, `revision` or `dtype`, or a run option) is refused by name with the key or option to
+    write."""
     if plan.compiled:
         return plan
+    for key in plan.model.model_extra or {}:
+        if key in OWNED:
+            fail("model", f"{key!r}: {OWNED[key]}")
     root = corpus_root(plan)
     doc = plan.model_dump(exclude_defaults=True, exclude={"run", "document"})
     rows = {name: make_dataset_rows(root, name, d) for name, d in plan.data.items()}
@@ -520,7 +526,7 @@ def compile_op(cx: Compiling, path: str, name: str, spec: OpStep, plan: Plan, at
     operands = references(spec.op, args, resolver(cx, path, "classes" in of.dims, at))
     for key, (written, theirs) in operands.items():
         why = mismatch(of, theirs, spec.op, key, written, repr(spec.of), False, False, adapts(plan, spec),
-                       lambda read: entry_of(cx.steps, read, at)[1])
+                       lambda ref: record_of(cx.steps, ref, at))
         if why:
             fail(f"{path}.{key}", why)
     if spec.op == "permute" and isinstance(of, OpStep) and of.op in ("top_k", "detokenize"):

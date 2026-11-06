@@ -162,15 +162,42 @@ DATASET = "the dataset whose rows the step's values are aligned to"
 QUANTIZED = {"nf4": "bfloat16", "fp4": "bfloat16", "int8": "float16", "fp8": "bfloat16"}
 
 
+# The loader keys a model block may not hold, and why: another spelling of a key the block owns (`key`, `revision`,
+# `dtype`, a quantization in `dtype`, transformers' and vLLM's), or a run option (where the model runs, how it is
+# sharded, and the vLLM engine arguments its options set), which no engine takes from the block. Compile refuses a document's by name, and an engine one in a block it is given; a plan read
+# back from a run (`Plan.load`) is a record, which neither judges.
+OWNED = {"device": "where the model runs is a run option: --device",
+         "device_map": "where the model runs is a run option: --device",
+         "dispatch": "the engine places its model itself",
+         "torch_dtype": "the dtype is spelled `dtype`",
+         "quantization_config": "a quantization is spelled in `dtype` (`nf4`, `fp4`, `int8`, `fp8`)",
+         "load_in_4bit": "a quantization is spelled in `dtype` (`nf4`, `fp4`, `int8`, `fp8`)",
+         "load_in_8bit": "a quantization is spelled in `dtype` (`nf4`, `fp4`, `int8`, `fp8`)",
+         "quantization": "a quantization is spelled in `dtype` (`nf4`, `fp4`, `int8`, `fp8`)",
+         "_commit_hash": "the revision is spelled `revision`",
+         "pretrained_model_name_or_path": "the checkpoint is spelled `key`",
+         "repo_id": "the checkpoint is spelled `key`",
+         "tp_plan": "tensor parallelism is a run option: -o tp=N",
+         "tp_size": "tensor parallelism is a run option: -o tp=N",
+         "distributed_config": "tensor parallelism is a run option: -o tp=N",
+         "device_mesh": "tensor parallelism is a run option: -o tp=N",
+         "tensor_parallel_size": "tensor parallelism is a run option: -o tp=N",
+         "gpu_memory_utilization": "the memory vLLM reserves is a run option: -o memory=F",
+         "max_model_len": "the longest sequence vLLM serves is a run option: -o max_len=N"}
+
+
 class Model(Record):
     """The pinned checkpoint: `key`, `revision` and `dtype`, torch's spelling of a float dtype or one of nnsight's
     names for a quantization: `nf4` and `fp4` hold the weights in bitsandbytes' 4 bits (NormalFloat, FloatPoint) and
     `int8` in its LLM.int8() 8 bits, on the CPU or on CUDA, with bitsandbytes installed; `fp8` holds them in
     transformers' block-wise 8-bit floats, on a GPU of compute capability 8.9 or later. A quantized model computes in
-    `bfloat16` (`int8` in `float16`), which is the dtype its values have. Every other key goes to the
-    engine's loader untouched (`attn_implementation`, ...), and a loader refuses what it cannot honor; where
-    the model runs (`device`) is a run option, not the document's. The attention interior needs
-    `attn_implementation: "eager"`."""
+    `bfloat16` (`int8` in `float16`), which is the dtype its values have. A key that respells one of the three
+    (`torch_dtype`, `quantization_config`, `_commit_hash`, ...) or names a run option (`device`, `device_map`:
+    `--device`; `tp_plan`, `tensor_parallel_size`, ...: `-o tp=N`; vLLM's `gpu_memory_utilization` and
+    `max_model_len`: `-o memory`, `-o max_len`) is refused by name at compile (`plan.OWNED`). Every other
+    key goes to the engine's loader untouched (`attn_implementation`, ...), which refuses what it cannot honor as
+    the engine loads, as the load refuses a checkpoint or revision the offline cache lacks. The attention interior
+    needs `attn_implementation: "eager"`."""
     model_config = ConfigDict(extra="allow")
     key: str
     revision: str
@@ -544,11 +571,12 @@ class Pos(Record):
     every row's positions hold where preflight resolves them and they agree; where rows hold different numbers the
     value is as wide as the widest row, NaN past a row's own. Only pairing with another read's value needs the
     width to be one number, since two values of different reads pair only at a fixed width, whether one forward or
-    two made them: compile refuses the pair wherever the `pos` leaves it open, except for a scope of one
-    occurrence in the prefill, not `until` (the whole scope, or an index of no static width over it), which its rows
-    decide; where they disagree it is refused by name, with each count's rows, in preflight, or at compile for a
-    loaded read, which carries its rows' positions. In the prefill (`frame: 0`) an occurrence a row does not have,
-    or a static index that does not fit, is refused by name before any forward: the data decided. Anywhere else it
+    two made them: compile refuses the pair wherever the `pos` leaves it open, except where the prefill's rows
+    decide it: an index of no static width over the prompt (`":"`, `"2:"`), or over one occurrence of a scope there,
+    not `until` (the whole scope, or such an index over it). Where the rows agree the pair runs at their width;
+    where they disagree it is refused by name, with each count's rows and a static span or index to read instead,
+    in preflight, or at compile for a loaded read, which carries its rows' positions. In the prefill (`frame: 0`) an
+    occurrence a row does not have, or a static index that does not fit, is refused by name before any forward: the data decided. Anywhere else it
     is a result, as is a call the row never reached, and as is an index that picks none of a row's tokens (`"5:"`
     on a shorter row), in the prefill too: the row is `alignment_missing`, NaN all the way but in a `count`, which
     is 0 there (`clab table` prints the row flagged, with no value, for the read and every value made from it, the

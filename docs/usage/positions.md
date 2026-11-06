@@ -37,7 +37,7 @@ The positions are absolute, counted from each row's BOS. On prompts of different
 
 Row 0's prompt is `<s> ▁If ▁today ▁is ▁Th urs day , ▁tom orrow ▁is`, positions 0 to 10. `documents/chat_turn.json` holds the chat around it, and `documents/forced_answer.json` has rows of its own, so its row names two landings. A row that names a corpus document gives that document's record; the others are the same prompt read at that `pos`.
 
-The last column says whether a read at that `pos` pairs, position by position, with a value of another read, of this forward or another: yes; no; or where rows agree, which means where every row's scope holds as many tokens ([static width or ragged](#static-width-or-ragged)).
+The last column says whether a read at that `pos` pairs, position by position, with a value of another read, of this forward or another: yes; no; or where rows agree, which means where every row's scope, or every prompt, holds as many tokens ([static width or ragged](#static-width-or-ragged)).
 
 | you mean | `pos` | lands on row 0 (document) | pairs |
 |---|---|---|---|
@@ -46,7 +46,7 @@ The last column says whether a read at that `pos` pairs, position by position, w
 | a window of the last tokens | `{"index": "-4:-1"}` | 7, 8, 9: `,` `▁tom` `orrow` (`documents/window_patch.json`) | yes |
 | the last three tokens, the last included | `{"index": "-3:"}` | 8, 9, 10: `▁tom` `orrow` `▁is` | yes |
 | a few positions, in this order | `{"index": [-1, 0]}` | 10 then 0 | yes |
-| every prompt token | `{"index": ":"}`, or no `pos` | 0 to 10 | no |
+| every prompt token | `{"index": ":"}`, or no `pos` | 0 to 10 | where rows agree |
 | the last token of each row's own word | `{"scope": {"column": "pairs.entity"}, "index": -1}` | 6 `day` (`documents/entity_patch.json`) | yes |
 | every token of that word | `{"scope": {"column": "prompts.entity"}}` | 4, 5, 6 (`documents/entity_mean_ablation.json`) | where rows agree |
 | a fixed text, first occurrence | `{"scope": {"text": " is"}}` | 3 | where rows agree |
@@ -105,24 +105,24 @@ In a `generate` step, `frame` picks forward calls; which token each call holds i
 
 ## Static width or ragged
 
-Two values of different reads pair, position by position, only at a fixed width, whether one forward or two made them. The width is fixed by the `pos` at compile, or by the rows of one scope occurrence in preflight. A write's operand from its own forward is compared row by row instead. Which `pos` forms fix it:
+Two values of different reads pair, position by position, only at a fixed width, whether one forward or two made them. The width is fixed by the `pos` at compile, or in preflight by the prefill's rows, for an open index or one scope occurrence. A write's operand from its own forward is compared row by row instead. Which `pos` forms fix it:
 
 | `pos` form | its width | pairs with another read's value |
 |---|---|---|
 | a static index over a frame of a fixed number of calls: an int, picks, or a slice whose two ends count from one side (`-1`, `[-1, 0]`, `"-4:-1"`, `"-3:"`, `{"frame": -1, "index": -1}`, `{"frame": 3, "index": 0}`) | static: the `pos` fixes it, and compile writes it | yes |
 | such an index on one occurrence of a scope in the prefill, not `until` (`{"scope": {"column": "pairs.entity"}, "index": -1}`) | static | yes |
 | one occurrence of a scope in the prefill, not `until`, read whole, `before` or not | the count each row's scope holds, which preflight confirms | where every row's scope holds as many tokens (`documents/entity_patch_scope.json`) |
-| an open index: `{"index": ":"}`, `"2:"`, no `pos` | open | no, whatever the prompts |
+| an open index in the prefill: `{"index": ":"}`, `"2:"`, no `pos` | the count each row's prompt gives it, which preflight confirms | where every row holds as many positions (`documents/ablation_pair.json` at `":"` in place of `"0:12"`) |
 | several occurrences (`"occurrence": ":"`) or an `until` scope, with an `index` or without; a scope beyond the prefill | open | no |
-| a frame of no fixed number of calls (`"1:"`, `":"`), or a decode call with an open index (`{"frame": 3}`) | open | no |
+| a frame of no fixed number of calls (`"1:"`, `":"`), or a decode call with an open index (`{"frame": 3}`) | open | no, whatever the prompts |
 
-- **Preflight records an open width where the rows agree.** In the prefill it resolves every row's positions before any forward and writes the count they share as the record's `width`. That recorded width pairs with nothing: `{"index": ":"}` over prompts of one length is refused at compile all the same.
-- **Two entries of one forward are two reads.** An op step `{"op": "sub", "of": "f.a", "with": "f.b"}` over two `{"index": ":"}` reads of one forward is refused at compile, as reads of two forwards are. A write's operand from its own forward is compared with the write row by row instead ([operand-does-not-fit.md](../errors/operand-does-not-fit.md#an-operand-from-the-same-forward)).
+- **Preflight records an open width where the rows agree.** In the prefill it resolves every row's positions before any forward and writes the count they share as the record's `width`. An open index or a scope occurrence there pairs at that width; a read whose width no row settles (`until`, several occurrences, beyond the prefill) pairs with nothing.
+- **Two entries of one forward are two reads.** An op step `{"op": "sub", "of": "f.a", "with": "f.b"}` over two `{"index": ":"}` reads of one forward pairs as reads of two forwards do: where every row holds as many positions, and refused in preflight where they do not. A write's operand from its own forward is compared with the write row by row instead ([operand-does-not-fit.md](../errors/operand-does-not-fit.md#an-operand-from-the-same-forward)).
 - **A read is ragged where its rows hold different numbers of positions**, such as an entity of one token on one row and three on another.
 - **A ragged value is as wide as its widest row.** Row r's j-th position sits at index j, and past a row's own positions the value is NaN; `clab table` leaves those out.
 - **Index j along `pos` is the read's j-th position on that row**, not position j. Index 0 of `{"index": "-4:-1"}` is a different absolute position on rows of different lengths ([values-and-layout.md](../concepts/values-and-layout.md#an-index-counts-along-the-value)).
 - **To pair a ragged read**, read it at a static index (`documents/entity_patch.json`, `"index": -1`) or reduce it over `pos` first (`documents/entity_mean_ablation.json`, a `mean` over every entity token).
-- **A pairing the table says no to is refused at compile.** A whole scope whose rows disagree is refused before any forward, naming each count's rows, and a loaded one at compile, since its positions came with it. The messages and their fixes are [operand-does-not-fit.md](../errors/operand-does-not-fit.md).
+- **A pairing the table says no to is refused at compile; one the rows decide, in preflight.** An open index or a whole scope whose rows disagree is refused before any forward, naming each count's rows, and a loaded one at compile, since its positions came with it. A permuted read pairs as the read it permutes. The messages and their fixes are [operand-does-not-fit.md](../errors/operand-does-not-fit.md).
 - **A static index that does not fit a row** is refused in the prefill (`row 1: index 0:10 does not fit the row's 9 positions at this frame`) and is `alignment_missing` beyond it.
 - **An open index takes what each row has**, which can be nothing. A read with nothing on a row is `alignment_missing` there (`{"index": "10:"}` on a 9-token row, [alignment-missing](../errors/alignment-missing.md#causes)); a write is refused ([position-not-in-row.md](../errors/position-not-in-row.md#the-writes-positions-hold-no-token-of-this-row)).
 

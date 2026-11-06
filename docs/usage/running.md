@@ -34,22 +34,39 @@ The options choose where the model runs and how its rows are fed:
 
 ## Check before you run
 
-Reading and compiling a document needs no model, and catches most mistakes, each by the document path of what is wrong:
+`clab compile DOC` reads and compiles a document and does nothing more: no engine, no model, no output directory. It catches most mistakes, each by the document path of what is wrong. On success it prints what `clab run` would run, each run of a step in run order: its kind, a forward's or generation's input, the sweep point it runs at, and the points it serves.
 
 ```text
-python -c "from clab import Plan; Plan('my_experiment.json').compile()"
+$ clab compile documents/pos_sweep.json
+pos_sweep: compiled, not run
+  step            kind     input                           at      serves
+  counterfactual  forward  pairs.counterfactual_inputs[0]  —       —
+  patched         forward  pairs.input                     pos=-1  —
+  patched         forward  pairs.input                     pos=-2  —
+  patched         forward  pairs.input                     pos=-3  —
+  iia             op       —                               pos=-1  —
+  …
 ```
 
-A refusal raises `clab.plan.PlanError`, a `ValueError`, and the traceback's last line is the message `clab run` would print. What is checked when:
+- **A refusal is the line `clab run` would print**, `clab: <where>: <what>` on stderr, with exit status 1; success exits 0.
+- **It reads what compile reads**: the data files, a hub dataset's rows through the `datasets` library, and bundle headers and files. Under `HF_HUB_OFFLINE=1` a hub dataset comes from the cache. Otherwise the library asks the hub first, and where the hub does not answer, compile waits on its retries; set `HF_HUB_OFFLINE=1` to read the cache alone.
+- **A `generate` step imports transformers**, whose `GenerationConfig` checks the step's options. Nothing else in compile needs it, and nothing in it loads an engine or a checkpoint.
+- **It takes only the document.** `clab run`'s options never reach compile. Before it, `clab run` checks `--batch-size`, `--padding` and `--readout`, an `-o` without `=`, and an `-o` naming one of those flags or `--device` (`-o device=cpu`). After it, as the engine loads, come `--engine`, `--device` and every other `-o` key (`-o remote=local`, `-o tp=2`).
+- **From Python** it is `Plan(path).compile()`, which raises `clab.plan.PlanError`, a `ValueError`, with the same message.
+- **A forward or generation that serves several sweep points is one row**, its `serves` cell `all 3 points` (the `patched` generation of `documents/generate_probe.json`); every other point is a row of its own.
+
+What is checked when:
 
 | stage | what it checks | a refusal it gives |
 |---|---|---|
-| reading and compiling, no model | each record's fields, every reference, column, save and sweep, the data files, bundle headers, a `generate` option's type | `steps.iia.of: 'patched.logits' names no value produced before this step; …` |
+| `clab compile`: reading and compiling, no model | each record's fields, every reference, column, save and sweep, the data files, bundle headers, a `generate` option's type, a model block key no engine takes (`torch_dtype`, `device`) | `steps.iia.of: 'patched.logits' names no value produced before this step; …` |
 | `clab run`, before the checkpoint loads | the document's path, `--batch-size`, `--padding`, `--readout`, `--device`, the engine and its options ([cli.md](../reference/cli.md#clab-run) lists each refusal) | `device 'gpu': not a torch device …` |
 | after the model loads, before any forward | positions, layers, `select` indices and answer tokens, against the tokenizer and the model's sizes; a component the engine does not serve | `counterfactual.v_cf: layer 5; the model has 2 layers` |
 | when the step runs | an option the model's `generate` rejects; running out of CUDA memory | `answer: generate rejected 'bogus_opt': …` |
 
-Offline, a checkpoint the cache lacks is refused as the engine loads it. For a first run on a large dataset, add `"take": 8` to the dataset ([data.md](data.md#narrowing-and-renaming-rows)). Which stage gave a refusal is [plan-lifecycle.md](../concepts/plan-lifecycle.md#which-stage-refused).
+**What `clab compile` cannot tell you.** It reads no checkpoint and asks the hub nothing about one, so a checkpoint or `revision` the local cache lacks compiles. Offline, the engine's load is the first stage that knows, and refuses it (`model.key '<key>' at revision '<revision>': the nnterp engine cannot load it: HF_HUB_OFFLINE is set …`). A model block key the loader rejects, and every check after the model loads, are past compile too.
+
+For a first run on a large dataset, add `"take": 8` to the dataset ([data.md](data.md#narrowing-and-renaming-rows)). Which stage gave a refusal is [plan-lifecycle.md](../concepts/plan-lifecycle.md#which-stage-refused).
 
 ## When a step runs out of memory
 

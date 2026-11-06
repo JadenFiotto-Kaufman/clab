@@ -108,7 +108,9 @@ class VllmEngine:
         """The checkpoint `model` pins on nnsight's vLLM engine, through nnterp's StandardizedVLLM, in its dtype,
         sharded over `tp` GPUs with `memory` of each reserved: a meta tree until a run calls the model (`ready`),
         when vLLM starts its worker and loads the weights. The block's other keys go to vLLM's engine arguments as
-        they are, but `attn_implementation`, which means nothing there. A quantized `dtype` is refused: vLLM holds a
+        they are, but `attn_implementation`, which means nothing there; one that sets what an option or `dtype` sets
+        (`tensor_parallel_size`, `gpu_memory_utilization`, `max_model_len`, `quantization`) compile refuses by name
+        (`plan.OWNED`). A quantized `dtype` is refused: vLLM holds a
         quantized model in its own formats, not bitsandbytes'.
 
         device: "cuda:0", the first of the GPUs vLLM runs the model on (CUDA_VISIBLE_DEVICES names them), where the run keeps its values; no other

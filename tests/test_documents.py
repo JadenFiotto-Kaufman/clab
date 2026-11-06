@@ -618,26 +618,25 @@ def test_a_bundle_made_at_a_layer_counted_from_the_last_says_the_layer_it_is(eng
         engine.execute(control(-1), batch_size=BATCH_SIZE)
 
 
-def test_a_metrics_operand_is_laid_out_as_the_value_it_scores():
+def test_a_metrics_operand_is_laid_out_as_the_value_it_scores(engines):
     """A metric (`cosine` here, `kl` and `js` alike) scores a value against another laid out as it is at each
     layer, or against one vector (a layers axis of either aligns by label, as test_layers.py pins); another
-    layout, or a ragged operand beside a rectangular value, is refused by name."""
+    layout is refused by name at compile, and an operand at an open index, whose rows (12 tokens each) confirm its
+    width in preflight, beside a value of another width there."""
     def change(d, op, operand_site, pos):
+        d["sites"]["stream"]["layers"] = 2
         d["steps"]["clean"]["interventions"]["other"] = {"site": operand_site, "pos": pos}
         d["steps"]["similarity"] = {"kind": "op", "op": op, "of": "patched.resid", "with": "clean.other"}
     heads = {"component": "attention_premix", "layers": [0, 2]}
-    for site, pos, message in ((heads, {"index": "-2:"}, r"is laid out \['layers', 'rows', 'pos', 'num_heads', "
-                                                          r"'head_dim'\]; 'cosine' scores a value laid out \['rows', "
-                                                          r"'pos', 'hidden_size'\]"),
-                               ({"component": "layer_output", "layers": 0}, {"index": ":"},
-                                r"has no width compile can fix \(an open index, an `until` scope, several "
-                                r"occurrences\), and two values of different reads pair only at a fixed width, "
-                                r"whether one forward or two made them; read both at a static index")):
-        def one(d, site=site, pos=pos):
-            d["sites"]["stream"]["layers"] = 2
-            change(d, "cosine", site, pos)
-        with pytest.raises(PlanError, match=r"steps\.similarity\.with: 'clean\.other' " + message):
-            edited("cosine_metric", one).compile()
+    with pytest.raises(PlanError, match=r"steps\.similarity\.with: 'clean\.other' is laid out \['layers', 'rows', "
+                                        r"'pos', 'num_heads', 'head_dim'\]; 'cosine' scores a value laid out \['rows', "
+                                        r"'pos', 'hidden_size'\]"):
+        edited("cosine_metric", lambda d: change(d, "cosine", heads, {"index": "-2:"})).compile()
+    plan = edited("cosine_metric", lambda d: change(d, "cosine", {"component": "layer_output", "layers": 0},
+                                                    {"index": ":"})).compile()
+    with pytest.raises(ValueError, match=r"^similarity: operand 'clean\.other' holds 12 position\(s\) per row and the "
+                                         r"value 'cosine' scores holds 2; position i scores against position i"):
+        engines("nnterp", plan.model).execute(plan, batch_size=BATCH_SIZE)
 
 
 def test_select_on_key_counts_each_rows_own_tokens(engines):
@@ -830,16 +829,28 @@ def test_a_permuted_value_tables_by_row_and_plain_index_and_joins_no_read(engine
         filled.table("harvest.acts", "donor")
 
 
-def test_a_ragged_permuted_value_is_refused_as_another_forwards_operand_and_may_be_reduced():
-    """A ragged read permuted, as the ragged read itself, has no width compile can fix, so it pairs with no other
-    forward's value; a mean over its positions has none to pair."""
+def test_a_ragged_permuted_value_is_refused_as_another_forwards_operand_and_may_be_reduced(engines):
+    """A permuted read pairs as the read it permutes does: a whole scope permuted compiles, its width the rows' to
+    decide, and preflight refuses it naming the read and each count's rows where they disagree (the entity's 3
+    tokens on row 0, 1 on the rest); a mean over its positions has none to pair. Where compile can know the width
+    is no one number (an `until` scope, several occurrences), it still refuses the permuted read."""
     def ragged(d):
         d["steps"]["harvest"]["interventions"]["acts"]["pos"] = {"scope": {"column": "prompts.entity"}, "index": ":"}
-    with pytest.raises(PlanError, match=r"^steps\.resampled\.interventions\.abl\.ops\[0\]\.with: 'donor' has no "
-                                        r"width compile can fix \(an open index, an `until` scope, several "
-                                        r"occurrences\), and two values of different reads pair only at a fixed "
-                                        r"width"):
-        resampled(ragged)
+    plan = resampled(ragged)
+    with pytest.raises(ValueError, match=r"^resampled\.abl: operand 'donor' reorders the rows of 'harvest\.acts', which "
+                                         r"holds 3 positions on row 0 and 1 position on rows 1-3; two values of "
+                                         r"different reads pair only at a fixed width, whether one forward or two made "
+                                         r"them, which a scoped read has where every row's scope holds the same number "
+                                         r"of tokens"):
+        engines("nnterp", plan.model).execute(plan, batch_size=BATCH_SIZE)
+    for scope in ({"until": True}, {"occurrence": ":"}):
+        def open_(d, scope=scope):
+            d["steps"]["harvest"]["interventions"]["acts"]["pos"] = {"scope": {"column": "prompts.entity", **scope}}
+        with pytest.raises(PlanError, match=r"^steps\.resampled\.interventions\.abl\.ops\[0\]\.with: 'donor' has no "
+                                            r"width compile can fix \(an open index beyond the prefill, an `until` "
+                                            r"scope, several occurrences\), and two values of different reads pair "
+                                            r"only at a fixed width"):
+            resampled(open_)
 
     def reduced(d):
         ragged(d)
@@ -848,6 +859,52 @@ def test_a_ragged_permuted_value_is_refused_as_another_forwards_operand_and_may_
         d["steps"]["per_row"] = {"kind": "op", "op": "mean", "of": "donor", "over": ["pos"]}
         d["saves"] = ["per_row"]
     assert record_of(resampled(reduced).steps, "per_row", {}).dims == ["rows", "hidden_size"]
+
+
+@pytest.mark.parametrize("kind", ["nnterp", "hooks"])
+def test_a_permuted_read_at_an_open_index_pairs_at_the_width_its_rows_confirm(engines, kind):
+    """ablation_pair's donor read at `{"index": ":"}` in place of `"0:12"` on the tiny GPT-2's 12-token counting
+    prompts: compile leaves its width to the rows (none at compile), preflight confirms 12, and every saved value,
+    the resample and its identity null, the mean ablation and the fit's, is bit-equal to the document's own. On the
+    weekday prompts (11 tokens on row 0, 9 on the rest) the same read permuted and swapped in at `":"` is refused in
+    preflight, before any forward, naming the read, each count's rows and a static span every row holds; so is the
+    read itself swapped in unpermuted."""
+    def opened(d):
+        for step in ("clean", "resampled", "null", "mean_ablated", "optimal"):
+            entry = d["steps"][step]["interventions"]["z" if step == "clean" else "abl"]
+            entry["pos"] = {"index": ":"}
+        d["steps"]["fit"]["steps"]["abl"]["interventions"]["abl"]["pos"] = {"index": ":"}
+    plan, written = edited("ablation_pair", opened).compile(), plan_of("ablation_pair")
+    assert record_of(plan.steps, "donor", {}).width is None and record_of(written.steps, "donor", {}).width == 12
+    engine = engines(kind, plan.model)
+    ours, theirs = (engine.execute(p, batch_size=BATCH_SIZE) for p in (plan, written))
+    assert record_of(ours.steps, "donor", {}).width == 12
+    assert set(ours.results) == set(theirs.results) and all(same(ours.results[k], theirs.results[k])
+                                                             for k in theirs.results)
+
+    def everywhere(d):
+        d["steps"]["harvest"]["interventions"]["acts"]["pos"] = {"index": ":"}
+        for name in ("resampled", "null"):
+            d["steps"][name]["interventions"]["abl"]["pos"] = {"index": ":"}
+
+    def unpermuted(d):
+        everywhere(d)
+        d["steps"]["resampled"]["interventions"]["abl"]["ops"][0]["with"] = "harvest.acts"
+
+    def from_two(d):                    # the suggested spans keep the read's own start, or its end
+        unpermuted(d)
+        d["steps"]["harvest"]["interventions"]["acts"]["pos"] = {"index": "2:"}
+    for change, operand, counts, spans in (
+            (everywhere, r"'donor' reorders the rows of 'harvest\.acts', which holds", (11, 9), r"'0:9', or '-9:'"),
+            (unpermuted, r"'harvest\.acts' holds", (11, 9), r"'0:9', or '-9:'"),
+            (from_two, r"'harvest\.acts' holds", (9, 7), r"'2:9', or '-7:'")):
+        refused = resampled(change)
+        with pytest.raises(ValueError, match=rf"^resampled\.abl: operand {operand} {counts[0]} positions on row 0 and "
+                                             rf"{counts[1]} positions on rows 1-3; two values of different reads pair "
+                                             r"only at a fixed width, whether one forward or two made them, which an "
+                                             r"open index has where every row holds as many positions: read a static "
+                                             rf"span every row holds \('index': {spans}\), or reduce it$"):
+            engines(kind, refused.model).execute(refused, batch_size=BATCH_SIZE)
 
 
 def permuted_pair(width: int | dict | None, ragged: bool = False) -> Plan:
@@ -871,15 +928,19 @@ def permuted_pair(width: int | dict | None, ragged: bool = False) -> Plan:
     (-1, r"'donor_other' holds 1 position\(s\) per row and the value 'sub' acts on holds 3; position i meets "
          r"position i"),
     ({"index": "-2:"}, r"'donor_other' holds 2 position\(s\) per row and the value 'sub' acts on holds 3"),
-    (None, r"'donor_other' has no width compile can fix \(an open index, an `until` scope, several occurrences\), "
-           r"and two values of different reads pair only at a fixed width"),
-], ids=["one", "two", "ragged"])
-def test_two_permuted_values_pair_positions_by_width_and_a_ragged_one_with_none(width, message):
+], ids=["one", "two"])
+def test_two_permuted_values_pair_positions_by_width_and_a_ragged_one_with_none(engines, width, message):
     """Neither has a read, so no read's positions are common to both: they meet position by position at one static
-    width, as two reads of different inputs do, and at another width, or ragged, they are refused by name."""
+    width, as two reads of different inputs do, and at another width they are refused by name at compile; ragged
+    (both at the entity scope, whose rows decide its width) in preflight, naming the read it permutes."""
     with pytest.raises(PlanError, match=r"^steps\.diff\.with: " + message):
-        permuted_pair(width, ragged=width is None)
+        permuted_pair(width)
     assert record_of(permuted_pair({"index": "-3:"}).steps, "diff", {}).width == 3
+    plan = permuted_pair(None, ragged=True)
+    with pytest.raises(ValueError, match=r"^diff: operand 'donor_other' reorders the rows of 'harvest\.other', which "
+                                         r"holds 3 positions on row 0 and 1 position on rows 1-3; two values of "
+                                         r"different reads pair only at a fixed width"):
+        engines("nnterp", plan.model).execute(plan, batch_size=BATCH_SIZE)
 
 
 @pytest.mark.parametrize("kind", ["nnterp", "hooks"])

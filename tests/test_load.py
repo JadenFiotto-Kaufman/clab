@@ -567,3 +567,25 @@ def test_a_document_of_loads_and_op_steps_under_a_device_map_loads_the_weights(r
         "acts": LOAD, "m": {"kind": "op", "op": "mean", "of": "acts", "over": ["rows", "pos"]}}, ["m"]))
     filled = load_engine("nnterp", plan.model, "auto").execute(plan, batch_size=BATCH_SIZE)
     assert filled.run is not None and filled.run.devices == ["cpu"]
+
+
+def test_a_permuted_load_of_a_ragged_read_is_refused_at_compile_naming_the_load(engines, root):
+    """A run's read at `{"index": ":"}` over prompts of different lengths, loaded, permuted and swapped into another
+    forward: its rows' positions came with it, so compile refuses the pair, naming the load step and the value it
+    loads (its read's name, `<load>.<entry>`, is none the document has)."""
+    doc = corpus("mean_ablation")
+    doc["steps"]["harvest"]["interventions"]["acts"]["pos"] = {"index": ":"}
+    doc["saves"] = ["harvest.acts"]
+    ran(engines, root, "open_harvest", doc)
+    with pytest.raises(PlanError, match=r"^steps\.resampled\.interventions\.abl\.ops\[0\]\.with: 'donor' reorders the "
+                                        r"rows of 'cached' \(a load of 'harvest\.acts'\), which holds 11 positions on "
+                                        r"row 0 and 9 positions on rows 1-3; two values of different reads pair "
+                                        r"only at a fixed width, whether one forward or two made them, which an open "
+                                        r"index has where every row holds as many positions: read a static span every "
+                                        r"row holds \('index': '0:9', or '-9:'\), or reduce it$"):
+        written(root, "permuted_load", loading(doc, {
+            "cached": {"kind": "load", "from": "out/open_harvest", "value": "harvest.acts"},
+            "donor": {"kind": "op", "op": "permute", "of": "cached", "seed": 0, "derangement": True},
+            "resampled": {"kind": "forward", "input": "prompts.input", "interventions": {
+                "abl": {"site": {"component": "layer_output", "layers": 0}, "pos": {"index": ":"},
+                        "ops": [{"op": "swap", "with": "donor"}]}}}}, []))

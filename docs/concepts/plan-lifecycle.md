@@ -46,7 +46,7 @@ steps.patched.input: no dataset 'pears'; datasets: pairs
 data.pairs.take: take 400, and the dataset has 4 rows; take keeps at most as many as there are
 ```
 
-Compiling a compiled plan returns it unchanged. Compile runs before any engine loads, so a document it refuses never costs a model load. Under the `ndif` engine, such a document never reaches the server.
+`clab compile DOC` is this stage alone: it prints what would run, or the refusal ([running.md](../usage/running.md#check-before-you-run)). Compiling a compiled plan returns it unchanged. Compile runs before any engine loads, so a document it refuses never costs a model load. Under the `ndif` engine, such a document never reaches the server.
 
 ## 3. Load: the engine and its model
 
@@ -54,11 +54,11 @@ Compiling a compiled plan returns it unchanged. Compile runs before any engine l
 
 - The hooks engine loads the checkpoint the model block pins.
 - The nnterp engine (at `tp` 1), `ndif` and `vllm` build a shell with no weights. Each engine that runs the model here loads the weights before the first step of a run that calls the model ([engines.md](../usage/engines.md#where-the-model-goes---device)). A model block key the loader rejects is refused there.
-- The engine refuses what it cannot honor by name, before any weight loads: an option, a model block key, a device, a checkpoint the offline cache lacks, a `dtype` ([engines.md](../usage/engines.md#engine-options--o-keyvalue)).
+- The engine refuses what it cannot honor by name, before any weight loads: an option, a device, a checkpoint or revision the offline cache lacks, a `dtype` ([engines.md](../usage/engines.md#engine-options--o-keyvalue)). A model block key no engine takes (`device`, `torch_dtype`) was refused at compile; an engine given such a block directly refuses it here.
 
 ```text
 the hooks engine takes no 'remote'; its options: none (where the model runs is `device`, given as --device)
-model.device: the nnterp engine cannot honor it: where the model runs is a run option: --device
+model.key 'hf-internal-testing/tiny-random-LlamaForCausalLM' at revision '0000000000000000000000000000000000000000': the nnterp engine cannot load it: HF_HUB_OFFLINE is set and the Hugging Face cache lacks it, or part of it; …
 device 'cuda:0': no CUDA device is visible (torch.cuda.is_available() is False); run on 'cpu', or make a GPU visible (CUDA_VISIBLE_DEVICES)
 ```
 
@@ -131,7 +131,7 @@ Under nnterp and hooks, every stage runs in your process. So it does under vllm,
 |---|---|---|---|
 | `no document at …`, `batch_size …`, `padding '…'`, `readout '…'` | `batch_size 0: a batch holds one row or more` | the command line or `clab.run`, before the document is read | nothing read |
 | a document path: `steps.<step>…`, `data.<name>…`, `saves[i]`, `featurizers.<name>…`, `model: …` | `steps.iia: unknown step kind 'opp'` | Plan or compile | nothing loaded |
-| `unknown engine …`, `the <engine> engine takes no …`, `model.<key>: the <engine> engine cannot …`, `device…`, `remote:`, `tp …`, `-o …` | `the hooks engine takes no 'tp'` | load | the document compiled; no weight loaded |
+| `unknown engine …`, `the <engine> engine takes no …`, `model.key '<key>' at revision …`, `model.<key>: the <engine> engine …`, `device…`, `remote:`, `tp …`, `-o …` | `the hooks engine takes no 'tp'` | load | the document compiled; no weight loaded |
 | `plan is not compiled`, `the plan's model is not the one this engine loaded`, a `grad` entry's `<step>.<entry>:`, a load's size `<step>: the values this document loads hold …`, and on vllm a fit, a pattern write and a generate option | `patched.h: a grad entry takes the model's gradient` | `execute`'s checks, on the client before the session | the engine loaded, under nnterp and ndif as a shell with no weights; nothing sent, no forward |
 | a step's name without `steps.`: `<step>.<entry>:`, `<step>:`, `<fit>.<step>.<entry>:` | `counterfactual.v_cf: layer 5; the model has 2 layers` | preflight | the model loaded, no forward ran |
 | `<step>: generate rejected '<option>'` | `answer: generate rejected 'max_new_tokns'` | the run; on vllm, `execute`, before any step | earlier steps ran, nothing was written |
@@ -143,6 +143,6 @@ Four forms add to a message:
 - **At a sweep point**, compile adds ` at <label>=<value>` to the path: `steps.patched.interventions.patch.pos.frame at frame=1: frame 1: …`. Preflight names the point the same way in each refusal of a step's own checks or its schedule (`counterfactual.v_cf at layers=9: layer 9; the model has 2 layers`). So does every refusal of a featurizer's use, at compile (its bundle's header, a gate's `over`) and in preflight (its width, its layer, a features `select`). A refusal of a component the engine does not serve is of no point and names none.
 - **A bundle's entry** is refused at its own path, then ` in <step path>`: `interventions.b.w.ops[0].with in steps.patched: 'nope.v' names no value produced before this step; …`.
 - **Several document errors** print one per line, only the first prefixed `clab:` (`clab: model: Field required`, then `steps.iia: unknown step kind 'bogus'; …`). So do the `datasets` library's two-line messages.
-- **`--batch-size`, `--padding` and `--readout` are refused before the document is read**, and `--engine`, `--device` and `-o` after it compiles. A broken document run with `--batch-size 0` reports `batch_size 0: …`; run with `--device gpu`, it reports its own refusal.
+- **`--batch-size`, `--padding` and `--readout` are refused before the document is read**, and so are an `-o` without `=` and one naming a flag (`-o device=cpu`). `--engine`, `--device` and every other `-o` key (`-o remote=local`) are refused after it compiles. A broken document run with `--batch-size 0` reports `batch_size 0: …`; run with `--device gpu`, it reports its own refusal.
 
 Each refusal, with its cause and fix, is listed by message in [errors/index.md](../errors/index.md).

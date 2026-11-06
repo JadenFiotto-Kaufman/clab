@@ -76,11 +76,12 @@ The nnterp engine (at `tp` 1) loads as a meta shell: the module tree, the config
   clab: device: the ndif engine cannot honor 'cuda:0': the server places the model
   ```
 
-The model block cannot place the model. `device`, `device_map` and `dispatch` there are refused when the engine loads, and so is `torch_dtype`, which is spelled `dtype`. Every other key goes to the loader as written ([FORMAT.md](../../FORMAT.md#model)):
+The model block cannot place the model. `device`, `device_map` and `dispatch` there are refused at compile, so `clab compile` refuses them. So are another spelling of `key`, `revision` or `dtype` (`torch_dtype`, `quantization_config`, `load_in_8bit`, `_commit_hash`, `pretrained_model_name_or_path`) and the sharding keys `-o tp` stands for (`tp_plan`, `tp_size`). So are vLLM's engine arguments that the vllm engine's options or `dtype` set (`tensor_parallel_size`, `gpu_memory_utilization`, `max_model_len`, `quantization`). `clab/plan.py` `OWNED` lists them all. A run's plan read back is not judged, so `clab show` and `clab table` read a run that holds one. Every other key goes to the loader as written, and the loader refuses what it cannot honor as the engine loads ([FORMAT.md](../../FORMAT.md#model)):
 
 ```text
-clab: model.device: the nnterp engine cannot honor it: where the model runs is a run option: --device
-clab: model.dispatch: the nnterp engine cannot honor it: the engine places its model itself
+clab: model: 'device': where the model runs is a run option: --device
+clab: model: 'torch_dtype': the dtype is spelled `dtype`
+clab: model: 'tp_size': tensor parallelism is a run option: -o tp=N
 ```
 
 A device that cannot be is refused before the model loads: an unknown device type (`device 'gpu': not a torch device ...`), or `cuda:0` where no GPU is visible (`device 'cuda:0': no CUDA device is visible ...`). So is a checkpoint whose `revision` is not in the local cache when the hub is offline (`HF_HUB_OFFLINE=1`): `model.key '<key>' at revision '<revision>': the nnterp engine cannot load it: HF_HUB_OFFLINE is set ...` ([running.md](running.md#check-before-you-run)).
