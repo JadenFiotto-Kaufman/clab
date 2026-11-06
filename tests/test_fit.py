@@ -1585,16 +1585,17 @@ def test_a_gate_over_axes_its_use_does_not_have_is_refused_at_compile(change, me
 
 def test_a_gate_whose_uses_select_different_heads_or_a_header_others_is_refused_before_any_forward(engines, tmp_path):
     """A drawn gate trained over every layer and applied by a step after the fit at layers 1 to 3 has two selections
-    of its axes, which one `theta` cannot be; a loaded one used at a site that keeps heads its header's
-    `kept.num_heads` does not is refused naming the header."""
+    of its axes, which one `theta` cannot be, refused naming the use and its point; a loaded one used at a site that
+    keeps heads its header's `kept.num_heads` does not is refused naming the header."""
     def later(d):
         d["steps"]["after"] = {"kind": "forward", "input": "pairs.input", "interventions": {"gated": {
             "site": {"component": "attention_premix", "layers": "1:4"}, "pos": {"index": "0:12"},
             "ops": [{"op": "apply", "featurizer": "fit.heads", "with": 0.0}]}}}
     plan = head_gates(later)
-    with pytest.raises(ValueError, match=r"after\.gated: gate 'heads' is over layers \[1, 2, 3\], num_heads \[0, 1, 2, "
-                                         r"3\] here and layers \[0, 1, 2, 3, 4\], num_heads \[0, 1, 2, 3\] elsewhere; "
-                                         r"its units lie on one selection of the axes it is over"):
+    with pytest.raises(ValueError, match=r"after\.gated at heads\.mask=2e-05: gate 'heads' is over layers \[1, 2, 3\], "
+                                         r"num_heads \[0, 1, 2, 3\] here and layers \[0, 1, 2, 3, 4\], num_heads "
+                                         r"\[0, 1, 2, 3\] elsewhere; its units lie on one selection of the axes it "
+                                         r"is over"):
         engines("hooks", plan.model).execute(plan, batch_size=BATCH_SIZE)
     root = corpus_copy(tmp_path)
     file = write_gate(root, torch.ones(5, 4))
