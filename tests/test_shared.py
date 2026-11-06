@@ -80,7 +80,7 @@ def each_its_own(shared: Plan, alone: dict[tuple, Plan]) -> bool:
     for name in shared.saves:
         entry = shared.steps[name.partition(".")[0]]
         for p in points(entry):
-            own = projection(p.at, record_of(shared.steps, name, p.at).axes)
+            own = projection(p.at, record_of(shared.steps, name, p.at, shared.featurizers).axes)
             mine = shared.results[name][coordinate(shared, own)] if own else shared.results[name]
             theirs = next(v for k, v in alone.items() if all(dict(k).get(a) == i for a, i in p.at.items()))
             if not same(mine, theirs.results[name]):
@@ -128,7 +128,7 @@ def sharing(plan: Plan) -> bool:
 
 
 def axes_of(plan: Plan, name: str) -> list[str]:
-    return record_of(plan.steps, name, points(plan.steps[name.partition(".")[0]])[0].at).axes
+    return record_of(plan.steps, name, points(plan.steps[name.partition(".")[0]])[0].at, plan.featurizers).axes
 
 
 def counted(engine, plan: Plan, batch_size: int) -> tuple[Plan, list[int]]:

@@ -13,6 +13,7 @@ class Lora(Kind):
     from `seed`: `A` standard normal over sqrt(width), `B` zero, so it starts as the identity exactly. It has
     no coordinates, so its one op is `apply`."""
     saves = trains = ("A", "B")
+    laid = {"A": ("width", "rank"), "B": ("rank", "width")}
     header = drawn = ("rank", "alpha")
     adapts = True
 

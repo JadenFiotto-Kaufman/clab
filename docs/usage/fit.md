@@ -134,12 +134,13 @@ Nothing leaves the body except through these names:
 | member | what it is |
 |---|---|
 | `<fit>.<featurizer>` | the trained featurizer; saved, it is a [bundle](bundles.md) |
+| `<fit>.<featurizer>.<tensor>` | one of its tensors as the fit left it, the best epoch's: a value (`fit.probe.W`, `[hidden_size, classes]`), laid out as [featurizers.md](featurizers.md#its-tensors-as-values) lists each kind's |
 | `<fit>.<eval>.<op>` | a body op's value in the eval named `<eval>`, its step's own (`fit.held_out.ce` in `lora_train.json`) |
 | `<fit>.<eval>.<step>.<entry>` | a body entry's value in that eval, its forward's (`fit.held_out.adapted.logits`) |
 | `<fit>.history.<op>` | each body op's mean after each epoch, `[epochs run]` |
 | `<fit>.history.<featurizer>.<scalar>` | each trained featurizer's scalar after each epoch, `[epochs run]`; an sae's only when the body reads it with an `encode` no `decode` closes |
 
-**After the fit, the bare name is the declared featurizer as drawn, never trained.** In `das.json`, the held-out steps after the fit encode with `fit.rot`; written with `rot` they score the untrained seed-0 subspace. Name `<fit>.<featurizer>` everywhere after the fit.
+**After the fit, the bare name is the declared featurizer as drawn, never trained.** In `das.json`, the held-out steps after the fit encode with `fit.rot`; written with `rot` they score the untrained seed-0 subspace. Name `<fit>.<featurizer>` everywhere after the fit. Its tensors follow the same rule: `fit.rot.basis` is the trained basis, `rot.basis` the draw's.
 
 That draw comes from the featurizer's own `seed`, 0 when unset, whatever the fit's. With `"seed": 1` on the fit and none on `rot`, the fit starts from the seed-1 draw and the bare `rot` is the seed-0 one. To make the bare name the fit's starting draw, as a control of matched rank does ([trained subspaces](../patterns/trained-subspaces.md#controls-of-matched-rank)), give the featurizer the fit's seed.
 

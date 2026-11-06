@@ -239,7 +239,7 @@ def unreached_rows(plan: Plan, name: str, at: dict) -> dict[int, tuple[str, dict
     each row for row; where two miss one row, the first is named. None where no row misses: the value, or every
     operand that misses, has no `rows` axis, it comes through a `count` (which counts such a row 0, a number), or
     no read it descends from has positions the run recorded (a generation in a fit's body records none)."""
-    record = record_of(plan.steps, name, at)
+    record = record_of(plan.steps, name, at, plan.featurizers)
     if "rows" not in (record.dims or []):
         return None
     found: dict[int, tuple[str, dict, Intervention, int]] = {}
@@ -581,7 +581,7 @@ def argument_binding(plan: Plan, name: str, args: dict, at: dict, *, operands: d
         annotation = params[key].annotation
         number = editing and annotation == ops.Value
         if annotation == ops.Value and isinstance(value, str):
-            record = record_of(plan.steps, value, at)
+            record = record_of(plan.steps, value, at, plan.featurizers)
             axes = list(record.dims or [])
             if "live" in operands.get(value, {}):
                 out[key] = {"value": {"live": operands[value]["live"]}, "number": number}
@@ -662,7 +662,7 @@ def value_at(plan: Plan, state: ChainMap, name: str, at: dict, ids: list[int] | 
     at, made once on its device."""
     value = lookup(state, name, at if own is None else own)
     if dims is None:
-        record = record_of(plan.steps, name, at)
+        record = record_of(plan.steps, name, at, plan.featurizers)
         dims, dataset = record.dims or [], record.dataset
     scope = next(m for m in state.maps if name in m)
     if "rows" not in dims:

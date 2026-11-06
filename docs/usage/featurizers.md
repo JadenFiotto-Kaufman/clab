@@ -1,9 +1,9 @@
 ---
 title: Featurizers
-one_liner: "How do I use a learned or loaded space in an entry? Declaring each kind, encode, decode and apply, selecting features, and a published SAE."
+one_liner: "How do I use a learned or loaded space in an entry? Declaring each kind, encode, decode and apply, selecting features, its tensors as values, and a published SAE."
 tags: [usage, featurizers, encode, decode, apply, sae, subspace, gate, affine, constant]
 related: [docs/usage/fit.md, docs/usage/bundles.md, docs/usage/interventions.md, docs/usage/ops.md, docs/patterns/trained-subspaces.md, docs/patterns/head-masking.md, docs/patterns/sae.md, docs/patterns/probing.md, docs/patterns/lora.md, docs/patterns/logit-lens.md, docs/patterns/ablation.md]
-sources: [clab/featurizers/__init__.py, clab/featurizers/subspace.py, clab/featurizers/gate.py, clab/featurizers/pca.py, clab/featurizers/sae.py, clab/featurizers/linear.py, clab/featurizers/lora.py, clab/featurizers/affine.py, clab/featurizers/constant.py, clab/ops/edits.py, clab/compile/uses.py, clab/compile/__init__.py]
+sources: [clab/featurizers/__init__.py, clab/featurizers/subspace.py, clab/featurizers/gate.py, clab/featurizers/pca.py, clab/featurizers/sae.py, clab/featurizers/linear.py, clab/featurizers/lora.py, clab/featurizers/affine.py, clab/featurizers/constant.py, clab/ops/edits.py, clab/compile/uses.py, clab/compile/__init__.py, clab/plan.py]
 ---
 
 # Featurizers
@@ -181,6 +181,27 @@ A declared featurizer with no `file_path` is drawn before the run's first step, 
 
   One that keeps other indices of the last axis than the use does is refused before any forward, once the model's sizes resolve them.
 - **With `file_path` the featurizer is loaded and fixed.** The fields its bundle's header records may be left out ([bundles.md](bundles.md#file_path)).
+
+## Its tensors as values
+
+A featurizer's tensors, those its bundle holds, are values by name: `<featurizer>.<tensor>` the declared one as drawn or loaded, `<fit>.<featurizer>.<tensor>` the one a fit trained ([fit.md](fit.md#members)). Name one where an op needs the featurizer's own numbers: a probe's direction to project out ([probing.md](../patterns/probing.md#use-a-probes-direction)), a dictionary's decoder row to add, its decoder bias as a constant's `init`.
+
+| kind | its tensors, laid out |
+|---|---|
+| `linear` | `W` `[hidden_size, classes]`, `b` `[classes]` |
+| `subspace` | `basis` `[hidden_size, features]` |
+| `sae` | `W_enc` `[hidden_size, features]`, `W_dec` `[features, hidden_size]`, `b_enc` `[features]`, `b_dec` `[hidden_size]`, and `threshold` `[features]` where a published file holds one |
+| `gate` | `theta` `[hidden_size]`; over axes, on them (`[layers, num_heads]`) |
+| `pca` | `basis` `[hidden_size, features]`, `mean` `[hidden_size]` |
+| `lora` | `A` `[hidden_size, rank]`, `B` `[rank, hidden_size]` |
+| `affine` | `b` `[hidden_size]`, over layers `[layers, hidden_size]`; `W` is refused, below |
+| `constant` | `vector` `[hidden_size]` |
+
+- **`hidden_size` here is the last axis of the first site a step before the name uses the featurizer at**, with the indices that site's `select` keeps: `intermediate_size` at `mlp_neurons`, and inside an `encode`, that encode's `features`. A name before any step that encodes or applies the featurizer is refused by name (`'probe.W' is a tensor of 'probe', laid out on the last axis of the site it is used at, …`).
+- **A tensor whose last axis is the kind's coordinates is in its coordinates**, as an `encode`'s value is: a metric or `top_k` over `fit.probe.b` scores the probe's classes. `select` a column and reduce over that axis for a vector in the site's own layout.
+- **Each is a copy, on the model's device, in the featurizer's dtype, with no gradient.** A trained one is the best epoch's, as its bundle saves it, one per point of a swept fit. Inside the fit that trains it, its tensors are no value yet, and the body naming one is refused.
+- **A name the kind does not hold is refused, listing those it does** (`'fit.probe.U' names no tensor of 'fit.probe', a linear, whose tensors are W, b`). So is an `affine`'s `W`, `[hidden_size, hidden_size]`, two axes under one name that no op tells apart: save the fit's affine whole, as its bundle.
+- **A `load` brings no featurizer's tensor.** Save the trained featurizer, load its bundle with `file_path`, and name its tensor there.
 
 ## Loading a published sparse autoencoder
 

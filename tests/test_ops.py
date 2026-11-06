@@ -25,8 +25,8 @@ def test_every_op_is_listed_once_in_order_under_its_own_name():
     assert list(ops.OPS) == ["swap", "add", "sub", "scale", "renormalize", "normalize", "project_out", "decode",
                              "apply", "noise", "clamp", "readout", "encode", "grad", "mean", "sum", "min", "max", "std",
                              "median", "count", "norm", "dot", "entropy", "pca", "match", "logit_diff", "token_prob",
-                             "token_logit", "cross_entropy", "contains", "kl", "js", "top_k", "argmax", "detokenize",
-                             "permute", "abs", "exp", "log", "sign", "sqrt", "square", "neg", "mul", "div", "pow", "eq", "ne",
+                             "token_logit", "cross_entropy", "contains", "kl", "js", "top_k", "argmax", "select",
+                             "detokenize", "permute", "abs", "exp", "log", "sign", "sqrt", "square", "neg", "mul", "div", "pow", "eq", "ne",
                              "gt", "ge", "lt", "le", "cosine"]
     assert all(fn.__name__ == name for name, fn in ops.OPS.items())
     assert set(ops.DECLARED) == set(ops.OPS)
@@ -40,7 +40,7 @@ def test_each_op_declares_its_group_and_bundle():
     assert {n for n, g in groups.items() if g == "reductions"} == {"mean", "sum", "min", "max", "std", "median",
                                                                     "count", "norm", "dot", "entropy", "pca"}
     assert {n for n, g in groups.items() if g == "transforms"} == {"readout", "encode", "grad", "top_k", "argmax",
-                                                                    "detokenize", "permute", "abs", "exp", "log", "sign", "sqrt",
+                                                                    "select", "detokenize", "permute", "abs", "exp", "log", "sign", "sqrt",
                                                                     "square", "neg", "mul", "div", "pow", "eq", "ne",
                                                                     "gt", "ge", "lt", "le"}
     assert {n for n, g in groups.items() if g == "metrics"} == {"match", "logit_diff", "token_prob", "token_logit",
@@ -414,6 +414,41 @@ def test_top_k_and_argmax():
     assert got["ids"].shape == got["probs"].shape == (3, 1, 2)
     assert torch.equal(got["ids"][..., 0], transforms.argmax(LOGITS, d))
     torch.testing.assert_close(got["probs"][..., 0], LOGITS.softmax(-1).max(-1).values)
+
+
+def test_select_takes_the_indices_its_selector_picks_along_each_axis_as_torch_does():
+    """An int keeps its index on an axis of size 1, as a read's select does; a slice or a list keeps what it picks, in
+    its order; two axes narrow in turn; the layout is the value's; a pick outside the axis is refused as it runs."""
+    d = ["hidden_size", "classes"]
+    w = torch.randn(5, 3)
+    assert torch.equal(transforms.select(w, {"classes": 1}, d), w[:, 1:2])
+    assert torch.equal(transforms.select(w, {"classes": -1}, d), w[:, 2:3])
+    assert torch.equal(transforms.select(w, {"classes": "0:2"}, d), w[:, 0:2])
+    assert torch.equal(transforms.select(w, {"classes": [2, 0]}, d), w[:, [2, 0]])
+    assert torch.equal(transforms.select(X, {"hidden_size": "::2"}, DIMS), X[..., ::2])
+    assert torch.equal(transforms.select(w, {"hidden_size": [4, 1], "classes": 0}, d), w[[4, 1]][:, 0:1])
+    assert ops.out_dims("select", d, {"select": {"classes": 1}}) == d
+    assert torch.equal(reductions.sum(transforms.select(w, {"classes": 1}, d), d, ["classes"]), w[:, 1])
+    with pytest.raises(ValueError, match=r"^select classes 3 outside the 3 along it"):
+        transforms.select(w, {"classes": 3}, d)
+
+
+@pytest.mark.parametrize("args, message", [
+    ({"select": {"rows": 0}}, r"select 'rows': a select step narrows a value's other axes, and its rows are a "
+                              r"dataset's \(take, skip\) to narrow"),
+    ({"select": {"pos": -1}}, r"its pos are a read's \(pos\)"),
+    ({"select": {"key": 0}}, r"its key are a read's \(its site's select\)"),
+    ({"select": {}}, r"select \{\}: \{<axis>: <selector>\}, one or more axes of the value"),
+    ({"select": {"classes": "1:1"}}, r"select\.classes: '1:1' picks nothing")])
+def test_select_names_a_feature_axis_with_a_selector(args, message):
+    with pytest.raises(ValueError, match=message):
+        ops.check("select", args)
+
+
+def test_select_names_an_axis_the_value_has():
+    with pytest.raises(ValueError, match=r"select narrows the value's 'classes' axis, and the value is laid out "
+                                         r"\['rows', 'pos', 'hidden_size'\]"):
+        ops.out_dims("select", DIMS, {"select": {"classes": 0}})
 
 
 def test_top_k_and_argmax_rank_the_axis_over_names_wherever_it_is():

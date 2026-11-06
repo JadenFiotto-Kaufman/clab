@@ -24,7 +24,7 @@ Find the part of the document you are writing or the stage of the run you are at
 ## Reading and writing
 
 - [interventions](interventions.md) — How do I read or write a value at a site? Entries, edits, the order they run in, operands, gradients, writes across layers, named bundles and the null control.
-- [ops](ops.md) — Which op scores, reduces or transforms a value? Metrics, KL in either direction, reductions (median, count), top_k over rows and positions, permute, arithmetic, and step versus entry.
+- [ops](ops.md) — Which op scores, reduces or transforms a value? Metrics, KL in either direction, reductions (median, count), top_k over rows and positions, permute, select along an axis, arithmetic, and step versus entry.
 
 ## Repeating
 
@@ -33,7 +33,7 @@ Find the part of the document you are writing or the stage of the run you are at
 
 ## Featurizers and training
 
-- [featurizers](featurizers.md) — How do I use a learned or loaded space in an entry? Declaring each kind, encode, decode and apply, selecting features, and a published SAE.
+- [featurizers](featurizers.md) — How do I use a learned or loaded space in an entry? Declaring each kind, encode, decode and apply, selecting features, its tensors as values, and a published SAE.
 - [fit](fit.md) — How do I train a featurizer inside a run? Objective, optimizer, epochs, early stopping, evals, history, what a fit costs, and the epochs-0 null.
 - [bundles](bundles.md) — How do I save a trained featurizer and load it in another document? The files, file_path, the header checks and the two-document workflow.
 

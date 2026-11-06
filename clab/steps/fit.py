@@ -14,7 +14,7 @@ from clab.compile.state import Findings
 from clab.compile.uses import instance
 from clab.featurizers import Kind
 from clab.format.sweeps import agreeing_point, lookup, put
-from clab.plan import Fit, Forward, OpStep, Plan, Step, body_view, held_rows, open_encodes
+from clab.plan import Fit, Forward, OpStep, Plan, Step, body_view, held_rows, open_encodes, tensors_named
 from clab.steps.batches import ROWS, model_device, schedule_binding
 
 if TYPE_CHECKING:
@@ -31,7 +31,8 @@ def fit(engine: Engine, plan: Plan, name: str, step: Fit, state: ChainMap, batch
     are `torch.autograd.grad` of the objective for the featurizers' tensors alone, so the model's weights never
     hold a gradient. The featurizers are made where the model is, so the optimizer runs there. Every run of its
     body adds the model calls it made and the tokens they fed to the fit's `cost`. It ends with each trained
-    featurizer scoring, as `<fit>.<featurizer>` in `state`, where the fit's eval steps after it find it."""
+    featurizer scoring, as `<fit>.<featurizer>` in `state`, where the fit's eval steps after it find it, and each of
+    its tensors the plan names beside it (`<fit>.<featurizer>.<tensor>`, a copy: `Kind.value`)."""
     view, findings = body_view(plan, name, step.at), replace(findings, said={})
     # A compiled point's values are its own, never a sweep.
     epochs, seed, size = cast(int, step.epochs), cast(int, step.seed), cast(int, step.batch_size)
@@ -96,11 +97,14 @@ def fit(engine: Engine, plan: Plan, name: str, step: Fit, state: ChainMap, batch
             since += 1
             if since >= cast(int, step.early_stop.patience):
                 break
+    named = tensors_named(plan)
     for f, inst in trained.items():
         vars(inst).update(kept[f] if kept else {})
         inst.settle()
         inst.training, inst.seen = False, None
         put(state, f"{name}.{f}", step.at, inst)
+        for tensor in (t for t in inst.laid if f"{name}.{f}.{t}" in named):    # as the fit left it, a copy
+            put(state, f"{name}.{f}.{tensor}", step.at, inst.value(tensor))
     for key, values in history.items():         # `epochs: 0` scores the untrained draw: an empty history
         put(state, f"{name}.history.{key}", step.at, torch.stack(values) if values else torch.zeros(0))
 

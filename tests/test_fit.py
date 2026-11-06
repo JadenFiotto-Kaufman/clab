@@ -437,6 +437,306 @@ def test_the_probe_runs_the_same_on_both_engines(engines):
     assert same(*got)
 
 
+# -- a featurizer's tensors as values ---------------------------------------------------------------------
+
+LAST = {"component": "layer_output", "layers": 1}
+
+
+def logits_after(*ops_: dict) -> dict:
+    """A forward over the days whose entry `out` makes `ops_` at layer 1's output at the last position (none: a read),
+    and whose `logits` are the last position's."""
+    return {"kind": "forward", "input": "days.input", "interventions": {
+        "out": {"site": LAST, "pos": -1, "ops": list(ops_)}, "logits": {"site": {"component": "logits"}, "pos": -1}}}
+
+
+def direction(d):
+    """The probe's direction, `W[:, 1] - W[:, 0]` (weekend less weekday, its classes sorted), made after the fit: a
+    `select` of each class's column of `fit.probe.W`, summed over `classes`, then the one less the other; projected
+    out of layer 1's output at the last position, and, scaled to zero, the null."""
+    d["steps"].update({
+        "weekend": {"kind": "op", "op": "select", "of": "fit.probe.W", "select": {"classes": 1}},
+        "weekend_column": {"kind": "op", "op": "sum", "of": "weekend", "over": ["classes"]},
+        "weekday": {"kind": "op", "op": "select", "of": "fit.probe.W", "select": {"classes": 0}},
+        "weekday_column": {"kind": "op", "op": "sum", "of": "weekday", "over": ["classes"]},
+        "direction": {"kind": "op", "op": "sub", "of": "weekend_column", "with": "weekday_column"},
+        "zero": {"kind": "op", "op": "mul", "of": "direction", "with": 0},
+        "clean": logits_after(),
+        "projected": logits_after({"op": "project_out", "direction": "direction"}),
+        "null": logits_after({"op": "project_out", "direction": "zero"})})
+    d["saves"] = ["fit.probe", "fit.probe.W", "fit.probe.b", "probe.W", "weekend", "direction", "clean.logits",
+                  "projected.out", "projected.logits", "null.logits"]
+
+
+@pytest.mark.parametrize("kind", ["nnterp", "hooks"])
+def test_a_trained_probes_tensors_are_values_equal_to_its_bundle(engines, kind, tmp_path):
+    """`fit.probe.W` and `fit.probe.b` are laid out as a linear lays them, `[hidden_size, classes]` and `[classes]`,
+    in the probe's coordinates; after the run each is its bundle's tensor to the bit, float32, written as a tensor
+    value is; the bare `probe.W` is the draw, zeros."""
+    plan = probe(direction)
+    assert (dims(plan, "fit.probe.W"), dims(plan, "fit.probe.b"), dims(plan, "probe.W")) == \
+        (["hidden_size", "classes"], ["classes"], ["hidden_size", "classes"])
+    filled = engines(kind, plan.model).execute(plan, batch_size=BATCH_SIZE)
+    filled.dump(str(tmp_path))
+    values, bundle = filled.results, load_file(tmp_path / "fit.probe.safetensors")
+    assert same(values["fit.probe.W"], bundle["W"]) and same(values["fit.probe.b"], bundle["b"])
+    assert values["fit.probe.W"].dtype == values["fit.probe.b"].dtype == torch.float32
+    assert same(values["probe.W"], torch.zeros(16, 2))
+    assert same(load_file(tmp_path / "fit.probe.W.safetensors")["fit.probe.W"], bundle["W"])
+    described = json.load(open(tmp_path / "manifest.json"))["results"]["fit.probe.W"]
+    assert (described["step"], described["dims"], described["shape"]) == ("fit", ["hidden_size", "classes"], [16, 2])
+
+
+@pytest.mark.parametrize("kind", ["nnterp", "hooks"])
+def test_projecting_out_a_probes_direction_moves_the_logits_and_its_zero_is_the_clean_run(engines, kind):
+    """The whole route runs in one document: the direction is `W[:, 1] - W[:, 0]` to the bit, `select` keeps
+    `classes` at size 1 labelled with the class it kept, projecting the direction out of the stream moves the logits,
+    and the direction scaled to zero leaves them the clean run's, to the bit."""
+    plan = probe(direction)
+    assert cast(OpStep, plan.steps["weekend"]).kept == {"classes": [1]} and dims(plan, "direction") == ["hidden_size"]
+    values = engines(kind, plan.model).execute(plan, batch_size=BATCH_SIZE).results
+    w = values["fit.probe.W"]
+    assert same(values["weekend"], w[:, 1:2]) and same(values["direction"], w[:, 1] - w[:, 0])
+    assert same(values["null.logits"], values["clean.logits"])
+    assert not torch.equal(values["projected.logits"], values["clean.logits"])
+    out, unit = values["projected.out"], w[:, 1] - w[:, 0]
+    assert (out @ (unit / unit.norm())).abs().max() < 1e-5          # nothing left along it at the site
+
+
+def test_the_probes_direction_runs_the_same_on_every_engine(engines, monkeypatch):
+    """nnterp, hooks and ndif under `remote="local"` give the same numbers, the tensors among them; through the
+    stand-in server the request ships nothing of clab by value and the same numbers come home, the tensors made
+    where the run is."""
+    got = [engines(kind, TINY_MODEL, **options).execute(probe(direction), batch_size=BATCH_SIZE).results
+           for kind, options in (("nnterp", {}), ("hooks", {}), ("ndif", {"remote": "local"}))]
+    assert same(got[0], got[1]) and same(got[0], got[2])
+    served, trip = stand_in(engines, probe(direction), monkeypatch)
+    assert trip == TRIP and same(served.results, got[0])
+
+
+def test_a_later_fits_body_names_an_earlier_fits_tensor_as_a_value_made_before_it(engines):
+    """An earlier fit's trained tensor is made before a later fit, whose body names it as it names any value made
+    before the fit: here a constant trained at layer 1 beside an op over `fit.probe.W`, whose history is that op's
+    mean at every epoch."""
+    def later(d):
+        d["featurizers"]["c"] = {"kind": "constant", "init": 0.0}
+        d["steps"]["fit2"] = {
+            "kind": "fit", "train": ["c"], "objective": {"n": 1.0}, "epochs": 2, "batch_size": 4, "seed": 0,
+            "optimizer": {"name": "adam", "lr": 0.1},
+            "steps": {"w": logits_after({"op": "apply", "featurizer": "fit2.c"}),
+                      "weights": {"kind": "op", "op": "abs", "of": "fit.probe.W"},
+                      "n": {"kind": "op", "op": "norm", "of": "w.out"}}}
+        d["saves"] = ["fit.probe.W", "fit2.history.weights"]
+    plan = probe(later)
+    values = engines("nnterp", plan.model).execute(plan, batch_size=BATCH_SIZE).results
+    assert same(values["fit2.history.weights"], values["fit.probe.W"].abs().mean().expand(2))
+
+
+def test_a_run_stopped_before_a_constant_is_drawn_keeps_its_refusal_and_the_steps_before(engines, monkeypatch):
+    """ablation_pair's constant `c` is drawn from `mean`, so a run out of CUDA memory at `mean` stops before `c` and
+    its `vector` exist: the run's refusal stands, the steps before it are recorded, and `c.vector` has no result."""
+    from clab import steps
+
+    op = steps.KINDS["op"]
+
+    def starved(engine, plan, name, step, *rest):
+        if name == "mean":
+            raise torch.OutOfMemoryError("CUDA out of memory. Tried to allocate 1.00 GiB.")
+        return op(engine, plan, name, step, *rest)
+    monkeypatch.setitem(steps.KINDS, "op", starved)
+    plan = edited("ablation_pair", lambda d: d["saves"].append("c.vector")).compile()
+    with pytest.raises(ValueError, match=r"^steps\.mean: out of CUDA memory at batch size 2 "):
+        engines("nnterp", plan.model).execute(plan, batch_size=BATCH_SIZE)
+    assert plan.run is not None and (plan.run.stopped or "").startswith("steps.mean: out of CUDA memory")
+    assert {"clean.ld", "null.ld"} <= set(plan.results) and not {"mean", "c.vector"} & set(plan.results)
+
+
+def test_a_swept_fits_tensor_carries_its_sweep_axis(engines):
+    """A fit swept over its learning rate trains a probe per point, and `fit.probe.W` is one tensor per point, keyed
+    by the fit's coordinate, each that point's bundle's."""
+    plan = probe(direction, lambda d: d["steps"]["fit"]["optimizer"].update(lr={"sweep": [0.5, 0.05], "label": "lr"}))
+    assert [record_of(plan.steps, "fit.probe.W", f.at, plan.featurizers).axes for f in points(plan.steps["fit"])] \
+        == [["lr"], ["lr"]]
+    values = engines("nnterp", plan.model).execute(plan, batch_size=BATCH_SIZE).results
+    assert set(values["fit.probe.W"]) == {0.5, 0.05} and not same(values["fit.probe.W"][0.5],
+                                                                     values["fit.probe.W"][0.05])
+    assert all(same(values["fit.probe.W"][lr], values["fit.probe"][lr]["W"]) for lr in (0.5, 0.05))
+
+
+def test_a_published_saes_tensors_are_the_files(engines):
+    """A loaded file's tensors are its own: an sae's decoder `[features, hidden_size]`, in the site's layout, and a
+    JumpReLU's threshold `[features]`, in its coordinates, each equal to the file's."""
+    def named(d):
+        d["steps"]["decoder"] = {"kind": "op", "op": "mul", "of": "dictionary.W_dec", "with": 1}
+        d["saves"] += ["dictionary.W_dec", "dictionary.threshold", "dictionary.b_dec"]
+    plan = edited("sae_published_jumprelu", named).compile()
+    assert (dims(plan, "dictionary.W_dec"), dims(plan, "dictionary.threshold")) == \
+        (["features", "hidden_size"], ["features"])
+    values = engines("nnterp", plan.model).execute(plan, batch_size=BATCH_SIZE).results
+    file = load_file(os.path.join(DOCUMENTS, "artifacts", "sae_gemma_scope.safetensors"))
+    assert all(same(values[f"dictionary.{t}"], file[t]) for t in ("W_dec", "threshold", "b_dec"))
+
+
+def test_a_constant_drawn_from_a_featurizers_tensor_writes_it(engines):
+    """A constant's `init` may name a tensor of one of the plan's featurizers (an sae's `b_dec`, the vector its
+    decoder adds), made before the first step, whichever of the two the plan declares first; the constant writes
+    it in place of the value."""
+    def drawn(d):
+        d["featurizers"] = {"bias": {"kind": "constant", "init": "dictionary.b_dec"}, **d["featurizers"]}
+        d["steps"]["written"] = {"kind": "forward", "input": "prompts.input", "interventions": {"out": {
+            "site": "target", "pos": -1, "ops": [{"op": "apply", "featurizer": "bias"}]}}}
+        d["saves"] = ["written.out"]
+    plan = edited("sae_published_jumprelu", drawn).compile()
+    values = engines("nnterp", plan.model).execute(plan, batch_size=BATCH_SIZE).results
+    b_dec = load_file(os.path.join(DOCUMENTS, "artifacts", "sae_gemma_scope.safetensors"))["b_dec"]
+    assert same(values["written.out"], b_dec.expand_as(values["written.out"]))
+
+
+@pytest.mark.parametrize("change, message", [
+    (lambda d: d["steps"].update(w={"kind": "op", "op": "abs", "of": "fit.probe.U"}),
+     r"^steps\.w\.of: 'fit\.probe\.U' names no tensor of 'fit\.probe', a linear, whose tensors are W, b$"),
+    (lambda d: d["steps"].update(w={"kind": "op", "op": "abs", "of": "probe.bias"}),
+     r"^steps\.w\.of: 'probe\.bias' names no tensor of 'probe', a linear, whose tensors are W, b$"),
+    (lambda d: d["steps"].update({"w": {"kind": "op", "op": "abs", "of": "probe.W"},
+                                  **{k: d["steps"].pop(k) for k in list(d["steps"])}}),
+     r"^steps\.w\.of: 'probe\.W' is a tensor of 'probe', laid out on the last axis of the site it is used at, and no "
+     r"step before this one encodes or applies 'probe' at a site; name its tensors after a step that does$"),
+    (lambda d: d["steps"]["fit"]["steps"].update(w={"kind": "op", "op": "abs", "of": "fit.probe.W"}),
+     r"^steps\.fit\.steps\.w: 'fit\.probe\.W' is a tensor of 'fit\.probe', which this fit trains: it is a value "
+     r"once the fit ends, as the fit left it; name it in a step after the fit$"),
+    (lambda d: d["steps"]["fit"]["steps"].update(w={"kind": "op", "op": "abs", "of": "probe.b"}),
+     r"^steps\.fit\.steps\.w: 'fit\.probe\.b' is a tensor of 'fit\.probe', which this fit trains"),
+    (lambda d: d["steps"].update(w={"kind": "op", "op": "select", "of": "fit.probe.W", "select": {"classes": 2}}),
+     r"^steps\.w: select classes 2 outside the 2 along classes \(the probe's\)$"),
+    (lambda d: d["steps"].update(w={"kind": "forward", "input": "days.input", "interventions": {"x": {
+        "site": LAST, "pos": -1, "ops": [{"op": "select", "select": {"hidden_size": 0}}]}}}),
+     r"^steps\.w\.interventions\.x\.ops\[0\]: inside an entry the value is its site's selection, which the site's "
+     r"own select narrows"),
+    (lambda d: d["saves"].append("fit.probe.U"),
+     r"^saves\[\d\]: 'fit\.probe\.U' names no tensor of 'fit\.probe'"),
+    (lambda d: (d["featurizers"].update(c={"kind": "constant", "init": "probe.W"}),
+                d["steps"].update(w=logits_after({"op": "apply", "featurizer": "c"}))),
+     r"^featurizers\.c\.init: 'probe\.W' is laid out \['hidden_size', 'classes'\], .*: take one of its classes in a "
+     r"step before the constant's first use, a select of it summed over classes \(a sum of one entry is that entry\)$"),
+    (lambda d: d["steps"].update(a={"kind": "op", "op": "select", "of": "fit.probe.W", "select": {"classes": 1}},
+                                 b={"kind": "op", "op": "select", "of": "fit.probe.W", "select": {"classes": 0}},
+                                 d={"kind": "op", "op": "sub", "of": "a", "with": "b"}),
+     r"^steps\.d\.with: 'b' holds classes \[0\], and the value it acts on holds \[1\]; an operand broadcasts over rows "
+     r"and positions only: select the same classes of both, or reduce each over classes first \(a sum of one entry is "
+     r"that entry\), so that they meet without it$")])
+def test_a_tensor_or_a_select_that_cannot_be_named_is_refused_at_compile(change, message):
+    with pytest.raises(PlanError, match=message):
+        probe(change)
+
+
+def test_a_tensor_meeting_a_value_without_its_first_sites_axis_is_refused_naming_that_site():
+    """A subspace used first at the queries and then at the premix, both 4 wide on this model, lays its basis out on
+    the queries' `qk_head_dim`: a column of it projected out at the premix, laid out on `head_dim`, is refused naming
+    the site the tensor takes its axis from, and the fix."""
+    queries, premix = {"component": "attention_queries", "layers": 0}, {"component": "attention_premix", "layers": 0}
+
+    def two_sites(d):
+        d["featurizers"]["p"] = {"kind": "subspace", "k": 2}
+        d["steps"].update(
+            rq={"kind": "forward", "input": "days.input", "interventions": {"h": {"site": queries, "pos": -1}}},
+            sq={"kind": "op", "op": "encode", "featurizer": "p", "of": "rq.h"},
+            rz={"kind": "forward", "input": "days.input", "interventions": {"h": {"site": premix, "pos": -1}}},
+            sz={"kind": "op", "op": "encode", "featurizer": "p", "of": "rz.h"},
+            column={"kind": "op", "op": "select", "of": "p.basis", "select": {"features": 0}},
+            d={"kind": "op", "op": "sum", "of": "column", "over": ["features"]},
+            out={"kind": "forward", "input": "days.input", "interventions": {"h": {"site": premix, "pos": -1, "ops": [
+                {"op": "project_out", "direction": "d"}]}}})
+    with pytest.raises(PlanError, match=r"^steps\.out\.interventions\.h\.ops\[0\]\.direction: 'd' is laid out "
+                                        r"\['qk_head_dim'\]; .*; 'd' lies on qk_head_dim, the last axis of "
+                                        r"attention_queries, where a step first uses 'p', whose tensors take that site's "
+                                        r"axes: use 'p' first at a site laid out as this value is, or give each site a "
+                                        r"featurizer of its own$"):
+        probe(two_sites)
+
+
+def test_an_affines_map_names_one_axis_twice_and_is_refused_where_its_bias_is_a_value():
+    """An affine's `W` is `[hidden_size, hidden_size]`, two axes under one name, which no op tells apart; its `b` is a
+    value, `[hidden_size]`."""
+    def affine(d, tensor):
+        d["featurizers"]["map"] = {"kind": "affine"}
+        d["steps"]["mapped"] = logits_after({"op": "apply", "featurizer": "map"})
+        d["steps"]["w"] = {"kind": "op", "op": "abs", "of": f"map.{tensor}"}
+    assert dims(probe(lambda d: affine(d, "b")), "map.b") == ["hidden_size"]
+    with pytest.raises(PlanError, match=r"^steps\.w\.of: 'map\.W' is laid out \['hidden_size', 'hidden_size'\], two of "
+                                        r"its axes under one name, which no op tells apart"):
+        probe(lambda d: affine(d, "W"))
+
+
+def selecting(of: str, select: dict, saves: tuple[str, ...] = ()):
+    """A change adding step `last`, a select of `of`, and saving it beside `saves`."""
+    def change(d):
+        d["steps"]["last"] = {"kind": "op", "op": "select", "of": of, "select": select}
+        d["saves"] = ["last", *saves]
+    return change
+
+
+def test_a_select_is_checked_and_resolved_at_the_stage_that_knows_the_axis(engines):
+    """A count the document fixes is compile's: a fit's epochs, an sae's latents, a generation's `max_new_tokens` as an
+    upper bound. The model's sizes are preflight's. Only a history that `early_stop` ends sooner is the run's, refused
+    there naming the step. `-1` and a slice resolve at whichever stage knows the count."""
+    with pytest.raises(PlanError, match=r"^steps\.last: select epochs 30 outside the 30 along epochs \(the fit's "
+                                        r"epochs\)$"):
+        probe(selecting("fit.history.ce", {"epochs": 30}))
+    assert cast(OpStep, probe(selecting("fit.history.ce", {"epochs": "-2:"})).steps["last"]).kept == {"epochs": [28, 29]}
+    decoder = edited("sae_train", selecting("fit.dictionary.W_dec", {"features": -1})).compile()
+    assert cast(OpStep, decoder.steps["last"]).kept == {"features": [31]}
+    with pytest.raises(PlanError, match=r"^steps\.last: select new 6 outside the 6 along new at most \(the "
+                                        r"generation's max_new_tokens"):
+        edited("generated_answer", selecting("answer", {"new": 6})).compile()
+
+    plan = probe(selecting("fit.probe.W", {"hidden_size": -1}, ("fit.probe.W",)))
+    assert cast(OpStep, plan.steps["last"]).kept == {"hidden_size": []}
+    values = engines("nnterp", plan.model).execute(plan, batch_size=BATCH_SIZE)
+    assert cast(OpStep, values.steps["last"]).kept == {"hidden_size": [15]}
+    assert same(values.results["last"], values.results["fit.probe.W"][15:])
+    past = probe(selecting("fit.probe.W", {"hidden_size": 16}))
+    with pytest.raises(ValueError, match=r"^last: select hidden_size 16 outside the 16 along hidden_size \(the "
+                                         r"model's\)$"):
+        engines("nnterp", past.model).execute(past, batch_size=BATCH_SIZE)
+
+    def stops(select):          # das stopped early: its history holds 4 of its 10 epochs
+        return edited("das", chain(lambda d: d["steps"]["fit"]["early_stop"].update(mode="min"),
+                                   selecting("fit.history.ce", select, ("fit.history.ce",)))).compile()
+    with pytest.raises(PlanError, match=r"^steps\.last: select epochs 10 outside the 10 along epochs at most"):
+        stops({"epochs": 10})
+    last = stops({"epochs": -1})
+    assert cast(OpStep, last.steps["last"]).kept == {"epochs": []}
+    ran = engines("nnterp", last.model).execute(last, batch_size=BATCH_SIZE)
+    assert cast(OpStep, ran.steps["last"]).kept == {"epochs": [3]}
+    assert same(ran.results["last"], ran.results["fit.history.ce"][3:])
+    late = stops({"epochs": 9})
+    with pytest.raises(ValueError, match=r"^last: select epochs 9 outside the 4 along epochs \(the value's\)$"):
+        engines("nnterp", late.model).execute(late, batch_size=BATCH_SIZE)
+
+
+def test_a_select_takes_the_layers_of_a_tensor_over_layers_and_refuses_a_reads(engines):
+    """A featurizer's tensor over layers has no site, so a select takes its `layers`, labelled with the model layers it
+    kept; a read's layers are its site's to pick, and a select of them is refused with that fix."""
+    plan = edited("tuned_lens", selecting("fit.lens.b", {"layers": -1}, ("fit.lens",))).compile()
+    values = engines("nnterp", plan.model).execute(plan, batch_size=BATCH_SIZE)
+    assert cast(OpStep, values.steps["last"]).layers == [3]
+    assert same(values.results["last"], values.results["fit.lens"]["b"][3:])
+    with pytest.raises(PlanError, match=r"^steps\.last: select 'layers': a select step narrows a value's other axes, and "
+                                        r"its layers are a site's \(layers\) to narrow$"):
+        edited("tuned_lens", selecting("lfw.ll", {"layers": 0})).compile()
+
+
+def test_a_load_of_a_featurizers_tensor_is_refused_naming_the_bundle_to_load(engines, tmp_path):
+    """A saved tensor of a trained featurizer is no value a load brings: its bundle is, loaded with `file_path`."""
+    corpus = corpus_copy(tmp_path)
+    plan = probe(direction)
+    engines("nnterp", plan.model).execute(plan, batch_size=BATCH_SIZE).dump(os.path.join(corpus, "out", "probed"))
+    loading = {"model": TINY, "data": {}, "steps": {"w": {"kind": "load", "from": "out/probed", "value": "fit.probe.W"}}}
+    with pytest.raises(PlanError, match=r"^steps\.w\.value: 'fit\.probe\.W' is a tensor of 'fit\.probe', which "
+                                        r"out/probed's fit trained: save 'fit\.probe' there, load its bundle with "
+                                        r"'file_path', and name its tensor here$"):
+        Plan(**loading, document=os.path.join(corpus, "documents", "loading.json")).compile()
+
+
 # -- featurizers --------------------------------------------------------------------------------------------
 
 
@@ -593,8 +893,10 @@ def test_a_fit_that_only_applies_an_sae_records_none_of_its_scalars(engines):
     filled = engines("nnterp", TINY_MODEL).execute(edited("sae_train", change).compile(), batch_size=BATCH_SIZE)
     assert filled.results["fit.history.ce"].shape == (2,)
     with pytest.raises(PlanError, match=r"^saves\[0\]: 'fit\.history\.dictionary\.l1' names no step's value; a save "
-                                        r"is a step or a step's member: fit\.dictionary, fit\.history\.ce, "
-                                        r"fit\.train\.ce, fit\.train\.patched\.logits, fit\.train\.patched\.recon$"):
+                                        r"is a step or a step's member: fit\.dictionary, fit\.dictionary\.W_dec, "
+                                        r"fit\.dictionary\.W_enc, fit\.dictionary\.b_dec, fit\.dictionary\.b_enc, "
+                                        r"fit\.history\.ce, fit\.train\.ce, fit\.train\.patched\.logits, "
+                                        r"fit\.train\.patched\.recon$"):
         edited("sae_train", lambda d: change(d, ("fit.history.dictionary.l1",))).compile()
 
 
@@ -2032,7 +2334,7 @@ def test_the_ablation_pairs_nulls_hold_to_the_bit_and_its_fit_lowers_the_objecti
     plan = ran["ablation_pair", kind]
     got = plan.results
     assert same(got["null.ld"], got["clean.ld"])
-    donor = record_of(plan.steps, "donor", {})
+    donor = record_of(plan.steps, "donor", {}, plan.featurizers)
     assert isinstance(donor, OpStep) and donor.permutation == [2, 3, 0, 1]
     untrained = ((got["mean_ablated.ld"] - got["clean.ld"]) ** 2).mean()
     history = got["fit.history.sq"]

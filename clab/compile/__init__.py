@@ -27,13 +27,14 @@ from typing import Any, Callable, cast
 
 from clab import featurizers, ops
 from clab.compile.answers import check_column_ref
-from clab.compile.arguments import (featurizer_kind, kept_labels, layout, mismatch, narrowed_readout_refusal,
-                                    k_past, known_counts, references, resolver, space_of, value_record,
-                                    whole_top_k)
+from clab.compile.arguments import (featurizer_kind, first_use_hint, kept_labels, layout, mismatch,
+                                    narrowed_readout_refusal, k_past, known_counts, references, resolver, select_counts,
+                                    select_kept, selected_layers, space_of, value_record, whole_top_k)
 from clab.compile.interventions import bundles_of, compile_entry, entries_with_paths
 from clab.compile.schedule import share_forwards
 from clab.compile.state import Compiling
-from clab.compile.uses import check_bundle_shapes, check_bundle_sites, check_gate_axes, check_named_values
+from clab.compile.uses import (check_bundle_shapes, check_bundle_sites, check_gate_axes, check_named_values,
+                               tensor_refusal)
 from clab.featurizers import KINDS, article, bundles, labels
 from clab.format import data, registry
 from clab.format.sweeps import agreeing_point, coordinate_spelling, find_sweeps
@@ -68,6 +69,7 @@ from clab.plan import (
     produced,
     record_of,
     runnable,
+    tensor_of,
     trained_featurizers,
     writes,
 )
@@ -99,7 +101,12 @@ def compile(plan: Plan) -> Plan:
     for i, name in enumerate(plan.saves):
         if name in plan.saves[:i]:
             fail(f"saves[{i}]", f"{name!r} is saved twice")
-        if name not in saveable:
+        if tensor_of(cx.steps, cx.featurizers, name) is not None:      # a featurizer's tensor, laid out at its uses
+            thing = name.partition(".")[0]
+            first = points(cx.featurizers[thing] if thing in cx.featurizers else cx.steps[thing])[0]
+            if why := tensor_refusal(cx.steps, cx.featurizers, name, first.at, False):
+                fail(f"saves[{i}]", why)
+        elif name not in saveable:
             fail(f"saves[{i}]", f"{name!r} names no step's value; a save is a step or a step's member: "
                  f"{', '.join(saveable)}")
         if name in ("manifest", "tokens"):
@@ -276,7 +283,7 @@ def named_axes(cx: Compiling, ref: str, at: dict[str, int]) -> set[str]:
     thing = ref.partition(".")[0]
     if thing in cx.featurizers or thing not in cx.steps:
         return set(cx.axes_of.get(thing, []))
-    return set(record_of(cx.steps, ref, at).axes)
+    return set(record_of(cx.steps, ref, at, cx.featurizers).axes)
 
 
 def operand_axes(cx: Compiling, listed: list, at: dict[str, int], live: dict[str, set[str]]) -> set[str]:
@@ -359,15 +366,16 @@ def compile_step(cx: Compiling, path: str, name: str, spec: Entry, plan: Plan, a
 
     A reference is "thing, then member", split at the first dot: `counterfactual.v_cf` is step
     `counterfactual`'s entry `v_cf`; `mean` is an op step's value; `pairs.cf_answer` is a dataset's column; `rot`
-    is a declared featurizer and `mask.mask` its scalar; `fit.rot` is a fit's member; `top3.ids` is a `top_k` step's
-    member (`ids`, `probs` or `values`, `tokens`, and over a list of axes `top.ids.rows`, each laid out as the step's
-    value). Values are produced in
-    document order and referenced only after they exist. A fit's body is a scope of its own: it sees every
-    value produced before the fit, and nothing leaves it except through `<fit>.<member>`. A bundle of entries
-    is a template, so the names inside it resolve where a step pulls it in. Under a sweep, a name means the
-    producer's point that agrees with the consumer's coordinates on the producer's axes. Every value with a
-    rows axis knows the dataset its rows are aligned to (a forward's input; an op's `of`, operands and
-    columns), and an op takes one dataset's rows.
+    is a declared featurizer, `mask.mask` its scalar and `rot.basis` its tensor, as drawn or loaded; `fit.rot` is a
+    fit's member, the trained featurizer, and `fit.rot.basis` its tensor, as the fit left it; `top3.ids` is a `top_k`
+    step's member (`ids`, `probs` or `values`, `tokens`, and over a list of axes `top.ids.rows`, each laid out as the
+    step's value). Values are produced in document order and referenced only after they exist, a featurizer's
+    tensors after a step that uses the featurizer at a site, whose last axis they lie on. A fit's body is a scope of
+    its own: it sees every value produced before the fit, and nothing leaves it except through `<fit>.<member>`. A
+    bundle of entries is a template, so the names inside it resolve where a step pulls it in. Under a sweep, a name
+    means the producer's point that agrees with the consumer's coordinates on the producer's axes. Every value with
+    a rows axis knows the dataset its rows are aligned to (a forward's input; an op's `of`, operands and columns),
+    and an op takes one dataset's rows.
     """
     assert not isinstance(spec, list), "a point holds one step under each name"
     derived = set(type(spec).model_fields) - set(documented(type(spec)))     # compile writes them over what was set
@@ -526,9 +534,9 @@ def compile_op(cx: Compiling, path: str, name: str, spec: OpStep, plan: Plan, at
     operands = references(spec.op, args, resolver(cx, path, "classes" in of.dims, at))
     for key, (written, theirs) in operands.items():
         why = mismatch(of, theirs, spec.op, key, written, repr(spec.of), False, False, adapts(plan, spec),
-                       lambda ref: record_of(cx.steps, ref, at))
+                       lambda ref: record_of(cx.steps, ref, at, cx.featurizers))
         if why:
-            fail(f"{path}.{key}", why)
+            fail(f"{path}.{key}", why + first_use_hint(cx, written, theirs, of, at))
     if spec.op == "permute" and isinstance(of, OpStep) and of.op in ("top_k", "detokenize"):
         fail(f"{path}.of", f"{spec.of!r} is a {of.op}'s value, which permute does not reorder; a {of.op} acts row by "
              f"row, so permute the value it is over ({of.of!r}) and {of.op} that")
@@ -537,7 +545,7 @@ def compile_op(cx: Compiling, path: str, name: str, spec: OpStep, plan: Plan, at
              "is, which a pca's bundle records: pca the read itself, whose vectors are the same")
     source = of             # a permute's rows are other rows' values at the site of the read it permutes
     while spec.op == "readout" and source.read is None and isinstance(source, OpStep):
-        source = record_of(cx.steps, source.of, at)
+        source = record_of(cx.steps, source.of, at, cx.featurizers)
     if spec.op == "readout" and source.read is not None:        # the one stream check, an entry's readout's too
         site = cast(Site, entry_of(cx.steps, source.read, at)[1].site)
         if why := ops.transforms.unstreamed(site.component):
@@ -548,6 +556,15 @@ def compile_op(cx: Compiling, path: str, name: str, spec: OpStep, plan: Plan, at
     # An encode's value is in its featurizer's coordinates, as an entry's is that leaves its encode open.
     space = of.space + space_of([spec]) if spec.op == "encode" else of.space if dims[-1:] == of.dims[-1:] else []
     layers, kept, width = kept_labels(of, dims)
+    if spec.op == "select":
+        if "layers" in args["select"] and of.read is not None:
+            fail(path, f"select 'layers': a select step narrows a value's other axes, and its layers are "
+                 f"{ops.transforms.SITE_LAYERS} to narrow")
+        try:
+            layers, kept = selected_layers(of, kept | select_kept(path, of, args, None, *select_counts(cx, of, spec.of,
+                                                                                                       at)))
+        except ValueError as e:
+            raise PlanError(str(e)) from None
     dataset = of.dataset if of.dataset is not None else \
         next((t.dataset for _, t in operands.values() if "rows" in (t.dims or []) and t.dataset is not None), None)
     if spec.op == "permute" and args.get("derangement") is True and dataset is not None and len(cx.rows[dataset]) < 2:
@@ -569,13 +586,22 @@ def compile_load(cx: Compiling, path: str, name: str, spec: Load, plan: Plan, at
     (`plan.loaded_value`)."""
     src, d = saved_value_record(cx, path, spec.from_, spec.value)
     ran, here = src["plan"], f"{path}.value"
+    thing, _, member = spec.value.partition(".")
+    fit = points(ran.steps[thing])[0] if thing in ran.steps else None
+    if fit is None:             # a featurizer's, which a load does not carry: the featurizer does
+        fail(here, f"{spec.value!r} is a tensor of {spec.from_}'s featurizer {thing!r}, as drawn or loaded there: "
+             "declare the featurizer here as that document does, and name its tensor")
+    if fit.kind == "fit" and member.partition(".")[0] in fit.train and "." in member:
+        trained = f"{thing}.{member.partition('.')[0]}"
+        fail(here, f"{spec.value!r} is a tensor of {trained!r}, which {spec.from_}'s fit trained: save {trained!r} "
+             "there, load its bundle with 'file_path', and name its tensor here")
     theirs, ours = ran.model.model_dump(), plan.model.model_dump()
     differ = [k for k in dict.fromkeys([*theirs, *ours]) if theirs.get(k) != ours.get(k)]
     if differ:
         fail(f"{path}.from", f"{spec.from_} ran another model than this document's: " + ", ".join(
             f"{k} {theirs.get(k)!r} where this document's is {ours.get(k)!r}" for k in differ))
     there = {label: at[label] for label in d["axes"]}         # the point here is the point there: same labels, values
-    record = record_of(ran.steps, spec.value, there)
+    record = record_of(ran.steps, spec.value, there, ran.featurizers)
     made = agreeing_point(runnable(ran.steps)[made_by(ran, spec.value)], there)      # an eval's member's: its eval step
     producer, entry = entry_of(ran.steps, record.read, there) if record.read is not None else (None, None)
     if made.kind == "fit" and spec.value.partition(".")[2] in made.train or \
@@ -752,11 +778,15 @@ def compile_fit(cx: Compiling, path: str, name: str, spec: Fit, plan: Plan, at: 
                      "grad inside a fit's body is not served: the fit differentiates its objective for the "
                      "featurizers it trains; take the gradient in a forward before or after the fit")
         s = rename_spec(s, own, {})
-        body[n] = within.steps[n] = compile_step(within, f"{path}.steps.{n}", n, s, view, at)
         refs = referenced_names(cx, s.model_dump(exclude_defaults=True))
+        for r in refs:          # what it trains is a value once the fit ends, not while the body trains it
+            if (tensor := tensor_of(within.steps, cx.featurizers, r)) is not None and tensor[0] in own.values():
+                fail(f"{path}.steps.{n}", f"{r!r} is a tensor of {tensor[0]!r}, which this fit trains: it is a value "
+                     "once the fit ends, as the fit left it; name it in a step after the fit")
+        body[n] = within.steps[n] = compile_step(within, f"{path}.steps.{n}", n, s, view, at)
         for r in refs:
             thing = r.partition(".")[0]
-            if thing in cx.steps and thing not in body and "rows" in (record_of(cx.steps, r, at).dims or []):
+            if thing in cx.steps and thing not in body and "rows" in (record_of(cx.steps, r, at, cx.featurizers).dims or []):
                 harvests.setdefault(r, n)
         if any(r in trained or r.partition(".")[0] in trained for r in refs):
             trained.add(n)                  # a step whose value depends on what the fit trains
@@ -794,7 +824,7 @@ def compile_fit(cx: Compiling, path: str, name: str, spec: Fit, plan: Plan, at: 
                 if d not in cx.rows:
                     fail(where, f"no dataset {d!r}; datasets: {', '.join(cx.rows)}")
             for ref in harvests:
-                if record_of(cx.steps, ref, at).dataset == a:
+                if record_of(cx.steps, ref, at, cx.featurizers).dataset == a:
                     fail(where, f"the body uses {ref!r}, made before the fit with a row per example of {a!r}, and "
                          f"this eval reads {a!r} as {b!r}, over whose rows no step made it; evaluate on {b!r} in "
                          "steps after the fit, which reach what it trained as "
@@ -831,15 +861,15 @@ def compile_fit(cx: Compiling, path: str, name: str, spec: Fit, plan: Plan, at: 
         over = arguments(s).get("over") if isinstance(s, OpStep) and s.op == "top_k" else None
         if over == "rows" or isinstance(over, list) and "rows" in over:
             assert isinstance(s, OpStep)
-            of = record_of(within.steps, s.of, at)
+            of = record_of(within.steps, s.of, at, cx.featurizers)
             held = (fewest, f"those the fewest-row run of the body holds, of {total} rows in minibatches of {size}")
             if why := k_past(s.op, arguments(s), of, None, {**known_counts(within, of, s.of, at), "rows": held}):
                 fail(f"{path}.steps.{n}.k", why)
     # The rows a minibatch's ids are: of the datasets the body's forwards read, or, with none, its first harvest's.
     rows = {s.dataset for s in body.values() if s.kind != "op"} or \
-        {record_of(cx.steps, r, at).dataset for r in list(harvests)[:1]}
+        {record_of(cx.steps, r, at, cx.featurizers).dataset for r in list(harvests)[:1]}
     for ref, n in harvests.items():
-        d = record_of(cx.steps, ref, at).dataset
+        d = record_of(cx.steps, ref, at, cx.featurizers).dataset
         if d not in rows:
             theirs = " and ".join(map(repr, sorted(map(str, rows))))
             fail(f"{path}.steps.{n}", f"the body uses {ref!r}, made before the fit with a row per example of {d!r}, "

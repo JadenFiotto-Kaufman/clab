@@ -1,6 +1,6 @@
 ---
 title: Ops
-one_liner: "Which op scores, reduces or transforms a value? Metrics, KL in either direction, reductions (median, count), top_k over rows and positions, permute, arithmetic, and step versus entry."
+one_liner: "Which op scores, reduces or transforms a value? Metrics, KL in either direction, reductions (median, count), top_k over rows and positions, permute, select along an axis, arithmetic, and step versus entry."
 tags: [usage, ops]
 related: [docs/usage/interventions.md, docs/usage/data.md, docs/usage/output.md, docs/concepts/values-and-layout.md, docs/errors/alignment-missing.md, docs/patterns/logit-lens.md, docs/patterns/probing.md, docs/patterns/steering.md]
 sources: [clab/ops/__init__.py, clab/ops/metrics.py, clab/ops/reductions.py, clab/ops/transforms.py, clab/ops/edits.py, clab/compile/arguments.py, clab/steps/__init__.py, clab/steps/batches.py]
@@ -142,6 +142,12 @@ What is left (a confidence interval, a ranking across points, a join across runs
 - `grad` is the first op of an entry. It puts the gradient of a later entry of the same forward in the value's place, in its layout, and the ops after it act on the gradient ([interventions](interventions.md#a-gradient-at-a-site)).
 - `permute` reorders a value's rows, row i holding row π(i)'s, π drawn from `seed` alone. It is an op step only, and its record holds what it drew (`permutation`). A resample ablation swaps a permuted read into a later forward ([ablation](../patterns/ablation.md#resample-by-permuting-the-rows)).
 - A permuted read pairs with another forward's value as its read does. At `{"index": ":"}` on prompts of one length it pairs at the width preflight confirms; on prompts of different lengths preflight refuses it, naming the read and each count's rows (`operand 'donor' reorders the rows of 'harvest.acts', which holds 11 positions on row 0 and 9 positions on rows 1-3; …`). Read a static span every row holds instead (`"0:9"`) ([operand-does-not-fit](../errors/operand-does-not-fit.md#-which-an-open-index-has-where-every-row-holds-as-many-positions)).
+- `select` narrows a value along an axis a read cannot narrow, with a read's `{<axis>: <selector>}`: a class of a probe's `W`, a latent of an sae's `W_dec`, a head of a gate's `theta`. `{"kind": "op", "op": "select", "of": "fit.probe.W", "select": {"classes": 1}}` keeps the probe's second class's column.
+- An int keeps the axis at size 1, labelled with the index it kept, so Ops' one rule pairs it only with that index. A reduction over the axis drops it, and a `sum` of one entry is that entry exactly. A two-class probe's direction is two selects, each summed over `classes`, then a `sub` ([probing](../patterns/probing.md#use-a-probes-direction)).
+- `select` is an op step. Inside an entry the site's own `select` narrows the value. `rows`, `pos` and `key` are the dataset's and the read's to narrow, and a read's `layers` its site's; each is refused by name.
+- `layers` of a value with no read, a featurizer's tensor over layers (`fit.lens.b` `[layers, hidden_size]`, a head gate's `theta`), is a select's, labelled with the model layers it kept.
+- A pick outside the axis is refused at the stage that knows the axis's number. Compile knows what the document fixes: a featurizer's coordinates or `rank`, a probe's classes, a fit's `epochs`, a `top_k`'s `k`, and a generation's `max_new_tokens` as an upper bound of `new`. Preflight knows the model's sizes. The run alone knows a history that `early_stop` ended sooner and a generation whose rows stopped early, and its refusal names the step.
+- `-1` and a slice resolve at whichever stage knows the number, the run at last.
 
 ### Arithmetic
 

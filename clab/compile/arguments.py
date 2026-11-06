@@ -12,10 +12,12 @@ from clab.featurizers import bundles
 from clab.compile import positions
 from clab.compile.answers import check_column_ref, check_text_ref, is_literal
 from clab.compile.state import Compiling
+from clab.compile.uses import tensor_refusal
 from clab.format import address, data, registry, selectors
-from clab.format.sweeps import points
-from clab.plan import (Featurizer, Intervention, Labelled, Load, Op, OpStep, Plan, arguments, fail, kind_of, member_of,
-                       produced, record_of, top_k_members, top_k_of, trained_featurizers)
+from clab.format.sweeps import agreeing_point, points
+from clab.plan import (Featurizer, Intervention, Labelled, Load, Op, OpStep, Plan, Site, arguments, fail,
+                       featurizer_uses, horizon, kind_of, member_of, produced, record_of, tensor_of, top_k_members,
+                       top_k_of, trained_featurizers)
 
 
 def narrowed_readout_refusal(what: str) -> str:
@@ -117,6 +119,9 @@ def layout(path: str, name: str, args: dict, dims: list[str], where: str, kind: 
         out = ops.out_dims(name, dims, {**{k: p.default for k, p in ops.parameters(name).items()}, **args}, kind)
     except ValueError as e:
         fail(path, str(e))
+    if where != "step" and name == "select":
+        fail(path, "inside an entry the value is its site's selection, which the site's own select narrows "
+             "({'component': ..., 'select': {<axis>: <selector>}}); select a value in a step after the forward")
     if where != "step" and name == "top_k" and isinstance(args.get("over"), list):
         fail(path, "a top_k over a list of axes gives an index per axis of each pick, which an entry's batches do "
              "not join; make it a step after the forward")
@@ -126,6 +131,86 @@ def layout(path: str, name: str, args: dict, dims: list[str], where: str, kind: 
             f"aggregates, and write that in ({{'op': 'swap', 'with': '<that step>'}})" if where == "live" else
             "make it a step after the forward"))
     return out
+
+
+def select_kept(where: str, of: Labelled, args: dict, sizes: dict[str, int] | None,
+                known: dict[str, tuple[int, str]], bounds: dict[str, tuple[int, str]] | None = None,
+                compiled: dict[str, selectors.Kept] | None = None) -> dict[str, selectors.Kept]:
+    """What a `select` step over the value labelled `of` keeps on each axis it narrows: the picks of its selector
+    among the entries along that axis, each the index the value holds there (one a site's or an earlier select's
+    `kept` names, else the axis's own), so selects compose. Their number is the record's or what the stage knows
+    (`along`: at compile the counts the document fixes, `select_counts`; in preflight the model's sizes; in the run
+    the value's own shape). Where none knows it, a selector counted from the start (`selectors.keyed`) picks the same
+    indices whatever the number, held to the upper bound the document fixes (`bounds`: a generation's
+    `max_new_tokens`, a fit's `epochs` under `early_stop`), and any other is `[]` until a stage that knows the number,
+    the run at last. Where this stage knows no more than an earlier one that resolved the axis (`compiled`), its picks
+    stand. A pick past the entries, or a selector that keeps none, is refused by name, a `ValueError` starting with
+    `where`."""
+    out: dict[str, selectors.Kept] = {}
+    for axis, selector in args["select"].items():
+        held, count = of.kept.get(axis), along(of, axis, sizes, known)
+        if held == [] or count is None and (compiled or {}).get(axis):     # waits on preflight, or compile's stands
+            out[axis] = (compiled or {}).get(axis, [])
+            continue
+        if count is not None:
+            selectors.selected(where, axis, selector, count[0], f"the {count[0]} along {axis} ({count[1]})")
+            picks = selectors.select(selector, count[0])
+        elif selectors.keyed(selector):
+            if axis in (bounds or {}):
+                n, why = (bounds or {})[axis]
+                selectors.selected(where, axis, selector, n, f"the {n} along {axis} at most ({why})")
+            picks = selectors.keys(selector)
+        else:
+            out[axis] = []
+            continue
+        out[axis] = [held[i] for i in picks] if isinstance(held, list) else picks
+    return out
+
+
+def selected_layers(of: Labelled, kept: dict[str, selectors.Kept]) -> tuple[list[int] | None, dict[str, selectors.Kept]]:
+    """A `select`'s value's layers and the indices it keeps (`select_kept`'s), the picks along `layers` taken out of the
+    kept indices and mapped to the model layers of the value it is over (`[]` while either waits on a later stage);
+    the value's own layers where it selects none."""
+    if "layers" not in kept:
+        return of.layers, kept
+    picks, rest = kept["layers"], {a: v for a, v in kept.items() if a != "layers"}
+    return ([cast(list, of.layers)[i] for i in cast(list, picks)] if picks and of.layers else []), rest
+
+
+def select_counts(cx: Compiling, record: Labelled, ref: str, at: dict[str, int]
+                  ) -> tuple[dict[str, tuple[int, str]], dict[str, tuple[int, str]]]:
+    """What compile knows of the numbers of entries along the axes of value `ref` (labelled `record`) a `select`
+    narrows, each with what says so: those `known_counts` knows, and those the document fixes on the value the axis
+    comes from, through the op steps that keep it: a featurizer's tensor's own axes (a probe's `classes`, an sae's
+    latents, a subspace's or a pca's `k`, a lora's `rank`: `coordinates_of`) and a fit's history's `epochs`; and,
+    apart, the upper bounds it fixes where the run may hold fewer, a generation's `max_new_tokens` along `new` and
+    the epochs of a fit that `early_stop` may end sooner."""
+    exact, bounds = known_counts(cx, record, ref, at), {}
+    name, here = ref, at
+    while True:
+        thing, _, member = name.partition(".")
+        if (tensor := tensor_of(cx.steps, cx.featurizers, name)) is not None:
+            f = points(cx.featurizers[thing if thing in cx.featurizers else tensor[0].partition(".")[2]])[0]
+            n = coordinates_of(f)
+            for axis in featurizers.KINDS[f.kind].laid.get(tensor[1], ()):
+                if axis == "classes":
+                    exact[axis] = (len(featurizers.labels(cx.rows, (f.model_extra or {})["classes"])), "the probe's")
+                elif axis != "width" and n is not None:
+                    exact[axis] = (n, f"the {f.kind}'s")
+            break
+        step = agreeing_point(cx.steps[thing], here) if thing in cx.steps else None
+        if step is not None and step.kind == "fit" and member.partition(".")[0] == "history":
+            stops = step.early_stop is not None
+            (bounds if stops else exact)["epochs"] = (cast(int, step.epochs), "the fit's epochs" + (
+                ", which early_stop may end sooner" if stops else ""))
+        elif step is not None and step.kind == "generate" and not member and (most := horizon(step)) is not None:
+            bounds["new"] = (most, "the generation's max_new_tokens, which a row that stops sooner leaves shorter")
+        elif step is not None and step.kind == "op" and not member:
+            name, here = step.of, step.at
+            continue
+        break
+    dims = record.dims or []
+    return {a: c for a, c in exact.items() if a in dims}, {a: c for a, c in bounds.items() if a in dims}
 
 
 def kept_labels(of: Labelled, dims: list[str]) -> tuple[list[int] | None, dict[str, selectors.Kept], int | None]:
@@ -139,10 +224,17 @@ def kept_labels(of: Labelled, dims: list[str]) -> tuple[list[int] | None, dict[s
 def value_record(cx: Compiling, ref: str, path: str, at: dict[str, int],
                  live: Mapping[str, Labelled] | None = None) -> Labelled:
     """The record of a named value produced before this point, at the consumer's point `at`, noted as used (`used`);
-    an entry of the forward being compiled, among `live`, as it is, noted as a live operand instead (`live`)."""
+    an entry of the forward being compiled, among `live`, as it is, noted as a live operand instead (`live`); a
+    featurizer's tensor (`plan.tensor_of`) as its first use before this point lays it out (`uses.tensor_refusal`
+    says what it refuses)."""
     if live and ref in live:
         cx.live.add(ref)
         return live[ref]
+    if tensor_of(cx.steps, cx.featurizers, ref) is not None:
+        if why := tensor_refusal(cx.steps, cx.featurizers, ref, at, True):
+            fail(path, why)
+        cx.used.add(ref)
+        return record_of(cx.steps, ref, at, cx.featurizers)
     if ref.partition(".")[0] in cx.featurizers or ref in trained_featurizers(cx.steps):
         fail(path, f"{ref!r} is a featurizer, not a value; an op reaches it ({{'op': 'encode', 'featurizer': "
              f"{ref!r}}} gives a value's coordinates, 'apply' its version of the value), and the value that entry "
@@ -151,7 +243,29 @@ def value_record(cx: Compiling, ref: str, path: str, at: dict[str, int],
     if ref not in known:
         fail(path, f"{ref!r} names no value produced before this step; known: {', '.join(sorted(known)) or 'none'}")
     cx.used.add(ref)
-    return record_of(cx.steps, ref, at)
+    return record_of(cx.steps, ref, at, cx.featurizers)
+
+
+def first_use_hint(cx: Compiling, written: str, theirs: Labelled, ours: Labelled, at: dict[str, int]) -> str:
+    """The fix to add to a refusal of operand `written` (laid out `theirs`) on a value laid out `ours`, where the
+    operand is a featurizer's tensor, or made of one by op steps, that lies on the last axis of the site the
+    featurizer is first used at (`plan.tensor_record`) and the value has no such axis; else nothing."""
+    name, here = written, at
+    while (tensor := tensor_of(cx.steps, cx.featurizers, name)) is None:
+        thing, _, member = name.partition(".")
+        step = agreeing_point(cx.steps[thing], here) if thing in cx.steps else None
+        if step is None or step.kind != "op" or member:
+            return ""
+        name, here = step.of, step.at
+    featurizer = tensor[0] if tensor[0] in cx.featurizers else tensor[0].partition(".")[2]
+    _, _, read, _, _, around = next(u for u in featurizer_uses(cx.steps, cx.featurizers) if u[0] == featurizer)
+    component = cast(Site, read.site).component
+    last = address.dims(component)[-1]
+    if around or last not in (theirs.dims or []) or last in (ours.dims or []):
+        return ""
+    return (f"; {written!r} lies on {last}, the last axis of {component}, where a step first uses {tensor[0]!r}, "
+            f"whose tensors take that site's axes: use {tensor[0]!r} first at a site laid out as this value is, or "
+            "give each site a featurizer of its own")
 
 
 def several(top: Op | OpStep) -> str:
@@ -186,7 +300,8 @@ def whole_top_k(cx: Compiling, ref: str, record: Labelled, at: dict[str, int], t
                     + fix.format(f"their ids ({named.removesuffix('.tokens') + '.ids'!r})"))
         return None
     top = top_k_of(record if not isinstance(record, Load) else
-                   record_of(cx.sources[record.from_]["plan"].steps, record.value, record.at))
+                   record_of(cx.sources[record.from_]["plan"].steps, record.value, record.at,
+                             cx.sources[record.from_]["plan"].featurizers))
     if top is None:
         return None
     if isinstance(top, OpStep):
@@ -219,27 +334,38 @@ def k_past(name: str, args: dict, met: Labelled, sizes: dict[str, int] | None,
     over = args.get("over", ops.transforms.RANKED)
     counts: list[tuple[str, int, str]] = []
     for axis in over if isinstance(over, list) else [over]:
-        kept = met.kept.get(axis)
-        if isinstance(kept, list) and kept:
-            counts.append((axis, len(kept), "those its select keeps"))
-        elif kept is not None:
-            return None                     # left to preflight, or keys relative to each query
-        elif axis == "layers" and met.layers:
-            counts.append((axis, len(met.layers), "the value's"))
-        elif axis == "pos" and met.width is not None:
-            counts.append((axis, met.width, "each row's"))
-        elif axis in known:
-            counts.append((axis, *known[axis]))
-        elif sizes is not None and axis in sizes and axis not in ops.transforms.RAGGED:
-            counts.append((axis, sizes[axis], "the model's"))
-        else:
+        if (count := along(met, axis, sizes, known)) is None:
             return None
+        counts.append((axis, *count))
     n = math.prod(c for _, c, _ in counts)
     if args["k"] <= n:
         return None
     held = " by ".join(f"{c} along {axis} ({why})" for axis, c, why in counts)
     return (f"k {args['k']} is more than the {n} entr{'y' if n == 1 else 'ies'} it ranks, {held}, each of which it "
             f"picks once: k is at most {n}")
+
+
+def along(met: Labelled, axis: str, sizes: dict[str, int] | None, known: dict[str, tuple[int, str]]
+          ) -> tuple[int, str] | None:
+    """How many entries the value labelled `met` holds along `axis`, with what says so, where its number is static and
+    known: from the record, a `select`'s indices, the layers (at compile those written from the first, in preflight
+    every pick), a width of `pos`; from `known`, what the caller knows (`known_counts` at compile); and in preflight
+    the model's sizes (`sizes`, None at compile), along an axis no row holds a number of its own along
+    (`transforms.RAGGED`). None where neither stage knows it, or it waits on preflight (a `select` it resolves)."""
+    kept = met.kept.get(axis)
+    if isinstance(kept, list) and kept:
+        return len(kept), "those its select keeps"
+    if kept is not None:
+        return None                     # left to preflight, or keys relative to each query
+    if axis == "layers" and met.layers:
+        return len(met.layers), "the value's"
+    if axis == "pos" and met.width is not None:
+        return met.width, "each row's"
+    if axis in known:
+        return known[axis]
+    if sizes is not None and axis in sizes and axis not in ops.transforms.RAGGED:
+        return sizes[axis], "the model's"
+    return None
 
 
 def known_counts(cx: Compiling, record: Labelled, ref: str | None = None,
@@ -288,7 +414,7 @@ def picks_of(cx: Compiling, ref: str, at: dict[str, int]) -> int | None:
     value (a load's `k` axis, whose top_k ran in another run)."""
     if (found := member_of(cx.steps, ref, at)) is not None:
         return arguments(found[0])["k"]
-    record = record_of(cx.steps, ref, at)
+    record = record_of(cx.steps, ref, at, cx.featurizers)
     return picks_of(cx, record.of, record.at) if isinstance(record, OpStep) and "k" in (record.dims or []) else None
 
 
@@ -419,8 +545,14 @@ def mismatch(ours: Labelled, theirs: Labelled, name: str, key: str, written: str
             why = "an operand broadcasts over rows and positions only"
         else:
             why = "an operand holds the same ones"
-        fix = f"select {axis} {own if own is not None else 'every one'} at the read" if write \
-            else f"select one {axis} list at both reads"
+        # A site narrows an axis a component lays out; another's indices (a probe's classes, a featurizer's
+        # coordinates) a select step kept, and so are those of a value with no read, which no site changes.
+        sited = ours.read is not None and theirs.read is not None and \
+            any(axis in address.selectable(c) for c in address.COMPONENTS)
+        fix = (f"select {axis} {own if own is not None else 'every one'} at the read" if write
+               else f"select one {axis} list at both reads") if sited else \
+            (f"select the same {axis} of both, or reduce each over {axis} first (a sum of one entry is that entry), "
+             "so that they meet without it")
         return (f"{written!r} holds {f'every {axis}' if held is None else f'{axis} {held}'}, and {whose} holds "
                 f"{'every one' if own is None else own}; {why}: {fix}")
     return None

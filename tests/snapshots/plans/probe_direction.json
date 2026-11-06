@@ -1,0 +1,533 @@
+{
+ "description": "A trained probe's direction, projected out of the stream it was trained on, in one document, on the tiny GPT-2 the byte-level BPE documents use. Twenty one-sentence reviews, half positive and half negative, end \"Overall, the movie was\"; `harvest.h` reads layer 2's output at that last token, and the fit trains a two-class `linear` probe on it against `label` (its classes sorted: `negative`, then `positive`). `fit.probe.W` is the trained probe's weight, a value laid out `[hidden_size, classes]`: `positive` and `negative` select its two columns (a `select` keeps `classes` at size 1, labelled with the class it kept), each summed over `classes` to drop that axis, and `direction` is the one less the other, `W[:, 1] - W[:, 0]`, the direction along which the probe tells positive from negative. `projected` removes it from layer 2's output at every position (`project_out`), and `null` removes the direction scaled to zero, which leaves every vector as it is, so its numbers are the clean run's to the bit. `ld` is each row's logit for its `answer` less its `other` (\" well\" and \" no\", one token each on this tokenizer), and each `margin` its mean over the rows. The weights are random, so the probe and the margins show the mechanism, not a sentiment; the probe is trained and its direction tested on the same twenty rows.",
+ "model": {
+  "key": "hf-internal-testing/tiny-random-gpt2",
+  "revision": "71034c5d8bde858ff824298bdedc65515b97d2b9"
+ },
+ "data": {
+  "reviews": {
+   "rows": [
+    {
+     "input": "I loved this film. Overall, the movie was",
+     "label": "positive",
+     "answer": " well",
+     "other": " no"
+    },
+    {
+     "input": "I hated this film. Overall, the movie was",
+     "label": "negative",
+     "answer": " no",
+     "other": " well"
+    },
+    {
+     "input": "What a wonderful movie. Overall, the movie was",
+     "label": "positive",
+     "answer": " well",
+     "other": " no"
+    },
+    {
+     "input": "What a terrible movie. Overall, the movie was",
+     "label": "negative",
+     "answer": " no",
+     "other": " well"
+    },
+    {
+     "input": "The acting was brilliant. Overall, the movie was",
+     "label": "positive",
+     "answer": " well",
+     "other": " no"
+    },
+    {
+     "input": "The acting was awful. Overall, the movie was",
+     "label": "negative",
+     "answer": " no",
+     "other": " well"
+    },
+    {
+     "input": "A delightful story. Overall, the movie was",
+     "label": "positive",
+     "answer": " well",
+     "other": " no"
+    },
+    {
+     "input": "A boring story. Overall, the movie was",
+     "label": "negative",
+     "answer": " no",
+     "other": " well"
+    },
+    {
+     "input": "This was a fantastic experience. Overall, the movie was",
+     "label": "positive",
+     "answer": " well",
+     "other": " no"
+    },
+    {
+     "input": "This was a dreadful experience. Overall, the movie was",
+     "label": "negative",
+     "answer": " no",
+     "other": " well"
+    },
+    {
+     "input": "The music was beautiful. Overall, the movie was",
+     "label": "positive",
+     "answer": " well",
+     "other": " no"
+    },
+    {
+     "input": "The music was horrible. Overall, the movie was",
+     "label": "negative",
+     "answer": " no",
+     "other": " well"
+    },
+    {
+     "input": "I enjoyed every minute of it. Overall, the movie was",
+     "label": "positive",
+     "answer": " well",
+     "other": " no"
+    },
+    {
+     "input": "I regretted every minute of it. Overall, the movie was",
+     "label": "negative",
+     "answer": " no",
+     "other": " well"
+    },
+    {
+     "input": "An excellent, moving film. Overall, the movie was",
+     "label": "positive",
+     "answer": " well",
+     "other": " no"
+    },
+    {
+     "input": "A dull, lifeless film. Overall, the movie was",
+     "label": "negative",
+     "answer": " no",
+     "other": " well"
+    },
+    {
+     "input": "The cast was superb. Overall, the movie was",
+     "label": "positive",
+     "answer": " well",
+     "other": " no"
+    },
+    {
+     "input": "The cast was dreadful. Overall, the movie was",
+     "label": "negative",
+     "answer": " no",
+     "other": " well"
+    },
+    {
+     "input": "A charming and funny movie. Overall, the movie was",
+     "label": "positive",
+     "answer": " well",
+     "other": " no"
+    },
+    {
+     "input": "A tedious and stupid movie. Overall, the movie was",
+     "label": "negative",
+     "answer": " no",
+     "other": " well"
+    }
+   ],
+   "sha256": "959bacf684bd4d6418804e2efc97d0c885354d8056bf85a98c6400c30adcacfe",
+   "n_rows": 20
+  }
+ },
+ "featurizers": {
+  "probe": {
+   "kind": "linear",
+   "classes": "reviews.label"
+  }
+ },
+ "steps": {
+  "harvest": {
+   "kind": "forward",
+   "input": "reviews.input",
+   "interventions": {
+    "h": {
+     "site": {
+      "component": "layer_output",
+      "layers": 2
+     },
+     "pos": -1,
+     "dims": [
+      "rows",
+      "pos",
+      "hidden_size"
+     ],
+     "dataset": "reviews",
+     "layers": [
+      2
+     ],
+     "read": "harvest.h",
+     "width": 1,
+     "gathered": true
+    }
+   },
+   "dataset": "reviews",
+   "schedule": {
+    "axes": []
+   }
+  },
+  "fit": {
+   "kind": "fit",
+   "train": [
+    "probe"
+   ],
+   "objective": {
+    "ce": 1.0
+   },
+   "epochs": 50,
+   "batch_size": 20,
+   "seed": 0,
+   "optimizer": {
+    "name": "adam",
+    "lr": 0.01
+   },
+   "steps": {
+    "scores": {
+     "kind": "op",
+     "op": "encode",
+     "of": "harvest.h",
+     "featurizer": "fit.probe",
+     "dims": [
+      "rows",
+      "pos",
+      "classes"
+     ],
+     "dataset": "reviews",
+     "layers": [
+      2
+     ],
+     "read": "harvest.h",
+     "width": 1,
+     "space": [
+      {
+       "featurizer": "fit.probe"
+      }
+     ]
+    },
+    "ce": {
+     "kind": "op",
+     "op": "cross_entropy",
+     "of": "scores",
+     "target": "reviews.label",
+     "dims": [
+      "rows",
+      "pos"
+     ],
+     "dataset": "reviews",
+     "layers": [
+      2
+     ],
+     "read": "harvest.h",
+     "width": 1
+    },
+    "hit": {
+     "kind": "op",
+     "op": "match",
+     "of": "scores",
+     "expected": "reviews.label",
+     "dims": [
+      "rows",
+      "pos"
+     ],
+     "dataset": "reviews",
+     "layers": [
+      2
+     ],
+     "read": "harvest.h",
+     "width": 1
+    },
+    "acc": {
+     "kind": "op",
+     "op": "mean",
+     "of": "hit",
+     "dims": [],
+     "dataset": "reviews",
+     "layers": [
+      2
+     ],
+     "read": "harvest.h"
+    }
+   }
+  },
+  "positive": {
+   "kind": "op",
+   "op": "select",
+   "of": "fit.probe.W",
+   "select": {
+    "classes": 1
+   },
+   "dims": [
+    "hidden_size",
+    "classes"
+   ],
+   "kept": {
+    "classes": [
+     1
+    ]
+   },
+   "space": [
+    {
+     "featurizer": "fit.probe"
+    }
+   ]
+  },
+  "positive_column": {
+   "kind": "op",
+   "op": "sum",
+   "of": "positive",
+   "over": [
+    "classes"
+   ],
+   "dims": [
+    "hidden_size"
+   ]
+  },
+  "negative": {
+   "kind": "op",
+   "op": "select",
+   "of": "fit.probe.W",
+   "select": {
+    "classes": 0
+   },
+   "dims": [
+    "hidden_size",
+    "classes"
+   ],
+   "kept": {
+    "classes": [
+     0
+    ]
+   },
+   "space": [
+    {
+     "featurizer": "fit.probe"
+    }
+   ]
+  },
+  "negative_column": {
+   "kind": "op",
+   "op": "sum",
+   "of": "negative",
+   "over": [
+    "classes"
+   ],
+   "dims": [
+    "hidden_size"
+   ]
+  },
+  "direction": {
+   "kind": "op",
+   "op": "sub",
+   "of": "positive_column",
+   "with": "negative_column",
+   "dims": [
+    "hidden_size"
+   ]
+  },
+  "zero": {
+   "kind": "op",
+   "op": "mul",
+   "of": "direction",
+   "with": 0,
+   "dims": [
+    "hidden_size"
+   ]
+  },
+  "clean": {
+   "kind": "forward",
+   "input": "reviews.input",
+   "interventions": {
+    "ld": {
+     "site": {
+      "component": "logits"
+     },
+     "pos": -1,
+     "ops": [
+      {
+       "op": "logit_diff",
+       "a": "reviews.answer",
+       "b": "reviews.other",
+       "dims": [
+        "rows",
+        "pos"
+       ]
+      }
+     ],
+     "dims": [
+      "rows",
+      "pos"
+     ],
+     "dataset": "reviews",
+     "read": "clean.ld",
+     "width": 1,
+     "gathered": true
+    }
+   },
+   "dataset": "reviews",
+   "schedule": {
+    "axes": []
+   }
+  },
+  "projected": {
+   "kind": "forward",
+   "input": "reviews.input",
+   "interventions": {
+    "out": {
+     "site": {
+      "component": "layer_output",
+      "layers": 2
+     },
+     "ops": [
+      {
+       "op": "project_out",
+       "direction": "direction",
+       "dims": [
+        "rows",
+        "pos",
+        "hidden_size"
+       ]
+      }
+     ],
+     "dims": [
+      "rows",
+      "pos",
+      "hidden_size"
+     ],
+     "dataset": "reviews",
+     "layers": [
+      2
+     ],
+     "read": "projected.out"
+    },
+    "ld": {
+     "site": {
+      "component": "logits"
+     },
+     "pos": -1,
+     "ops": [
+      {
+       "op": "logit_diff",
+       "a": "reviews.answer",
+       "b": "reviews.other",
+       "dims": [
+        "rows",
+        "pos"
+       ]
+      }
+     ],
+     "dims": [
+      "rows",
+      "pos"
+     ],
+     "dataset": "reviews",
+     "read": "projected.ld",
+     "width": 1,
+     "gathered": true
+    }
+   },
+   "dataset": "reviews",
+   "schedule": {
+    "axes": []
+   }
+  },
+  "null": {
+   "kind": "forward",
+   "input": "reviews.input",
+   "interventions": {
+    "out": {
+     "site": {
+      "component": "layer_output",
+      "layers": 2
+     },
+     "ops": [
+      {
+       "op": "project_out",
+       "direction": "zero",
+       "dims": [
+        "rows",
+        "pos",
+        "hidden_size"
+       ]
+      }
+     ],
+     "dims": [
+      "rows",
+      "pos",
+      "hidden_size"
+     ],
+     "dataset": "reviews",
+     "layers": [
+      2
+     ],
+     "read": "null.out"
+    },
+    "ld": {
+     "site": {
+      "component": "logits"
+     },
+     "pos": -1,
+     "ops": [
+      {
+       "op": "logit_diff",
+       "a": "reviews.answer",
+       "b": "reviews.other",
+       "dims": [
+        "rows",
+        "pos"
+       ]
+      }
+     ],
+     "dims": [
+      "rows",
+      "pos"
+     ],
+     "dataset": "reviews",
+     "read": "null.ld",
+     "width": 1,
+     "gathered": true
+    }
+   },
+   "dataset": "reviews",
+   "schedule": {
+    "axes": []
+   }
+  },
+  "clean_margin": {
+   "kind": "op",
+   "op": "mean",
+   "of": "clean.ld",
+   "dims": [],
+   "dataset": "reviews",
+   "read": "clean.ld"
+  },
+  "projected_margin": {
+   "kind": "op",
+   "op": "mean",
+   "of": "projected.ld",
+   "dims": [],
+   "dataset": "reviews",
+   "read": "projected.ld"
+  },
+  "null_margin": {
+   "kind": "op",
+   "op": "mean",
+   "of": "null.ld",
+   "dims": [],
+   "dataset": "reviews",
+   "read": "null.ld"
+  }
+ },
+ "saves": [
+  "fit.history.acc",
+  "clean.ld",
+  "projected.ld",
+  "null.ld",
+  "clean_margin",
+  "projected_margin",
+  "null_margin"
+ ],
+ "document": "documents/probe_direction.json",
+ "compiled": true
+}

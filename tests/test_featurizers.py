@@ -202,6 +202,28 @@ def test_a_subspace_from_a_published_file_or_a_bundle_of_other_tensors_is_refuse
         plan.compile()
 
 
+@pytest.mark.parametrize("kind, fields, kept", [
+    ("subspace", {"k": 3}, None), ("gate", {}, None), ("gate", {"over": ["layers", "num_heads"]},
+                                                       {"layers": [0, 1], "num_heads": [0, 2, 3]}),
+    ("pca", {"file_path": "x", "k": 3}, None), ("sae", {"latents": 7}, None), ("linear", {"classes": "d.c"}, None),
+    ("lora", {"rank": 3, "alpha": 6.0}, None), ("affine", {}, None), ("affine", {"over": ["layers"]}, {"layers": [2, 0]}),
+    ("constant", {"init": 0}, None)])
+def test_each_tensor_a_featurizer_holds_lies_on_the_axes_its_kind_lays_it_on(kind, fields, kept):
+    """Every tensor a kind's bundle holds has a layout (`laid`), one axis per dimension of a drawn instance's tensor:
+    `width` the site's width, the kind's coordinate axis as many as it has coordinates, `rank` a lora's, and over axes
+    as many as the indices it keeps on each, a stacked kind's first and a gate's in place of `width`."""
+    cls = featurizers.KINDS[kind]
+    assert set(cls.saves) <= set(cls.laid)
+    drawn = featurizers.make(kind, fields, 5, None, 0, ["a", "b"] if kind == "linear" else None, kept=kept)
+    over = fields.get("over") or []
+    sizes = {"width": 5, "features": 3 if kind in ("subspace", "pca") else 7, "classes": 2, "rank": 3,
+             **{a: len((kept or {})[a]) for a in over}}
+    for tensor in cls.held(None):
+        axes = [a for axis in cls.laid[tensor] for a in (over if over and axis == "width" and not cls.stacked else [axis])]
+        axes = [*(over if cls.stacked else []), *axes]
+        assert list(getattr(drawn, tensor).shape) == [sizes[a] for a in axes], tensor
+
+
 def test_an_unknown_kind_is_refused_naming_the_kinds():
     with pytest.raises(PlanError, match=r"^featurizers\.rot: unknown featurizer kind 'rotation'; valid: subspace, "
                                         r"gate, pca, sae, linear, lora, affine, constant$"):

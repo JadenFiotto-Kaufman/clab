@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Any, cast
 from clab import featurizers, ops
 from clab.compile import positions
 from clab.compile.answers import answer, check_classes, check_tokens
-from clab.compile.arguments import k_past, kept_labels, mismatch, references
+from clab.compile.arguments import k_past, kept_labels, mismatch, references, select_kept, selected_layers
 from clab.compile.interventions import check_operands, read_positions, refuse_unserved
 from clab.compile.positions import prefill_positions
 from clab.compile.schedule import write_schedule
@@ -108,14 +108,20 @@ def prepare(engine: Engine, plan: Plan, steps: dict, classes: dict[str, list], f
                         raise ValueError(f"{name}.{e}") from None
                     continue
                 if step.kind == "op":
-                    args, of = arguments(step), record_of(plan.steps, step.of, step.at)
+                    args, of = arguments(step), record_of(plan.steps, step.of, step.at, plan.featurizers)
                     assert step.dims is not None and of.dims is not None
+                    compiled = dict(step.kept)
                     step.layers, step.kept, step.width = kept_labels(of, step.dims)     # completed from its producer's
+                    if step.op == "select":         # its own, held to the model's sizes and resolved among them
+                        step.layers, step.kept = selected_layers(of, step.kept | select_kept(
+                            at_point(plan, name, step.at), of, args, sizes, probe_of(plan, of, classes), None,
+                            compiled))
                     if why := k_past(step.op, args, of, sizes, probe_of(plan, of, classes)):
                         raise ValueError(f"{at_point(plan, name, step.at)}: {why}")
                     for key, (written, theirs) in references(step.op, args, preflight_resolver(plan, step.at)).items():
                         why = mismatch(of, theirs, step.op, key, written, repr(step.of), False, False,
-                                       adapts(plan, step), lambda ref: record_of(plan.steps, ref, step.at))
+                                       adapts(plan, step),
+                                       lambda ref: record_of(plan.steps, ref, step.at, plan.featurizers))
                         if why:
                             raise ValueError(f"{name}: operand {why}")
                     if "classes" in of.dims:
@@ -203,7 +209,8 @@ def prepare(engine: Engine, plan: Plan, steps: dict, classes: dict[str, list], f
                                                                preflight_resolver(plan, step.at)).items():
                             forward = written.rpartition(".")[0] == name
                             why = mismatch(ours, theirs, o.op, k, written, repr(step.input), i < edits, forward,
-                                           adapts(plan, o), lambda ref: record_of(plan.steps, ref, step.at))
+                                           adapts(plan, o),
+                                           lambda ref: record_of(plan.steps, ref, step.at, plan.featurizers))
                             if why:
                                 raise ValueError(f"{where}: operand {why}")
                         write = (cast(Site, record.site).component, repr(record.pos), repr(record.kept), o.op,
@@ -243,7 +250,7 @@ def probe_of(plan: Plan, record: Labelled, classes: dict[str, list]) -> dict[str
     `classes` by declared featurizer, as `arguments.k_past` takes it; none for a value with no `classes` axis."""
     if "classes" not in (record.dims or []) or not record.space:
         return {}
-    held = classes.get(declared(plan, record.space[-1]["featurizer"]))
+    held = classes.get(declared(plan.featurizers, record.space[-1]["featurizer"]))
     return {} if held is None else {"classes": (len(held), "the probe's")}
 
 
@@ -326,7 +333,7 @@ def preflight_resolver(plan: Plan, at: dict[str, int]) -> Callable[[str, Any, in
     (`arguments.resolver`), a featurizer to nothing."""
     def resolve(key: str, value: Any, p: inspect.Parameter) -> Labelled | None:
         if p.annotation == ops.Value:
-            return record_of(plan.steps, value, at)
+            return record_of(plan.steps, value, at, plan.featurizers)
         if p.annotation == ops.Featurizer:
             return None
         if data.literal_of(value) is not None:

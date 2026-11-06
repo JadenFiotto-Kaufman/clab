@@ -10,8 +10,8 @@ from typing import TYPE_CHECKING, cast
 from clab import ops
 from clab.compile import positions
 from clab.compile.answers import check_text_ref, vocabulary
-from clab.compile.arguments import (featurizer_kind, k_past, known_counts, layout, mismatch, narrowed_readout_refusal,
-                                    references, resolver, several, space_of)
+from clab.compile.arguments import (featurizer_kind, first_use_hint, k_past, known_counts, layout, mismatch,
+                                    narrowed_readout_refusal, references, resolver, several, space_of)
 from clab.compile.positions import check_calls_known
 from clab.compile.state import Compiling, Findings
 from clab.format import address, data, registry, selectors
@@ -257,9 +257,10 @@ def compile_entry(cx: Compiling, path: str, spec: Intervention, plan: Plan, step
                      "an entry per call, with an operand of one position: a prefill read, or one read at that call "
                      "under a min_new_tokens that reaches it on every row")
             why = mismatch(ours, theirs, o.op, key, written, repr(step.input), i <= last, written in live,
-                           adapts(plan, o), lambda ref: spec if ref == where else record_of(cx.steps, ref, at))
+                           adapts(plan, o), lambda ref: spec if ref == where else record_of(cx.steps, ref, at,
+                                                                                             cx.featurizers))
             if why:
-                fail(f"{here}.{key}", why)
+                fail(f"{here}.{key}", why + first_use_hint(cx, written, theirs, ours, at))
         if i in closes:
             dims, space = before[closes[i]["at"]], outside[closes[i]["at"]]
         elif o.op == "encode":
@@ -327,8 +328,7 @@ def kept_of(select: dict[str, Selector] | None) -> dict[str, selectors.Kept]:
 def read_positions(steps: dict, read: str, at: dict[str, int]) -> list | None:
     """The positions per row the read `read` holds at `at`, under its dataset, where they are known: the
     prefill's before any forward, a generation's decode calls' once it ran; else None."""
-    record = record_of(steps, read, at)
-    assert isinstance(record, Intervention), f"{read} is no read"
+    record = entry_of(steps, read, at)[1]
     return record.positions.get(cast(str, record.dataset))
 
 
@@ -364,7 +364,7 @@ def check_operands(engine: Engine, plan: Plan, where: str, o: Op, step: Forward 
         value = args.get(key)
         if p.annotation != ops.Value or not isinstance(value, str):
             continue
-        theirs = record_of(plan.steps, value, step.at)
+        theirs = record_of(plan.steps, value, step.at, plan.featurizers)
         if not isinstance(theirs, Intervention):
             continue                                # a step's value: no site, no positions of its own
         producer, read = entry_of(plan.steps, value, step.at)

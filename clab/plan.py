@@ -17,7 +17,7 @@ import os
 import re
 import types
 from collections.abc import Iterator
-from typing import Annotated, Any, Literal, NoReturn, TypeVar, Union, get_args, get_origin
+from typing import Annotated, Any, Literal, NoReturn, TypeVar, Union, cast, get_args, get_origin
 
 from pydantic import (
     BaseModel,
@@ -838,7 +838,8 @@ class Forward(Record):
     rows share its batch. At some thread counts the batch's other rows can still move them in the last bits. They
     do depend on the batch's shape: a trailing partial batch is a smaller matrix, and a batch padded to its own
     width a narrower one. Either can differ in the last bits: in float32 a forward's values move by 6e-8 at most on
-    the corpus (`tests/test_padding.py`), and a real model's move more. A featurizer trained through such a forward
+    the corpus (`tests/test_padding.py`), 1.2e-7 where a write takes what a fit trained on such values, and a real
+    model's move more. A featurizer trained through such a forward
     can move by more than the last bits, since an optimizer such as Adam scales a rounding-sized gradient up to its
     step size. So a fit whose trained tensors are compared belongs under `dataset` padding. Results reproduce to the
     bit at a fixed batch size, padding, readout and thread count, each of which the run records."""
@@ -1076,7 +1077,8 @@ class Fit(Record):
     `[0]`.
 
     The body is a scope of its own that sees every value produced before the fit; a trained featurizer's name
-    there is `<fit>.<featurizer>`, the one being trained, which compile writes for its bare name. A value made
+    there is `<fit>.<featurizer>`, the one being trained, which compile writes for its bare name, and whose tensors
+    the body may not name: they are values once the fit ends. A value made
     before the fit with a row per example of
     one of the body's datasets (a harvest) comes into every run of the body at that run's rows, taken by their
     ids as the body's datasets are, and as it was made: on its device, in its dtype, with no gradient of its own;
@@ -1087,10 +1089,11 @@ class Fit(Record):
     refused, since no step made the harvest over the other's rows: evaluate on other data in steps after the fit,
     through `<fit>.<featurizer>`. So is an objective none of whose terms depends on what the fit trains, which has
     no gradient to step on. Nothing leaves the body except through the fit's members: `<fit>.<featurizer>` the
-    trained featurizer (saved as its bundle), `<fit>.<eval>.<op>` and `<fit>.<eval>.<step>.<entry>` a value of the
-    eval named `<eval>`, and `<fit>.history.<term>`, `[epochs]`, one entry per epoch run. A sweep over any of the
-    fit's values (an objective weight, the learning rate) makes the fit, its members and their users a list of
-    points."""
+    trained featurizer (saved as its bundle), `<fit>.<featurizer>.<tensor>` one of its tensors as the fit left it, a
+    value laid out as its kind lays it (see Featurizer kinds), `<fit>.<eval>.<op>` and `<fit>.<eval>.<step>.<entry>` a
+    value of the eval named `<eval>`, and `<fit>.history.<term>`, `[epochs]`, one entry per epoch run. A sweep over
+    any of the fit's values (an objective weight, the learning rate) makes the fit, its members and their users a
+    list of points."""
     kind: Literal["fit"]
     train: list[str]
     objective: dict[str, Swept[float]]
@@ -1409,10 +1412,10 @@ def name(plan: Plan) -> str:
 
 def produced(steps: dict[str, Entry], declared: dict[str, FeaturizerEntry]) -> list[str]:
     """Every value `steps` produce, by name, in order: an op step's or a generation's own, a `top_k` step's members
-    (`<step>.ids`, ...: `top_k_members`), each entry's `<step>.<entry>`, and a fit's members (`<fit>.history.<term>`
-    and its eval members, `<fit>.<eval>.<member>`); not a trained featurizer, which is no value. `declared` are the
-    plan's featurizers, whose kinds say the scalars a fit's history holds: those its body computes (an sae's over its
-    `open_encodes`)."""
+    (`<step>.ids`, ...: `top_k_members`), each entry's `<step>.<entry>`, and a fit's members (`<fit>.history.<term>`,
+    each trained featurizer's tensors, `<fit>.<featurizer>.<tensor>`, and its eval members, `<fit>.<eval>.<member>`);
+    not a trained featurizer, which is no value. `declared` are the plan's featurizers, whose kinds say the scalars a
+    fit's history holds (those its body computes: an sae's over its `open_encodes`) and the tensors each holds."""
     out: list[str] = []
     for name, entry in steps.items():
         step = points(entry)[0]
@@ -1425,6 +1428,7 @@ def produced(steps: dict[str, Entry], declared: dict[str, FeaturizerEntry]) -> l
         kinds = {f: featurizers.KINDS[points(declared[f])[0].kind] for f in step.train}
         out += [f"{name}.history.{f}.{scalar}" for f in step.train for scalar in kinds[f].scalars
                 if scalar not in kinds[f].over_encodes or open_encodes(step.steps, f"{name}.{f}")]
+        out += [f"{name}.{f}.{t}" for f in step.train for t in kinds[f].held(points(declared[f])[0].bundle)]
         out += [f"{name}.{label}.{member}" for label in step.eval for member in produced(step.steps, declared)]
     return out
 
@@ -1432,6 +1436,31 @@ def produced(steps: dict[str, Entry], declared: dict[str, FeaturizerEntry]) -> l
 def trained_featurizers(steps: dict[str, Entry]) -> list[str]:
     """Every featurizer a fit among `steps` trains, by the name the steps after the fit use: `<fit>.<featurizer>`."""
     return [f"{n}.{f}" for n, e in steps.items() for s in points(e)[:1] if s.kind == "fit" for f in s.train]
+
+
+def tensor_of(steps: dict[str, Entry], declared: dict[str, FeaturizerEntry], ref: str) -> tuple[str, str] | None:
+    """The featurizer and the tensor `ref` names, where it names a featurizer's tensor: `<featurizer>.<tensor>`, one of
+    the plan's featurizers (`declared`) as drawn or loaded, or `<fit>.<featurizer>.<tensor>`, one a fit among `steps`
+    trains, as the fit left it; the featurizer as the name writes it (`probe`, `fit.probe`). None for any other
+    name. The tensor is whatever the name says, which compile holds to those the kind holds (`Kind.held`)."""
+    thing, _, member = ref.partition(".")
+    if thing in declared:
+        return (thing, member) if member else None
+    step = points(steps[thing])[0] if thing in steps else None
+    label, _, rest = member.partition(".")
+    return (f"{thing}.{label}", rest) if step is not None and step.kind == "fit" and label in step.train and rest \
+        else None
+
+
+def tensors_named(plan: "Plan") -> set[str]:
+    """Every featurizer's tensor (`tensor_of`) the plan names: an op step's `of`, an op's argument, a featurizer's
+    field (a constant's `init`) or a save; those the run puts among its values, each a copy."""
+    names = [*plan.saves, *(v for e in plan.featurizers.values() for f in points(e)
+                            for v in (f.model_extra or {}).values())]
+    for _, step in walk(plan.steps):
+        listed = [*([step] if step.kind == "op" else []), *(o for e in entries(step).values() for o in e.ops)]
+        names += [v for o in listed for v in [getattr(o, "of", None), *arguments(o).values()]]
+    return {n for n in names if isinstance(n, str) and tensor_of(plan.steps, plan.featurizers, n) is not None}
 
 
 def top_k_of(record: Any) -> "Op | OpStep | None":
@@ -1487,14 +1516,15 @@ def calls_model(steps: dict[str, Entry]) -> bool:
                for _, step in walk(steps))
 
 
-def declared(plan: Plan, ref: str) -> str:
-    """The declared featurizer a reference names: itself, or the one `<fit>.<featurizer>` trains."""
-    return ref if ref in plan.featurizers else ref.partition(".")[2]
+def declared(featurizers_of: dict[str, FeaturizerEntry], ref: str) -> str:
+    """The declared featurizer a reference names, among the plan's (`featurizers_of`): itself, or the one
+    `<fit>.<featurizer>` trains."""
+    return ref if ref in featurizers_of else ref.partition(".")[2]
 
 
 def kind_of(plan: Plan, ref: str) -> str:
     """The kind of the featurizer a reference names."""
-    return points(plan.featurizers[declared(plan, ref)])[0].kind
+    return points(plan.featurizers[declared(plan.featurizers, ref)])[0].kind
 
 
 def adapts(plan: Plan, o: "Op | OpStep") -> bool:
@@ -1502,6 +1532,69 @@ def adapts(plan: Plan, o: "Op | OpStep") -> bool:
     (an adapter's: `Kind.adapts`), rather than an operand of the value (a gate's, which it interpolates toward)."""
     ref = arguments(o).get("featurizer")
     return o.op == "apply" and ref is not None and featurizers.KINDS[kind_of(plan, ref)].adapts
+
+
+def over_of(f: Featurizer) -> list[str] | None:
+    """The axes a featurizer is over (a gate's units, an affine's maps): its `over`, or, where a loading document
+    leaves it out, its bundle's header's; None for a gate on the last axis of its site's selection, an affine with
+    one map, and any other featurizer."""
+    given = (f.model_extra or {}).get("over")
+    return given if given is not None or f.header is None or "over" not in f.header else json.loads(f.header["over"])
+
+
+def featurizer_uses(steps: dict[str, Entry], featurizers_of: dict[str, FeaturizerEntry]
+                    ) -> Iterator[tuple[str, str, Intervention, dict[str, int], "Op | OpStep", list[Op]]]:
+    """Every `encode` and `apply` of a featurizer among `steps`, in the order they are written (a fit's body after the
+    fit): the featurizer among the plan's (`featurizers_of`) it reaches (`declared`), the entry's dotted name, the read
+    it is of (the entry's own record; an op step's the read its `of` names, whose site and coordinates its featurizer
+    is used at), its step's point, the op, and the encodes still open around it (outermost first), whose coordinates
+    it is applied to."""
+    for name, step in walk(steps):
+        ref = arguments(step).get("featurizer") if step.kind == "op" else None
+        if ref is not None:                 # a body's step sees the body's steps beside the root's
+            fit = name.rpartition(".")[0]
+            scope = {**steps, **agreeing_point(steps[fit], step.at).steps} if fit else steps
+            read = entry_of(scope, cast(str, step.read), step.at)[1]
+            yield (declared(featurizers_of, ref), name, read, step.at, step,
+                   [Op(op="encode", **s) for s in read.space])
+        for key, entry in entries(step).items():
+            for node, around in visited(bracketed(entry.ops)):
+                ref = arguments(node["op"]).get("featurizer")
+                if ref is not None:
+                    yield (declared(featurizers_of, ref), f"{name}.{key}", entry, step.at,
+                           node["op"], [a["op"] for a in around])
+
+
+def tensor_record(steps: dict[str, Entry], featurizers_of: dict[str, FeaturizerEntry], featurizer: str, tensor: str,
+                  at: dict[str, int], axes: list[str]) -> Labelled | None:
+    """The record of tensor `tensor` of `featurizer` (as a name writes it: one of the plan's, `featurizers_of`, or
+    `<fit>.<featurizer>`, one a fit trains), at the point agreeing with `at`, on the sweep axes `axes`: laid out as
+    its kind lays the tensor (`Kind.laid`) at the first use of the featurizer among `steps` (`featurizer_uses`) whose
+    point agrees with `at`. Its `width` is that use's last axis (inside an encode, that encode's coordinates), with
+    the indices the use's site keeps on it; an axis the featurizer is over is labelled as the use's selection is
+    (`layers` by model layer); and it is in the coordinates of the encodes open around the use, then of the
+    featurizer's own where the kind's coordinate axis is its last. None where no step among `steps` uses it."""
+    name = declared(featurizers_of, featurizer)
+    f = agreeing_point(featurizers_of[name], at)
+    kind = featurizers.KINDS[f.kind]
+    use = next((u for u in featurizer_uses(steps, featurizers_of)
+                if u[0] == name and all(at.get(k, i) == i for k, i in u[3].items())), None)
+    if use is None:
+        return None
+    _, _, read, _, _, around = use
+    if around:
+        outer = arguments(around[-1])["featurizer"]
+        last = featurizers.KINDS[points(featurizers_of[declared(featurizers_of, outer)])[0].kind].axis
+    else:
+        last = address.dims(cast(Site, read.site).component)[-1]
+    over, laid = over_of(f) or [], kind.laid[tensor]
+    # Over axes, a stacked kind's tensors gain them first, and a gate's units lie on them in place of `width`.
+    dims = [*(over if kind.stacked else []), *(a for axis in laid for a in (
+        over if over and axis == "width" and not kind.stacked else [last] if axis == "width" else [axis]))]
+    kept = {a: read.kept[a] for a in [*([] if around else [last]), *over] if a in read.kept and a in dims}
+    space = [{k: v for k, v in arguments(o).items() if k in ("featurizer", "select")} for o in around]
+    return Labelled(dims=dims, layers=read.layers if "layers" in dims else None, kept=kept, axes=axes,
+                    space=space + ([{"featurizer": featurizer}] if laid[-1] == kind.axis else []))
 
 
 def entry_of(steps: dict[str, Entry], ref: str, at: dict[str, int]) -> tuple[Forward, Intervention]:
@@ -1519,13 +1612,20 @@ def entry_of(steps: dict[str, Entry], ref: str, at: dict[str, int]) -> tuple[For
     return step, entries(step)[member]
 
 
-def record_of(steps: dict[str, Entry], ref: str, at: dict[str, int]) -> Labelled:
+def record_of(steps: dict[str, Entry], ref: str, at: dict[str, int], declared: dict[str, FeaturizerEntry]) -> Labelled:
     """The record of the value `ref` names among `steps`, at the point agreeing with `at`, which carries its
     labelled layout: an entry's (`<step>.<entry>`, a load's read among them), an op step's, a generation's or a
-    load's own (`<step>`), a `top_k` step's member's (`<step>.ids`, `member_of`: the step's labels), or a fit
+    load's own (`<step>`), a `top_k` step's member's (`<step>.ids`, `member_of`: the step's labels), a fit
     member's: an eval step's value (`<fit>.<eval>.<member>`, its record among the fit's `evals`), a term's history
-    (`<fit>.history.<term>`, `[epochs]`) or a trained featurizer (no axes)."""
+    (`<fit>.history.<term>`, `[epochs]`), a trained featurizer (no axes) or one of its tensors
+    (`<fit>.<featurizer>.<tensor>`, on the fit's axes), or a tensor of one of the plan's featurizers, `declared`
+    (`<featurizer>.<tensor>`, on the featurizer's axes), each laid out at the featurizer's first use among `steps`
+    (`tensor_record`). Every caller passes the plan's featurizers, which a tensor's layout needs."""
     thing, _, member = ref.partition(".")
+    if thing in declared:
+        found = tensor_record(steps, declared, thing, member, at, list(agreeing_point(declared[thing], at).at))
+        assert found is not None, f"{ref}: no step uses {thing!r}, whose site its tensors are laid out at"
+        return found
     step = agreeing_point(steps[thing], at)
     if step.kind == "op" and member:
         assert member_of(steps, ref, at) is not None, f"{ref} names no value"
@@ -1536,9 +1636,13 @@ def record_of(steps: dict[str, Entry], ref: str, at: dict[str, int]) -> Labelled
         assert isinstance(found, Labelled), f"{ref} names no value"
         return found
     label, _, rest = member.partition(".")
-    if label == "history" or label in step.train:
+    if label == "history" or label in step.train and not rest:
         return Labelled(dims=["epochs"] if label == "history" else [], axes=list(step.at))
-    return record_of(step.evals[label], rest, step.at)
+    if label in step.train:
+        found = tensor_record(steps, declared, f"{thing}.{label}", rest, step.at, list(step.at))
+        assert found is not None, f"{ref}: no step uses {thing}.{label}, whose site its tensors are laid out at"
+        return found
+    return record_of(step.evals[label], rest, step.at, declared)
 
 
 def projections(plan: Plan, name: str) -> list[tuple[dict[str, int], Step]]:
@@ -1546,15 +1650,22 @@ def projections(plan: Plan, name: str) -> list[tuple[dict[str, int], Step]]:
     (`Labelled.axes`), each once, with the first point of the step it is the projection of; `[({}, <the step>)]`
     for a value that depends on no axis."""
     found: dict[tuple, tuple[dict[str, int], Step]] = {}
-    for p in points(plan.steps[name.partition(".")[0]]):
-        at = projection(p.at, record_of(plan.steps, name, p.at).axes)
+    for p in points(producer(plan, name)):
+        at = projection(p.at, record_of(plan.steps, name, p.at, plan.featurizers).axes)
         found.setdefault(tuple(at.items()), (at, p))
     return list(found.values())
 
 
 def saved_value_axes(plan: Plan, name: str) -> list[str]:
     """The sweep axes a saved value depends on, as its record says (at its step's first point)."""
-    return list(record_of(plan.steps, name, points(plan.steps[name.partition(".")[0]])[0].at).axes)
+    return list(record_of(plan.steps, name, points(producer(plan, name))[0].at, plan.featurizers).axes)
+
+
+def producer(plan: Plan, name: str) -> Any:
+    """The entry the first part of value `name` names: a step, or one of the plan's featurizers, whose tensors are
+    values (`<featurizer>.<tensor>`)."""
+    thing = name.partition(".")[0]
+    return plan.featurizers[thing] if thing in plan.featurizers else plan.steps[thing]
 
 
 def runnable(steps: dict[str, Entry]) -> dict[str, Entry]:
@@ -1574,8 +1685,11 @@ def runnable(steps: dict[str, Entry]) -> dict[str, Entry]:
 def made_by(plan: Plan, name: str) -> str:
     """The step that makes value `name`, by the name `runnable` gives it: an eval's member's its eval step
     (`fit.held_out.ce`'s itself, `fit.held_out.adapted.logits`'s `fit.held_out.adapted`), any other value's the
-    step its first part names."""
+    step its first part names; a tensor of one of the plan's featurizers (`<featurizer>.<tensor>`), which no step
+    makes, the featurizer, which the run makes before its first step."""
     thing, _, member = name.partition(".")
+    if thing in plan.featurizers:
+        return thing
     label, _, rest = member.partition(".")
     step = points(plan.steps[thing])[0]
     return f"{thing}.{label}.{rest.partition('.')[0]}" if step.kind == "fit" and label in step.evals else thing

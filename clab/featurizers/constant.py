@@ -19,6 +19,7 @@ class Constant(Kind):
     `epochs: 0`, or untrained outside a fit, it writes `init` itself, to the bit. Loaded, it is its bundle's `vector`,
     and `init` beside `file_path` is refused. It has no coordinates, so its one op is `apply`."""
     saves = trains = ("vector",)
+    laid = {"vector": ("width",)}
     drawn = ("init",)
 
     def __init__(self, width: int, init: Value | None = None, file_path: str | None = None,

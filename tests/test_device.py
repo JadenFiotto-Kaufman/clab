@@ -324,3 +324,29 @@ def test_a_fit_trains_its_featurizers_where_the_model_is(monkeypatch, kind, devi
     there = load(kind, plan.model, device, **options).execute(plan, batch_size=BATCH_SIZE)
     assert seen == {"cuda:0"}
     assert there.results["fit.rot"]["basis"].device.type == "cpu"
+
+
+@pytest.mark.parametrize("kind, options", [("nnterp", {}), ("hooks", {}), ("ndif", {"remote": "local"})])
+def test_a_featurizers_tensors_are_values_where_the_model_is(monkeypatch, kind, options):
+    """On `cuda` a trained probe's tensors and the bare draw's are values on the model's device; the direction made of
+    them by op steps is projected out there, its zero leaves the logits the clean run's to the bit, and every saved
+    value, the tensors among them, comes home on the CPU."""
+    from test_fit import direction, probe
+
+    made: list[str] = []
+    value = featurizers.Kind.value
+
+    def watched(self: featurizers.Kind, tensor: str) -> torch.Tensor:
+        out = value(self, tensor)
+        made.append(str(out.device))
+        return out
+    monkeypatch.setattr(featurizers.Kind, "value", watched)
+    plan = probe(direction)
+    there = load(kind, plan.model, "cuda", **options).execute(plan, batch_size=BATCH_SIZE)
+    assert made and set(made) == {"cuda:0"}
+    values = there.results
+    assert torch.equal(values["null.logits"], values["clean.logits"])
+    assert not torch.equal(values["projected.logits"], values["clean.logits"])
+    assert all(v.device.type == "cpu" for v in values.values() if isinstance(v, torch.Tensor))
+    w = values["fit.probe.W"]
+    assert torch.equal(values["direction"], w[:, 1] - w[:, 0]) and torch.equal(w, values["fit.probe"]["W"])

@@ -25,8 +25,9 @@ from clab.format.data import PADDINGS
 
 # Measured on the corpus at the pinned 12 threads, against the `dataset` run: the largest move is 6.9e-7, in das's
 # trained basis under `sorted` (its minibatches' gradients sum over their rows in another order, every epoch), and
-# 1.8e-7 under `batch` (sae_train's dictionary); a value of a forward or a generation moves by 6e-8 at most
-# (mixed_lengths' logits). The worst |Δ| / (ATOL + RTOL·|x|) is 0.36 under `sorted` and 0.04 under `batch`.
+# 5.0e-7 under `batch` (tuned_lens's trained `W`); a value of a forward or a generation moves by 6e-8 at most
+# (probe_direction's clean and null logit differences), and 1.2e-7 where its write takes what a fit trained on such
+# a value (probe_direction's projected.ld). The worst |Δ| / (ATOL + RTOL·|x|) is 0.37, tuned_lens's `W`, under both.
 RTOL, ATOL = 1e-5, 1e-6
 MODES = ("batch", "sorted")
 

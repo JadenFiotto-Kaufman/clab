@@ -372,7 +372,8 @@ same under each. Under `dataset` a row's numbers depend on the width of the inpu
 rows share its batch. At some thread counts the batch's other rows can still move them in the last bits. They
 do depend on the batch's shape: a trailing partial batch is a smaller matrix, and a batch padded to its own
 width a narrower one. Either can differ in the last bits: in float32 a forward's values move by 6e-8 at most on
-the corpus (`tests/test_padding.py`), and a real model's move more. A featurizer trained through such a forward
+the corpus (`tests/test_padding.py`), 1.2e-7 where a write takes what a fit trained on such values, and a real
+model's move more. A featurizer trained through such a forward
 can move by more than the last bits, since an optimizer such as Adam scales a rounding-sized gradient up to its
 step size. So a fit whose trained tensors are compared belongs under `dataset` padding. Results reproduce to the
 bit at a fixed batch size, padding, readout and thread count, each of which the run records.
@@ -405,7 +406,7 @@ are refused before anything runs; any other option is the engine's `generate`'s 
 fails when the step runs, naming the step.
 
 A read beyond the prefill runs the ops after its last edit at each call it reads, on that call's value, up
-to the first that is not positionwise (`min`, `max`, `median`, `count`, `match`, `logit_diff`, `token_prob`, `token_logit`, `cross_entropy`, `top_k`, `argmax`, `abs`, `exp`, `log`, `sign`, `sqrt`, `square`, `neg`, `mul`, `div`, `eq`, `ne`, `gt`, `ge`, `lt`, `le` are), removes `pos`, takes an operand with a `pos`
+to the first that is not positionwise (`min`, `max`, `median`, `count`, `match`, `logit_diff`, `token_prob`, `token_logit`, `cross_entropy`, `top_k`, `argmax`, `select`, `abs`, `exp`, `log`, `sign`, `sqrt`, `square`, `neg`, `mul`, `div`, `eq`, `ne`, `gt`, `ge`, `lt`, `le` are), removes `pos`, takes an operand with a `pos`
 axis or scores an answer of several tokens; those from there on run once the batch's generation ends, on its
 calls arranged by position (its record's `per_call` counts those it runs at each call). So a metric of the head at
 `{"frame": ":"}` holds one number a call, `[rows, calls]`, where a read with no op, or whose first op waits,
@@ -468,7 +469,8 @@ as drawn (an untrained lora or affine is the identity exactly, a null control), 
 `[0]`.
 
 The body is a scope of its own that sees every value produced before the fit; a trained featurizer's name
-there is `<fit>.<featurizer>`, the one being trained, which compile writes for its bare name. A value made
+there is `<fit>.<featurizer>`, the one being trained, which compile writes for its bare name, and whose tensors
+the body may not name: they are values once the fit ends. A value made
 before the fit with a row per example of
 one of the body's datasets (a harvest) comes into every run of the body at that run's rows, taken by their
 ids as the body's datasets are, and as it was made: on its device, in its dtype, with no gradient of its own;
@@ -479,10 +481,11 @@ statistic of the dataset is a step before the fit. An eval that reads a harvest'
 refused, since no step made the harvest over the other's rows: evaluate on other data in steps after the fit,
 through `<fit>.<featurizer>`. So is an objective none of whose terms depends on what the fit trains, which has
 no gradient to step on. Nothing leaves the body except through the fit's members: `<fit>.<featurizer>` the
-trained featurizer (saved as its bundle), `<fit>.<eval>.<op>` and `<fit>.<eval>.<step>.<entry>` a value of the
-eval named `<eval>`, and `<fit>.history.<term>`, `[epochs]`, one entry per epoch run. A sweep over any of the
-fit's values (an objective weight, the learning rate) makes the fit, its members and their users a list of
-points.
+trained featurizer (saved as its bundle), `<fit>.<featurizer>.<tensor>` one of its tensors as the fit left it, a
+value laid out as its kind lays it (see Featurizer kinds), `<fit>.<eval>.<op>` and `<fit>.<eval>.<step>.<entry>` a
+value of the eval named `<eval>`, and `<fit>.history.<term>`, `[epochs]`, one entry per epoch run. A sweep over
+any of the fit's values (an objective weight, the learning rate) makes the fit, its members and their users a
+list of points.
 
 ### `fit` blocks
 
@@ -727,6 +730,7 @@ stays missing: NaN.
 | `grad` | `of: str` | keeps the layout | The gradient, at the entry's selection, of the sum of `of`'s value over every axis it has (a missing row adds nothing), with respect to the value at this entry's site. That value is the one the forward goes on with there, after the writes listed before this entry at that site. `of` names, bare, an entry of the same forward at a site the forward reaches after this one, whose ops a gradient passes through. `grad` is the first op of an entry of a `forward` (see above). What it meets is that gradient already, which it gives back as it is. |
 | `top_k` | `k: int`, `over: str or list of str = "vocab_size"` | removes the axis `over` names, which it ranks (by default `vocab_size`), or every axis a list of them names, and adds `k` | The `k` largest along the axis `over` names, the largest first. `ids` holds their indices along it. Over a vocabulary (`vocab_size`, a probe's `classes`) `probs` holds their float32 softmax over it, and over another axis `values` holds the ranked values as the value has them. By default the most likely tokens, ranked by their logits (as a step, its value also holds their `tokens`, decoded); over `features`, a featurizer's coordinates after an `encode`. Along a ragged axis (a pattern's `key`, a `pos` whose rows hold different numbers of positions) the entries that are there are ranked, and a pick past them is id -1, however large `k` is. A `k` below 1 is refused by name at compile. So is one past the entries of a ranked axis whose number compile knows: a `select`'s indices, the layers picked from the first, a static width of `pos`, the dataset's rows (in a fit's body, those its fewest-row run holds) and a probe's classes. Compile knows too the coordinates of a featurizer that counts them (a subspace's or a pca's `k`, an sae's `latents`, a loaded bundle's) and an earlier `top_k` step's `k`. Preflight refuses one past the model's size of the axis (`vocab_size`, `hidden_size`, `num_heads`, ...), the layers a slice or a count from the last picks, or a width the rows confirm. Along an axis neither knows the number of (a drawn gate's coordinates, a generation's `new`, a fit's `epochs`, a load's `k`), torch's error stops the op at the run. An exact tie goes to the lower index (`ranked`), so `top_k`'s first is `argmax`'s. Over a list of axes (`["rows", "pos"]`), as a step, the `k` largest of all their entries together, every one of those axes removed. `ids` is then an object of each axis's index of each pick, by the axis's name (`{"rows": ..., "pos": ...}`, each `[..., k]`); a list of one axis gives it too. Beside it stand `values`, or `probs` where one of the axes is a vocabulary: each pick's softmax over it, and, over `vocab_size`, the `tokens`, decoded. It ranks the entries as one axis laid out in the order the list names them, so an exact tie goes to the lower index along the first, then the next. A missing (NaN) entry is ranked below every other, and a pick past those there is -1 on every axis. Its value is several tensors, which no op takes whole: an op step over a top_k's value, an operand naming one, and an op after a top_k in its entry are refused by name at compile. A later step names a `top_k` step's members as it names a fit's, each a value laid out as the step's value is, with its labels: `<step>.ids` (an integer value, its hole -1), `<step>.probs` (float32) or `<step>.values` (the value's dtype), and over `vocab_size` `<step>.tokens`, which is text, as the op that takes a tensor refuses it. Over a list of axes `<step>.ids` is one tensor per axis, which an op takes by axis, `<step>.ids.rows`. Ids below 2^53 rank as the integers they are (an `argmax` of `<step>.ids`), their hole below every id. |
 | `argmax` | `over: str = "vocab_size"` | removes the axis `over` names, which it ranks: by default `vocab_size` | The index of the largest along the axis `over` names: by default the id of the most likely token, ranked by its logit. Along a ragged axis the largest of the entries that are there; -1 where none is (a missing value). An exact tie goes to the lower index, as in `top_k`. |
+| `select` | `select: {axis: selector}` | keeps the layout, each axis `select` names narrowed to the indices it picks | The value at the indices `select` picks along each axis it names (`{<axis>: <selector>}`, a read's `select` form), in the order picked: an int keeps one, the axis of size 1 as a read's does, so that a reduction over it then drops it; a slice or a list of picks keeps as many as it picks. Its value keeps the indices it picked (`kept`, through a select before it, as a read's keeps the model's; along `layers`, which only a value with no read selects, a featurizer's tensor over layers, the model layers it picked), by which Ops' one rule pairs the axis, so a probe's direction `W[:, 1] - W[:, 0]` is two selects of `classes`, each summed over it, then a `sub`. A pick outside the axis is refused at the stage that knows its number: compile where the document fixes it (a featurizer's coordinates or rank, a probe's classes, a fit's epochs, and `max_new_tokens` as a bound of `new`), preflight for the model's sizes, and the run, naming the step, along a history `early_stop` ended sooner or a generation whose rows stopped early; `-1` and a slice resolve at the stage that knows the number. It is an op step; inside an entry the site's own `select` narrows the value. |
 | `detokenize` | `tokens: bool = false`, `after: Text = null` | needs new; removes new | Each row's generated ids as text, stopped before the row's first EOS (the id its generation stops on); with `tokens`, as its token strings. `after` (a column, each row's own text, or a literal, `{"text": "</think>"}`) keeps each row's text after its first occurrence there, the whole text where it does not occur, so `contains` scores what follows it alone. |
 | `permute` | `seed: int or null`, `derangement: bool = false` | needs rows | The value with its rows reordered: row i holds row π(i)'s, π a permutation of the rows the step runs over (every row of the value's dataset, or a fit body's minibatch). π is drawn from `seed` by a CPU generator and nothing else, so the same seed draws the same π on every device and in every run. With `derangement` (`true`) π leaves no row where it was; over fewer than two rows there is no such π. `seed` is written either way: null is the identity, the null control, whose swap into another forward leaves its numbers equal to the clean run's to the bit. `permute` is an op step, never an op of an entry, whose ops act on each row's live value. A top_k's or a detokenize's value is permuted before that op, which acts row by row. The layout, the dataset and the width are `of`'s, row i still indexing the dataset. Each row's positions are π(i)'s, so the value has no `read` (its record's is null). Its positions label no row's tokens, and a table numbers them by plain index. It meets a write or an op of another read as a read of another input would, position by position at one width: a static one, or the one its read's rows confirm in preflight where they decide it (`{"index": ":"}` on rows of one length). A ragged one is refused there, naming the read and each count's rows, though it may still be reduced. The step's record holds π (`permutation`: the dataset row whose value each row holds, as the run drew it). In a fit's body each training minibatch draws π over its own rows from the seed alone, so every minibatch of one size pairs its rows the same way. The record holds the π of the body's last run, the one that scores every training row, which no training step used. Without `derangement`, a seed that draws the identity over a training minibatch's rows is refused at compile. |
 | `abs` | — | keeps the layout | `|of|`, each entry's absolute value, in float32. |
@@ -822,9 +826,13 @@ nothing changes nothing to the bit, and a sparse autoencoder's error term is kep
 its version of `h` in `h`'s own layout (a subspace's projection, a dictionary's reconstruction, a gate's
 masked value or, given `with`, its interpolation toward that value, an adapter's adapted value, an affine map's
 `h + h W + b`, a pca's projection through its mean, `mean + (h - mean) B Bᵀ`, a constant's vector in place of the
-value). A fit's objective may name a featurizer's scalar as `<featurizer>.<scalar>` (a gate's
-`mask` is the mean of its soft mask; an sae's `reconstruction` and `l1` are over the coordinates the body read of
-it in that run of the body, its `encode`s no `decode` closes, which the instance keeps while a fit trains it). Its
+value). Its tensors, those its bundle holds, are values by name: `<featurizer>.<tensor>` the instance drawn or
+loaded, `<fit>.<featurizer>.<tensor>` the one a fit trained, as the fit left it (`probe.W`, `fit.probe.W`), each laid
+out as its kind lays it (`laid`) at the first site a step before the one naming it uses the featurizer at, a copy
+on the model's device in the featurizer's dtype, with no gradient. A fit's objective may name a featurizer's scalar
+as `<featurizer>.<scalar>` (a gate's `mask` is the mean of its soft mask; an sae's `reconstruction` and `l1` are
+over the coordinates the body read of it in that run of the body, its `encode`s no `decode` closes, which the
+instance keeps while a fit trains it). Its
 math runs on the value's device and dtype, with autocast off: a model served in bfloat16 under autocast leaves a
 float32 featurizer's float32 math alone.
 
@@ -844,9 +852,9 @@ header's `format` is `clab/...`; one that carries clab's header keys under anoth
 file is a published one, its kind's to read or refuse: an `sae` reads one (SAELens, Gemma Scope).
 
 Each kind is one class, in a module of its own, registered under its name in lower case. It declares as class
-attributes what its bundle holds (`saves`), what a fit trains (`trains`), the axis its coordinates are on
-(`axis`), the fields its bundle's header records (`header`), the fields one drawn without a `file_path` needs
-(`drawn`), what a header field left unstated is where the kind rather than its signature decides it (`unstated`:
+attributes what its bundle holds (`saves`), the axes each of its tensors lies on (`laid`), what a fit trains
+(`trains`), the axis its coordinates are on (`axis`), the fields its bundle's header records (`header`), the fields
+one drawn without a `file_path` needs (`drawn`), what a header field left unstated is where the kind rather than its signature decides it (`unstated`:
 an sae's `activation` and `centered`), the scalars a fit's objective may name (`scalars`; those of them over what
 the body's encodes of it saw, `over_encodes`, which compile refuses on a body with no open encode of it) and the
 fields that count directions of the value, so are at most its width (`counts`), whether its `apply`'s `with` is
@@ -1155,15 +1163,16 @@ Names are one flat namespace per scope: no dots, and no step also a dataset or a
 
 A reference is "thing, then member", split at the first dot: `counterfactual.v_cf` is step
 `counterfactual`'s entry `v_cf`; `mean` is an op step's value; `pairs.cf_answer` is a dataset's column; `rot`
-is a declared featurizer and `mask.mask` its scalar; `fit.rot` is a fit's member; `top3.ids` is a `top_k` step's
-member (`ids`, `probs` or `values`, `tokens`, and over a list of axes `top.ids.rows`, each laid out as the step's
-value). Values are produced in
-document order and referenced only after they exist. A fit's body is a scope of its own: it sees every
-value produced before the fit, and nothing leaves it except through `<fit>.<member>`. A bundle of entries
-is a template, so the names inside it resolve where a step pulls it in. Under a sweep, a name means the
-producer's point that agrees with the consumer's coordinates on the producer's axes. Every value with a
-rows axis knows the dataset its rows are aligned to (a forward's input; an op's `of`, operands and
-columns), and an op takes one dataset's rows.
+is a declared featurizer, `mask.mask` its scalar and `rot.basis` its tensor, as drawn or loaded; `fit.rot` is a
+fit's member, the trained featurizer, and `fit.rot.basis` its tensor, as the fit left it; `top3.ids` is a `top_k`
+step's member (`ids`, `probs` or `values`, `tokens`, and over a list of axes `top.ids.rows`, each laid out as the
+step's value). Values are produced in document order and referenced only after they exist, a featurizer's
+tensors after a step that uses the featurizer at a site, whose last axis they lie on. A fit's body is a scope of
+its own: it sees every value produced before the fit, and nothing leaves it except through `<fit>.<member>`. A
+bundle of entries is a template, so the names inside it resolve where a step pulls it in. Under a sweep, a name
+means the producer's point that agrees with the consumer's coordinates on the producer's axes. Every value with
+a rows axis knows the dataset its rows are aligned to (a forward's input; an op's `of`, operands and columns),
+and an op takes one dataset's rows.
 
 ## Sweeps
 

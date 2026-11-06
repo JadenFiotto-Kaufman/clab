@@ -32,14 +32,15 @@ from torch import Tensor
 
 from clab import ops
 from clab.compile import dataset_rows
-from clab.compile.preflight import preflight
+from clab.compile.arguments import select_kept, selected_layers
+from clab.compile.preflight import at_point, preflight
 from clab.compile.schedule import READOUTS, values_read_by
 from clab.compile.state import Findings
 from clab.compile.uses import instance, named_values
 from clab.format import data
 from clab.format.sweeps import agreeing_point, coordinate, coordinate_text, lookup, projection, put
 from clab.plan import (Forward, Load, OpStep, Plan, Run, arguments, entries, gradient_of, made_by, points, projections,
-                        record_of, runnable, saved_value_axes, serving, top_k_members, walk)
+                        record_of, runnable, saved_value_axes, serving, tensors_named, top_k_members, walk)
 from clab.steps import fit, generate
 from clab.steps.batches import (argument_binding, bind_arguments, bind_schedule, input_batches, join_batches,
                                 layers_made_at, model_device, schedule_binding, scope_ids, stack_layers, stop_ids,
@@ -156,17 +157,18 @@ def keyed_by_coordinate(plan: Plan, by_point: dict) -> Any:
 
 def record_results(engine: Engine, plan: Plan, state: ChainMap, costs: dict, findings: Findings) -> None:
     """What `run` records once its steps have run, or stopped: each step's cost, each saved value of a step whose
-    every run finished (`made_by`; a trained featurizer as its bundle's tensors; a swept value keyed by its
-    coordinates on its own axes), how each input tokenized, and the dtypes and devices of the model's parameters."""
+    every run finished (`made_by`; a trained featurizer as its bundle's tensors; a featurizer's tensor once the run
+    made the featurizer; a swept value keyed by its coordinates on its own axes), how each input tokenized, and the dtypes and devices of the model's parameters."""
     assert plan.run is not None
     plan.run.costs = {name: keyed_by_coordinate(plan, by_point) for name, by_point in costs.items()}
     done = {name for name in runnable(plan.steps) if len(costs.get(name, {})) == len(serving(plan, name))}
+    done |= {f for f in plan.featurizers if f in state}         # made, its named tensors beside it
     for name in (n for n in plan.saves if made_by(plan, n) in done):
         thing, _, member = name.partition(".")
-        step = points(plan.steps[thing])[0]
+        step = points(plan.steps[thing])[0] if thing in plan.steps else None
         ats = [at for at, _ in projections(plan, name)]
         values = [lookup(state, name, at) for at in ats]
-        if step.kind == "fit" and member in step.train:
+        if step is not None and step.kind == "fit" and member in step.train:
             values = [v.tensors() for v in values]
         plan.results[name] = ({coordinate(plan, at): detached_cpu_clone(v) for at, v in zip(ats, values)}
                               if saved_value_axes(plan, name) else detached_cpu_clone(values[0]))
@@ -255,13 +257,22 @@ def make_featurizers(plan: Plan, state: ChainMap, device: str) -> None:
     """Each declared featurizer used at a site (its record says its `width` there), at each of its points, made where
     the model is (`device`) into the run's `state` once what it is drawn from is there: before the run's first step,
     or, with a field that names a value (a constant's `init`), before the first step after the one that made it,
-    which compile puts before the featurizer's first use (`uses.check_named_values`). `run` calls it before each step;
-    one made already stays as it is."""
-    for name, entry in plan.featurizers.items():
-        for spec in points(entry):
-            made = tuple(spec.at.items()) in state.get(name, {})
-            if spec.width is not None and not made and all(ref in state for ref in named_values(spec).values()):
-                put(state, name, spec.at, instance(plan, spec, spec.width, None, device, state))
+    which compile puts before the featurizer's first use (`uses.check_named_values`), or once the featurizer whose
+    tensor it names is made. Each of its tensors the plan names (`plan.tensors_named`) goes beside it, a copy
+    (`Kind.value`). `run` calls it before each step; one made already stays as it is."""
+    named, making = tensors_named(plan), True
+    while making:               # again, for one drawn from a tensor of a featurizer made in this pass
+        making = False
+        for name, entry in plan.featurizers.items():
+            for spec in points(entry):
+                made = tuple(spec.at.items()) in state.get(name, {})
+                if spec.width is None or made or any(ref not in state for ref in named_values(spec).values()):
+                    continue
+                featurizer = instance(plan, spec, spec.width, None, device, state)
+                put(state, name, spec.at, featurizer)
+                for tensor in (t for t in featurizer.laid if f"{name}.{t}" in named):
+                    put(state, f"{name}.{tensor}", spec.at, featurizer.value(tensor))
+                making = True
 
 
 def detached_cpu_clone(value: Any) -> Any:
@@ -359,19 +370,27 @@ def op(engine: Engine, plan: Plan, name: str, step: OpStep, state: ChainMap, bat
     layer it was read at), to which an operand's `layers` axis is aligned (`argument_binding`); a `classes` axis's
     vocabulary is the probe its coordinates are in, and the ids a generation stops on are those of the generation that
     made `of`, through any `permute` of it. `top_k`'s value over a vocabulary's tokens also holds them, decoded,
-    and a `permute`'s record the permutation it drew (`OpStep.permutation`). It calls no model, and its value is put at
-    the point's coordinates on its own axes."""
-    of, record = value_at(plan, state, step.of, step.at, scope_ids(state)), record_of(plan.steps, step.of, step.at)
+    and a `permute`'s record the permutation it drew (`OpStep.permutation`), and a `select`'s the indices it kept along
+    each axis, checked against the value's own entries (an axis whose number only the run knows: `arguments.select_kept`,
+    refused naming the step). It calls no model, and its value is put at the point's coordinates on its own axes."""
+    of = value_at(plan, state, step.of, step.at, scope_ids(state))
+    record = record_of(plan.steps, step.of, step.at, plan.featurizers)
     dims = record.dims or []
-    producer = points(runnable(plan.steps)[made_by(plan, step.of)])[0]
+    makers = {**plan.featurizers, **runnable(plan.steps)}       # a featurizer's tensor is the featurizer's
+    producer = points(makers[made_by(plan, step.of)])[0]
     while isinstance(producer, OpStep) and producer.op == "permute":     # what the value is: a generation's ids too
-        producer = points(runnable(plan.steps)[made_by(plan, producer.of)])[0]
+        producer = points(makers[made_by(plan, producer.of)])[0]
     ids = (scope_ids(state) if scope_ids(state) is not None else list(range(plan.data[record.dataset].n_rows or 0))) \
         if "rows" in dims and record.dataset is not None else None
     rows = None if ids is None else torch.tensor(ids)
     vocabulary = lookup(state, record.space[-1]["featurizer"], step.at).classes if "classes" in dims else None
     acts = record.layers if "layers" in dims else record.layers[0] if record.layers else None
     binding = argument_binding(plan, step.op, arguments(step), step.at, dims=dims, layers=acts)
+    if step.op == "select":     # its picks among the value's own entries, which the run alone holds along some axes
+        met = record.model_copy(update={"kept": {a: v for a, v in record.kept.items() if v != []}})
+        step.layers, step.kept = selected_layers(record, step.kept | select_kept(
+            at_point(plan, name, step.at), met, arguments(step), None,
+            {a: (of.shape[dims.index(a)], "the value's") for a in arguments(step)["select"]}))
     value = ops.call(step.op, of, bind_arguments(plan, binding, state, scope_ids(state), findings, of, vocabulary,
                                                  dims=dims),
                      engine=engine, dims=dims, layers=acts,
