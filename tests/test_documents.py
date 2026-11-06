@@ -888,13 +888,19 @@ def test_a_permuted_read_at_an_open_index_pairs_at_the_width_its_rows_confirm(en
     def unpermuted(d):
         everywhere(d)
         d["steps"]["resampled"]["interventions"]["abl"]["ops"][0]["with"] = "harvest.acts"
-    for change, operand in ((everywhere, r"'donor' reorders the rows of 'harvest\.acts', which holds"),
-                            (unpermuted, r"'harvest\.acts' holds")):
+
+    def from_two(d):                    # the suggested spans keep the read's own start, or its end
+        unpermuted(d)
+        d["steps"]["harvest"]["interventions"]["acts"]["pos"] = {"index": "2:"}
+    for change, operand, counts, spans in (
+            (everywhere, r"'donor' reorders the rows of 'harvest\.acts', which holds", (11, 9), r"'0:9', or '-9:'"),
+            (unpermuted, r"'harvest\.acts' holds", (11, 9), r"'0:9', or '-9:'"),
+            (from_two, r"'harvest\.acts' holds", (9, 7), r"'2:9', or '-7:'")):
         refused = resampled(change)
-        with pytest.raises(ValueError, match=r"^resampled\.abl: operand " + operand + r" 11 positions on row 0 and 9 "
-                                             r"positions on rows 1-3; an open index pairs with another forward's value "
-                                             r"when every row holds as many positions: read a static span every row "
-                                             r"holds \('index': '0:9', or '-9:'\), or reduce it$"):
+        with pytest.raises(ValueError, match=rf"^resampled\.abl: operand {operand} {counts[0]} positions on row 0 and "
+                                             rf"{counts[1]} positions on rows 1-3, and two values of different reads "
+                                             r"pair only at a fixed width, whether one forward or two made them; read a "
+                                             rf"static span every row holds \('index': {spans}\), or reduce it$"):
             engines(kind, refused.model).execute(refused, batch_size=BATCH_SIZE)
 
 

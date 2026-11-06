@@ -1060,16 +1060,18 @@ def test_m1_two_sweeps_of_one_label_zip_and_the_refusal_names_label():
 
 def test_m2_a_metric_over_two_reads_without_a_static_width_says_to_read_at_a_static_index(engines):
     """Two reads at an open index in the prefill compile, their width the rows' to decide; on rows of different
-    lengths preflight refuses the pair naming each count's rows and a static span every row holds."""
+    lengths preflight refuses the pair naming each count's rows and a static span every row holds. They are reads of
+    one forward, and the refusal says a pair of different reads needs a fixed width whether one forward or two made
+    them."""
     compiled = plan(data={"d": DAYS}, steps={
         "f": forward({"lens": {"site": {"component": "layer_output", "layers": -1}, "pos": {"index": ":"},
                                "ops": [{"op": "readout"}]}, "logits": {"site": HEAD, "pos": {"index": ":"}}}),
         "kl": {"kind": "op", "op": "kl", "of": "f.lens", "against": "f.logits"}}).compile()
     refused_before_any_forward(engines, compiled, r"^kl: operand 'f\.logits' holds 9 positions on rows 0-1, 4 "
-                                                  r"positions on row 2 and 5 positions on row 3; an open index pairs "
-                                                  r"with another forward's value when every row holds as many "
-                                                  r"positions: read a static span every row holds \('index': '0:4', "
-                                                  r"or '-4:'\), or reduce it$")
+                                                  r"positions on row 2 and 5 positions on row 3, and two values of "
+                                                  r"different reads pair only at a fixed width, whether one forward or "
+                                                  r"two made them; read a static span every row holds \('index': "
+                                                  r"'0:4', or '-4:'\), or reduce it$")
 
 
 def test_m3_one_latent_is_read_with_encodes_select_and_the_featurizer_op_is_gone(engines):

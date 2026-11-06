@@ -35,7 +35,7 @@ steps.patched.interventions.patch.ops[0].with: 'counterfactual.v_cf' has no widt
 steps.patched.interventions.patch.ops[0].with: the value 'swap' acts on has no width compile can fix (an open index beyond the prefill, an `until` scope, several occurrences), …
 ```
 
-In the first the operand's width is open, in the second the write's: `documents/patching.json` with `{"scope": {"column": "pairs.entity", "until": true}}` on each side. A side whose width no row can settle pairs with no value of another forward, whatever the prompts: an `until` scope, several occurrences, an open index or frame beyond the prefill. [positions.md](../usage/positions.md#static-width-or-ragged) lists which `pos` forms pair. In the prefill an open index and one occurrence of a scope are the exceptions, since their rows say their width ([below](#-an-open-index-pairs-with-another-forwards-value-when-every-row-holds-as-many-positions)). A permuted read is held to the read it permutes. The fixes:
+In the first the operand's width is open, in the second the write's: `documents/patching.json` with `{"scope": {"column": "pairs.entity", "until": true}}` on each side. A side whose width no row can settle pairs with no value of another forward, whatever the prompts: an `until` scope, several occurrences, an open index or frame beyond the prefill. [positions.md](../usage/positions.md#static-width-or-ragged) lists which `pos` forms pair. In the prefill an open index and one occurrence of a scope are the exceptions, since their rows say their width ([below](#-and-two-values-of-different-reads-pair-only-at-a-fixed-width-whether-one-forward-or-two-made-them)). A permuted read is held to the read it permutes. The fixes:
 
 - read both at a static index without a scope (`"index": -1`, `"index": "-3:"`);
 - read in the prefill at an open index, or at one occurrence of a scope there;
@@ -59,18 +59,20 @@ steps.patched.interventions.patch.ops[0].with: 'counterfactual' holds 1 position
 
 Where the rows agree on a width the other side does not have, the refusal is [`… holds N position(s) per row …`](#-holds-n-positions-per-row-and-the-value--holds-m).
 
-## `… an open index pairs with another forward's value when every row holds as many positions`
+## `… and two values of different reads pair only at a fixed width, whether one forward or two made them`
 
 ```text
-patched.patch: operand 'counterfactual.v_cf' holds 9 positions on rows 0-1, 3 and 11 positions on row 2; an open index pairs with another forward's value when every row holds as many positions: read a static span every row holds ('index': '0:9', or '-9:'), or reduce it
-resampled.abl: operand 'donor' reorders the rows of 'harvest.acts', which holds 11 positions on row 0 and 9 positions on rows 1-3; …
+patched.patch: operand 'counterfactual.v_cf' holds 9 positions on rows 0-1, 3 and 11 positions on row 2, and two values of different reads pair only at a fixed width, whether one forward or two made them; read a static span every row holds ('index': '0:9', or '-9:'), or reduce it
+resampled.abl: operand 'donor' reorders the rows of 'harvest.acts', which holds 11 positions on row 0 and 9 positions on rows 1-3, and two values …
+steps.resampled.interventions.abl.ops[0].with: 'donor' reorders the rows of 'cached' (a load of 'harvest.acts'), which holds 11 positions on row 0 and 9 positions on rows 1-3, and two values …
 ```
 
 - **Preflight counts an open index's width.** In the prefill, `{"index": ":"}` (or `"2:"`, or no `pos`) holds on each row as many positions as the row's prompt gives it. Compile leaves the width to the rows, and preflight counts them before any forward.
 - **Rows of one length pair.** There the count is the read's width, and it pairs as a static width does. `documents/ablation_pair.json` with `":"` in place of each `"0:12"` gives its own numbers, equal on its 12-token prompts ([running.md](../usage/running.md#when-two-runs-give-the-same-numbers)).
 - **Rows of different lengths are refused**, as in the first message (`documents/patching.json` with `v_cf` at `":"`). Each count is named with its rows.
-- **A permuted read is its read's rows reordered**, so the refusal names the read it permutes (the second message).
-- **The fix.** Read a static span every row holds, `"0:9"` or `"-9:"`, the shortest row's count, or reduce the read over `pos` first.
+- **Two reads of one forward pair the same way.** A `kl` of two `":"` reads of one forward on such rows is refused alike: they are different reads.
+- **A permuted read is its read's rows reordered**, so the refusal names the read it permutes (the second message), and a permuted load names the load step and the value it loads (the third, at compile, since a load carries its rows' positions).
+- **The fix.** Read a static span every row holds, as long as the shortest row's count, that keeps the read's own start or end: `"0:9"` or `"-9:"` for `":"`, `"2:9"` or `"-7:"` for `"2:"`. Or reduce the read over `pos` first.
 
 ## `… has a pos axis, and this write lands beyond the prefill …`
 
