@@ -613,6 +613,10 @@ def test_a_constant_drawn_from_a_featurizers_tensor_writes_it(engines):
      r"own select narrows"),
     (lambda d: d["saves"].append("fit.probe.U"),
      r"^saves\[\d\]: 'fit\.probe\.U' names no tensor of 'fit\.probe'"),
+    (lambda d: (d["featurizers"].update(c={"kind": "constant", "init": "probe.W"}),
+                d["steps"].update(w=logits_after({"op": "apply", "featurizer": "c"}))),
+     r"^featurizers\.c\.init: 'probe\.W' is laid out \['hidden_size', 'classes'\], .*: take one of its classes in a "
+     r"step before the constant's first use, a select of it summed over classes \(a sum of one entry is that entry\)$"),
     (lambda d: d["steps"].update(a={"kind": "op", "op": "select", "of": "fit.probe.W", "select": {"classes": 1}},
                                  b={"kind": "op", "op": "select", "of": "fit.probe.W", "select": {"classes": 0}},
                                  d={"kind": "op", "op": "sub", "of": "a", "with": "b"}),

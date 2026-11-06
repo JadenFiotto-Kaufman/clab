@@ -176,25 +176,25 @@ def answer(engine: Engine, plan: Plan, findings: Findings, ref: str | dict, wher
 def check_classes(plan: Plan, where: str, name: str, args: dict, probe: str, classes: dict) -> None:
     """Every column op `name` scores against a probe's class list holds only those classes, on every row of the
     dataset it reads."""
-    vocabulary = classes[declared(plan, probe)]
+    vocabulary = classes[declared(plan.featurizers, probe)]
     for key, p in ops.parameters(name).items():
         if p.annotation == ops.Tokens and key in args:
             strip, lower = data.flags_of(args[key])
             if strip or lower:
-                raise ValueError(f"{where}: {key} names a class of probe {declared(plan, probe)!r}, which is compared "
+                raise ValueError(f"{where}: {key} names a class of probe {declared(plan.featurizers, probe)!r}, which is compared "
                                  "exactly; strip and lower compare an answer's tokens")
             given = data.literal_of(args[key])
             if given is not None:
                 if isinstance(given[0], list) or given[0] not in vocabulary:
                     raise ValueError(f"{where}: {key} is the literal {given[0]!r}, not one of the classes of probe "
-                                     f"{declared(plan, probe)!r}: {vocabulary}")
+                                     f"{declared(plan.featurizers, probe)!r}: {vocabulary}")
                 continue
             ref = (data.column_of(args[key]) or ("",))[0]
             dataset, _, column = ref.partition(".")
             for i, row in enumerate(held_rows(plan, dataset)):
                 if isinstance(row[column], list) or row[column] not in vocabulary:
                     raise ValueError(f"{where}: {key} is {column!r} of {dataset!r}, whose row {i} "
-                                     f"is {row[column]!r}, not one of the classes of probe {declared(plan, probe)!r}: "
+                                     f"is {row[column]!r}, not one of the classes of probe {declared(plan.featurizers, probe)!r}: "
                                      f"{vocabulary}")
 
 

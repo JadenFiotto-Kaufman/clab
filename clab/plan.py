@@ -1484,14 +1484,15 @@ def calls_model(steps: dict[str, Entry]) -> bool:
                for _, step in walk(steps))
 
 
-def declared(plan: Plan, ref: str) -> str:
-    """The declared featurizer a reference names: itself, or the one `<fit>.<featurizer>` trains."""
-    return ref if ref in plan.featurizers else ref.partition(".")[2]
+def declared(featurizers_of: dict[str, FeaturizerEntry], ref: str) -> str:
+    """The declared featurizer a reference names, among the plan's (`featurizers_of`): itself, or the one
+    `<fit>.<featurizer>` trains."""
+    return ref if ref in featurizers_of else ref.partition(".")[2]
 
 
 def kind_of(plan: Plan, ref: str) -> str:
     """The kind of the featurizer a reference names."""
-    return points(plan.featurizers[declared(plan, ref)])[0].kind
+    return points(plan.featurizers[declared(plan.featurizers, ref)])[0].kind
 
 
 def adapts(plan: Plan, o: "Op | OpStep") -> bool:
@@ -1509,49 +1510,49 @@ def over_of(f: Featurizer) -> list[str] | None:
     return given if given is not None or f.header is None or "over" not in f.header else json.loads(f.header["over"])
 
 
-def featurizer_uses(steps: dict[str, Entry], declared: dict[str, FeaturizerEntry]
+def featurizer_uses(steps: dict[str, Entry], featurizers_of: dict[str, FeaturizerEntry]
                     ) -> Iterator[tuple[str, str, Intervention, dict[str, int], "Op | OpStep", list[Op]]]:
     """Every `encode` and `apply` of a featurizer among `steps`, in the order they are written (a fit's body after the
-    fit): the featurizer among the plan's (`declared`) it reaches, the entry's dotted name, the read it is of (the
-    entry's own record; an op step's the read its `of` names, whose site and coordinates its featurizer is used at),
-    its step's point, the op, and the encodes still open around it (outermost first), whose coordinates it is applied
-    to."""
+    fit): the featurizer among the plan's (`featurizers_of`) it reaches (`declared`), the entry's dotted name, the read
+    it is of (the entry's own record; an op step's the read its `of` names, whose site and coordinates its featurizer
+    is used at), its step's point, the op, and the encodes still open around it (outermost first), whose coordinates
+    it is applied to."""
     for name, step in walk(steps):
         ref = arguments(step).get("featurizer") if step.kind == "op" else None
         if ref is not None:                 # a body's step sees the body's steps beside the root's
             fit = name.rpartition(".")[0]
             scope = {**steps, **agreeing_point(steps[fit], step.at).steps} if fit else steps
             read = entry_of(scope, cast(str, step.read), step.at)[1]
-            yield (ref if ref in declared else ref.partition(".")[2], name, read, step.at, step,
+            yield (declared(featurizers_of, ref), name, read, step.at, step,
                    [Op(op="encode", **s) for s in read.space])
         for key, entry in entries(step).items():
             for node, around in visited(bracketed(entry.ops)):
                 ref = arguments(node["op"]).get("featurizer")
                 if ref is not None:
-                    yield (ref if ref in declared else ref.partition(".")[2], f"{name}.{key}", entry, step.at,
+                    yield (declared(featurizers_of, ref), f"{name}.{key}", entry, step.at,
                            node["op"], [a["op"] for a in around])
 
 
-def tensor_record(steps: dict[str, Entry], declared: dict[str, FeaturizerEntry], featurizer: str, tensor: str,
+def tensor_record(steps: dict[str, Entry], featurizers_of: dict[str, FeaturizerEntry], featurizer: str, tensor: str,
                   at: dict[str, int], axes: list[str]) -> Labelled | None:
-    """The record of tensor `tensor` of `featurizer` (as a name writes it: one of the plan's, `declared`, or
+    """The record of tensor `tensor` of `featurizer` (as a name writes it: one of the plan's, `featurizers_of`, or
     `<fit>.<featurizer>`, one a fit trains), at the point agreeing with `at`, on the sweep axes `axes`: laid out as
     its kind lays the tensor (`Kind.laid`) at the first use of the featurizer among `steps` (`featurizer_uses`) whose
     point agrees with `at`. Its `width` is that use's last axis (inside an encode, that encode's coordinates), with
     the indices the use's site keeps on it; an axis the featurizer is over is labelled as the use's selection is
     (`layers` by model layer); and it is in the coordinates of the encodes open around the use, then of the
     featurizer's own where the kind's coordinate axis is its last. None where no step among `steps` uses it."""
-    name = featurizer if featurizer in declared else featurizer.partition(".")[2]
-    f = agreeing_point(declared[name], at)
+    name = declared(featurizers_of, featurizer)
+    f = agreeing_point(featurizers_of[name], at)
     kind = featurizers.KINDS[f.kind]
-    use = next((u for u in featurizer_uses(steps, declared)
+    use = next((u for u in featurizer_uses(steps, featurizers_of)
                 if u[0] == name and all(at.get(k, i) == i for k, i in u[3].items())), None)
     if use is None:
         return None
     _, _, read, _, _, around = use
     if around:
         outer = arguments(around[-1])["featurizer"]
-        last = featurizers.KINDS[points(declared[outer if outer in declared else outer.partition(".")[2]])[0].kind].axis
+        last = featurizers.KINDS[points(featurizers_of[declared(featurizers_of, outer)])[0].kind].axis
     else:
         last = address.dims(cast(Site, read.site).component)[-1]
     over, laid = over_of(f) or [], kind.laid[tensor]

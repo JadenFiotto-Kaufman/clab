@@ -252,7 +252,7 @@ def write_widths(engine: Engine, plan: Plan) -> None:
                 raise ValueError(f"{where}: {site.component}'s last axis is {last}, which grows with the input; "
                                  f"featurizer {name!r} needs a feature axis")
             for outer in around:
-                ref = declared(plan, arguments(outer)["featurizer"])
+                ref = declared(plan.featurizers, arguments(outer)["featurizer"])
                 width = instance(plan, agreeing_point(plan.featurizers[ref], at), width, None).size()
                 chosen = (arguments(outer).get("select") or {}).get("features")
                 width = width if chosen is None else len(selectors.select(chosen, width))
@@ -406,12 +406,17 @@ def check_named_values(plan: Plan) -> None:
                     if dims != [last]:
                         why = "a rows axis, a value per row" if "rows" in dims else \
                             "a layers axis, a value per layer" if "layers" in dims else f"no {last!r} axis alone"
-                        # an axis the site keeps several of: one vector is shared by all of them
+                        # an axis no site selects (a probe's classes, a featurizer's coordinates), which a select
+                        # step narrows; one the site keeps several of, whose one vector all of them would share
+                        other = [a for a in dims if a not in (last, *address.EXAMPLE_AXES)
+                                 and not any(a in address.selectable(c) for c in address.COMPONENTS)]
                         shared = [a for a in dims if a not in (last, *address.EXAMPLE_AXES)
                                   and (read.kept.get(a) is None or len(read.kept[a]) > 1)]
-                        fix = (f"one vector is shared by every {shared[0]} the site keeps, so for each one's own, "
-                               f"declare a site per {shared[0]} (a select of one) with {article(kind)} {kind} of its "
-                               f"own, each {field} a mean of a read there over every axis but {last}") if shared else \
+                        fix = (f"take one of its {other[0]} in a step before the {kind}'s first use, a select of it "
+                               f"summed over {other[0]} (a sum of one entry is that entry)") if other else \
+                            (f"one vector is shared by every {shared[0]} the site keeps, so for each one's own, "
+                             f"declare a site per {shared[0]} (a select of one) with {article(kind)} {kind} of its "
+                             f"own, each {field} a mean of a read there over every axis but {last}") if shared else \
                             f"reduce it to that, a mean of a read at the site over every axis but {last}"
                         fail(path, f"{ref!r} is laid out {dims}, {why}, and {article(kind)} {kind}'s {field} is one "
                              f"vector of its width, laid out {[last]} as {where} meets the value: {fix}")
