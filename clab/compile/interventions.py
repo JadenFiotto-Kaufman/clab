@@ -257,7 +257,7 @@ def compile_entry(cx: Compiling, path: str, spec: Intervention, plan: Plan, step
                      "an entry per call, with an operand of one position: a prefill read, or one read at that call "
                      "under a min_new_tokens that reaches it on every row")
             why = mismatch(ours, theirs, o.op, key, written, repr(step.input), i <= last, written in live,
-                           adapts(plan, o), lambda read: spec if read == where else entry_of(cx.steps, read, at)[1])
+                           adapts(plan, o), lambda ref: spec if ref == where else record_of(cx.steps, ref, at))
             if why:
                 fail(f"{here}.{key}", why)
         if i in closes:

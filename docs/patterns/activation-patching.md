@@ -46,7 +46,7 @@ The weights of the tiny checkpoint are random, so every number this corpus print
 "patch": {"site": "target", "pos": {"index": "-4:-1"}, "ops": [{"op": "swap", "with": "counterfactual.v_cf"}]}
 ```
 
-The two give the same logits: a window is its positions patched together. An effect carried jointly by several positions can show in the window and in no single position. To patch whole prompts, on a dataset whose prompts are one token length, use a window of that static width: `{"index": "0:9"}` on both sides over `data/weekdays_aligned/data.json`, whose prompts are 9 tokens each. `{"index": ":"}` from another forward is refused whatever the rows hold ([positions](../usage/positions.md#static-width-or-ragged)).
+The two give the same logits: a window is its positions patched together. An effect carried jointly by several positions can show in the window and in no single position. To patch whole prompts, on a dataset whose prompts are one token length, use a window of that static width: `{"index": "0:9"}` on both sides over `data/weekdays_aligned/data.json`, whose prompts are 9 tokens each. `{"index": ":"}` pairs there too, at the width preflight counts, and is refused before any forward on prompts of different lengths ([positions](../usage/positions.md#static-width-or-ragged)).
 
 ## By content, not by count
 

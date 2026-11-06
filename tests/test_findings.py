@@ -1083,15 +1083,19 @@ def test_m1_two_sweeps_of_one_label_zip_and_the_refusal_names_label():
     assert len(points(two({"sweep": [1, 0], "label": "mlp"}).steps["f"])) == 4
 
 
-def test_m2_a_metric_over_two_reads_without_a_static_width_says_to_read_at_a_static_index():
-    with pytest.raises(PlanError, match=r"steps\.kl\.against: 'f\.logits' has no width compile can fix \(an open "
-                                        r"index, an `until` scope, several occurrences\), and two values of different "
-                                        r"reads pair only at a fixed width, whether one forward or two made them; "
-                                        r"read both at a static index"):
-        plan(data={"d": DAYS}, steps={
-            "f": forward({"lens": {"site": {"component": "layer_output", "layers": -1}, "pos": {"index": ":"},
-                                   "ops": [{"op": "readout"}]}, "logits": {"site": HEAD, "pos": {"index": ":"}}}),
-            "kl": {"kind": "op", "op": "kl", "of": "f.lens", "against": "f.logits"}}).compile()
+def test_m2_a_metric_over_two_reads_without_a_static_width_says_to_read_at_a_static_index(engines):
+    """Two reads at an open index in the prefill compile, their width the rows' to decide; on rows of different
+    lengths preflight refuses the pair naming each count's rows and a static span every row holds."""
+    compiled = plan(data={"d": DAYS}, steps={
+        "f": forward({"lens": {"site": {"component": "layer_output", "layers": -1}, "pos": {"index": ":"},
+                               "ops": [{"op": "readout"}]}, "logits": {"site": HEAD, "pos": {"index": ":"}}}),
+        "kl": {"kind": "op", "op": "kl", "of": "f.lens", "against": "f.logits"}}).compile()
+    refused_before_any_forward(engines, compiled, r"^kl: operand 'f\.logits' holds 9 positions on rows 0-1, 4 "
+                                                  r"positions on row 2 and 5 positions on row 3; two values of "
+                                                  r"different reads pair only at a fixed width, whether one forward or "
+                                                  r"two made them, which an open index has where every row holds as "
+                                                  r"many positions: read a static span every row holds \('index': "
+                                                  r"'0:4', or '-4:'\), or reduce it$")
 
 
 def test_m3_one_latent_is_read_with_encodes_select_and_the_featurizer_op_is_gone(engines):
@@ -1107,30 +1111,30 @@ def test_m3_one_latent_is_read_with_encodes_select_and_the_featurizer_op_is_gone
     assert torch.equal(one.results["f.z"], every.results["f.z"][..., [2]])
 
 
-def test_m4_an_operand_without_a_static_width_into_such_a_write_says_what_differs():
-    """trial-01, trial-02: the two layouts print the same, so the message says the difference is where the
-    positions come from."""
-    with pytest.raises(PlanError, match=r"with: 'abc\.v' has no width compile can fix \(an open index, an `until` "
-                                        r"scope, several occurrences\), and two values of different reads pair only "
-                                        r"at a fixed width, whether one forward or two made them; read both at a "
-                                        r"static index"):
-        plan(data={"d": PAIR}, steps={
-            "abc": {"kind": "forward", "input": "d.abc", "interventions": {"v": {"site": LAYER0, "pos": {"index": ":"}}}},
-            "patched": forward({"w": {"site": LAYER0, "pos": {"index": ":"},
-                                      "ops": [{"op": "swap", "with": "abc.v"}]}})}).compile()
+def test_m4_an_operand_without_a_static_width_into_such_a_write_says_what_differs(engines):
+    """trial-01, trial-02: the two layouts print the same, so the message says what differs: here each side's width,
+    which its one row confirms in preflight (19 positions and 16)."""
+    compiled = plan(data={"d": PAIR}, steps={
+        "abc": {"kind": "forward", "input": "d.abc", "interventions": {"v": {"site": LAYER0, "pos": {"index": ":"}}}},
+        "patched": forward({"w": {"site": LAYER0, "pos": {"index": ":"},
+                                  "ops": [{"op": "swap", "with": "abc.v"}]}})}).compile()
+    refused_before_any_forward(engines, compiled, r"^patched\.w: operand 'abc\.v' holds 19 position\(s\) per row and "
+                                                  r"the value 'swap' acts on holds 16; position i meets position i")
 
 
-def test_sk2_two_open_reads_of_one_forward_in_an_op_step_are_refused_as_two_reads():
+def test_sk2_two_open_reads_of_one_forward_in_an_op_step_are_refused_as_two_reads(engines):
     """skills wave: an op step over two `{"index": ":"}` reads of one forward was refused as pairing "with no other
-    forward's value"; the message names two reads, whichever forward made them, and a static index serves."""
+    forward's value"; the message names two reads, whichever forward made them, and a static index serves. The rows
+    decide an open index's width, so it compiles and preflight refuses it on rows of different lengths."""
     def two(pos) -> Plan:
         return plan(data={"d": DAYS}, steps={
             "f": forward({"a": {"site": LAYER0, "pos": pos}, "b": {"site": {**LAYER0, "layers": 1}, "pos": pos}}),
             "diff": {"kind": "op", "op": "sub", "of": "f.a", "with": "f.b"}}, saves=["diff"])
-    with pytest.raises(PlanError, match=r"^steps\.diff\.with: 'f\.b' has no width compile can fix \(an open index, an "
-                                        r"`until` scope, several occurrences\), and two values of different reads "
-                                        r"pair only at a fixed width, whether one forward or two made them; "):
-        two({"index": ":"}).compile()
+    refused_before_any_forward(engines, two({"index": ":"}).compile(),
+                               r"^diff: operand 'f\.b' holds 9 positions on rows 0-1, 4 positions on row 2 and 5 "
+                               r"positions on row 3; two values of different reads pair only at a fixed width, whether "
+                               r"one forward or two made them, which an open index has where every row holds as many "
+                               r"positions: ")
     assert points(two({"index": "-3:"}).compile().steps["diff"])[0].width == 3
 
 

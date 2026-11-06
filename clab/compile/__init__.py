@@ -514,7 +514,7 @@ def compile_op(cx: Compiling, path: str, name: str, spec: OpStep, plan: Plan, at
     operands = references(spec.op, args, resolver(cx, path, "classes" in of.dims, at))
     for key, (written, theirs) in operands.items():
         why = mismatch(of, theirs, spec.op, key, written, repr(spec.of), False, False, adapts(plan, spec),
-                       lambda read: entry_of(cx.steps, read, at)[1])
+                       lambda ref: record_of(cx.steps, ref, at))
         if why:
             fail(f"{path}.{key}", why)
     if spec.op == "permute" and isinstance(of, OpStep) and of.op in ("top_k", "detokenize"):

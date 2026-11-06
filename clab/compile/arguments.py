@@ -303,7 +303,7 @@ def check_featurizer_ref(cx: Compiling, value: object, path: str) -> None:
 
 
 def mismatch(ours: Labelled, theirs: Labelled, name: str, key: str, written: str, mine: str, write: bool,
-             forward: bool, adapter: bool, reads: Callable[[str], Intervention]) -> str | None:
+             forward: bool, adapter: bool, records: Callable[[str], Labelled]) -> str | None:
     """Why the value `written` names, laid out `theirs`, cannot be operand `key` of op `name` on the value `mine`
     names, laid out `ours`, at one point; None where it can. The rule is Ops' one rule (`ops.ABOUT`): an operand
     may leave out any axis of the value it meets, which it then broadcasts over; every axis it has is the value's,
@@ -316,10 +316,12 @@ def mismatch(ours: Labelled, theirs: Labelled, name: str, key: str, written: str
     and positions alone. `write` says the op is one of an
     entry's up to its last edit (what the messages call the value), `forward` that the operand is an entry of the
     value's own forward (a ragged pair there is compared row by row by `check_operands`, once preflight has the
-    rows). A label preflight has yet to resolve (`[]`) is compared then, and so is a width: `reads` gives the entry a
-    value's `read` names, and where its `pos` leaves the width to the rows (`positions.pending_width`, a scope's in
-    the prefill), a width of None is pending until that entry holds its rows' `positions` (in preflight, or at
-    compile already for a load's read, which carries them from its run), and then says the rows disagree. The
+    rows). A label preflight has yet to resolve (`[]`) is compared then, and so is a width: `records` gives the
+    record a name names, through which a value's width is that of its `read`, or, for a permuted value (no `read`),
+    of the read whose rows the permute reorders, its width theirs (`kept_labels`). Where that read's `pos` leaves the
+    width to the rows (`positions.pending_width`: an open index in the prefill, over the prompt or a scope), a width
+    of None is pending until the read holds its rows' `positions` (in preflight, or at compile already for a load's
+    read, which carries them from its run), and then says the rows disagree, naming each count's rows. The
     coordinates are compared first, since two values in different coordinates differ in their last axis too, and
     that is the reason. A column scored as `Tokens` is first held to a whole vocabulary axis, which no site's
     `select` (`kept`) or probe's `encode` with a `select` (`space`) narrowed: its ids are of the whole vocabulary,
@@ -371,21 +373,29 @@ def mismatch(ours: Labelled, theirs: Labelled, name: str, key: str, written: str
                                        f"{written!r} meets the value {name!r} {verb}, which")):
             if side.width is not None or forward:
                 continue
-            read = reads(side.read) if side.read is not None else None
-            if read is None or not positions.pending_width(positions.parse(read.pos)):
-                return (f"{ragged} has no width compile can fix (an open index, an `until` scope, several "
-                        "occurrences), and two values of different reads pair only at a fixed width, whether one "
-                        "forward or two made them; read both at a static index without a scope ('index': -1, or "
-                        "'-3:'), at one "
-                        "occurrence of a scope in the prefill, not until, whose rows give its width, or over decode "
-                        "calls at a frame of a static number of them with an index of static width ({'frame': '1:4', "
-                        "'index': ':3'})")
+            source = side
+            while source.read is None and isinstance(source, OpStep):   # permuted: the read whose rows it reorders
+                source = records(source.of)
+            read = cast(Intervention, records(source.read)) if source.read is not None else None
+            if read is None or not positions.pending_width(parsed := positions.parse(read.pos)):
+                return (f"{ragged} has no width compile can fix (an open index beyond the prefill, an `until` "
+                        "scope, several occurrences), and two values of different reads pair only at a fixed width, "
+                        "whether one forward or two made them; read both at a static index without a scope ('index': "
+                        "-1, or '-3:'), in the prefill at an open index or one occurrence of a scope, not until, whose "
+                        "rows give its width, or over decode calls at a frame of a static number of them with an index "
+                        "of static width ({'frame': '1:4', 'index': ':3'})")
             resolved = read.positions.get(cast(str, read.dataset))
-            if resolved is not None:                # the rows are known (preflight's, a load's), and they disagree
-                return (f"{counted} holds {row_counts(resolved)}; two values of different reads pair only at a "
-                        "fixed width, whether one forward or two made them, which a scoped read has where every "
-                        "row's scope holds the same number of tokens: pick one with 'index' (-1, or '-2:'), or "
-                        "reduce it")
+            if resolved is None:
+                continue                            # the rows decide, in preflight
+            holds = f"{counted} holds" if source is side else f"{ragged} reorders the rows of {source.read!r}, which holds"
+            if parsed["scope"]:                     # the rows are known (preflight's, a load's), and they disagree
+                return (f"{holds} {row_counts(resolved)}; two values of different reads pair only at a fixed width, "
+                        "whether one forward or two made them, which a scoped read has where every row's scope holds "
+                        "the same number of tokens: pick one with 'index' (-1, or '-2:'), or reduce it")
+            n = min((len(p) for p in resolved if isinstance(p, list) and p), default=1)
+            return (f"{holds} {row_counts(resolved)}; two values of different reads pair only at a fixed width, "
+                    "whether one forward or two made them, which an open index has where every row holds as many "
+                    f"positions: read a static span every row holds ('index': '0:{n}', or '-{n}:'), or reduce it")
         if theirs.width is not None and ours.width is not None and theirs.width != ours.width:
             return (f"{written!r} holds {theirs.width} position(s) per row and the value {name!r} {verb} holds "
                     f"{ours.width}; position i {'scores against' if group == 'metrics' else 'meets'} position i, so "

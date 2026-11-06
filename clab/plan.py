@@ -573,11 +573,12 @@ class Pos(Record):
     every row's positions hold where preflight resolves them and they agree; where rows hold different numbers the
     value is as wide as the widest row, NaN past a row's own. Only pairing with another read's value needs the
     width to be one number, since two values of different reads pair only at a fixed width, whether one forward or
-    two made them: compile refuses the pair wherever the `pos` leaves it open, except for a scope of one
-    occurrence in the prefill, not `until` (the whole scope, or an index of no static width over it), which its rows
-    decide; where they disagree it is refused by name, with each count's rows, in preflight, or at compile for a
-    loaded read, which carries its rows' positions. In the prefill (`frame: 0`) an occurrence a row does not have,
-    or a static index that does not fit, is refused by name before any forward: the data decided. Anywhere else it
+    two made them: compile refuses the pair wherever the `pos` leaves it open, except where the prefill's rows
+    decide it: an index of no static width over the prompt (`":"`, `"2:"`), or over one occurrence of a scope there,
+    not `until` (the whole scope, or such an index over it). Where the rows agree the pair runs at their width;
+    where they disagree it is refused by name, with each count's rows and a static span or index to read instead,
+    in preflight, or at compile for a loaded read, which carries its rows' positions. In the prefill (`frame: 0`) an
+    occurrence a row does not have, or a static index that does not fit, is refused by name before any forward: the data decided. Anywhere else it
     is a result, as is a call the row never reached, and as is an index that picks none of a row's tokens (`"5:"`
     on a shorter row), in the prefill too: the row is `alignment_missing`, NaN all the way but in a `count`, which
     is 0 there (`clab table` prints the row flagged, with no value, for the read and every value made from it, the
