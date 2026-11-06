@@ -130,6 +130,9 @@ clab: 'held_iia' has a row per example of 'test' and 'fit.train.iia' of 'train';
 clab: 'iia' has a pos column counting positions of pairs.input, and 'counterfactual.v_cf' one counting positions of pairs.counterfactual_inputs[0]: the column does not mean one thing for both, so they do not join; table them one at a time
 clab: 'fit.rot' is a trained featurizer's bundle, which has no rows to table; read it from plan.results
 clab: 'top' is a top_k over rows, whose rows are its picks, and a top_k over rows tables alone; table it by itself
+clab: 'f.a' and 'f.b' share no row and pos together: on no row do they hold the same pos, so they join to no row; table them one at a time, or read at a pos both hold
+clab: 'f.d' and 'f.e' share no layer: 'f.d' holds layer [1] and 'f.e' layer [0], so they join to no row; table them one at a time, or read at a layer both hold
+clab: 'g.never' reached no row (each is alignment_missing), so it holds no position to meet the other's and they join to no row; table them one at a time
 clab: 'topm' has no rows to table: it is laid out ['k'], a top_k over a value with no rows axis, its ids and values one list each; read it from plan.results
 clab: 'logit_diff' has no result: the run stopped before its step; steps.logit_diff: out of CUDA memory …
 clab: data.pairs.path: no file data/weekdays/train.json under the corpus root
