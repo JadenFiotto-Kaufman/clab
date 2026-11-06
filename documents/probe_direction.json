@@ -1,0 +1,68 @@
+{
+  "description": "A trained probe's direction, projected out of the stream it was trained on, in one document, on GPT-2 (CPU, float32). Twenty one-sentence reviews, half positive and half negative, end \"Overall, the movie was\"; `harvest.h` reads layer 10's output at that last token, and the fit trains a two-class `linear` probe on it against `label` (its classes sorted: `negative`, then `positive`). `fit.probe.W` is the trained probe's weight, a value laid out `[hidden_size, classes]`: `positive` and `negative` select its two columns (a `select` keeps `classes` at size 1, labelled with the class it kept), each summed over `classes` to drop that axis, and `direction` is the one less the other, `W[:, 1] - W[:, 0]`, the direction along which the probe tells positive from negative. `projected` removes it from layer 10's output at every position (`project_out`), and `null` removes the direction scaled to zero, which leaves every vector as it is, so its numbers are the clean run's to the bit. `ld` is each row's logit for the word that matches its review (`answer`: \" good\" or \" bad\") less the one that does not (`other`), and each `margin` its mean over the rows: how far the model's next word follows the review's sentiment. The probe is trained and its direction tested on the same twenty rows.",
+  "model": {
+    "key": "openai-community/gpt2",
+    "revision": "607a30d783dfa663caf39e06633721c8d4cfcd7e",
+    "dtype": "float32"
+  },
+  "data": {"reviews": {"rows": [
+    {"input": "I loved this film. Overall, the movie was", "label": "positive", "answer": " good", "other": " bad"},
+    {"input": "I hated this film. Overall, the movie was", "label": "negative", "answer": " bad", "other": " good"},
+    {"input": "What a wonderful movie. Overall, the movie was", "label": "positive", "answer": " good", "other": " bad"},
+    {"input": "What a terrible movie. Overall, the movie was", "label": "negative", "answer": " bad", "other": " good"},
+    {"input": "The acting was brilliant. Overall, the movie was", "label": "positive", "answer": " good", "other": " bad"},
+    {"input": "The acting was awful. Overall, the movie was", "label": "negative", "answer": " bad", "other": " good"},
+    {"input": "A delightful story. Overall, the movie was", "label": "positive", "answer": " good", "other": " bad"},
+    {"input": "A boring story. Overall, the movie was", "label": "negative", "answer": " bad", "other": " good"},
+    {"input": "This was a fantastic experience. Overall, the movie was", "label": "positive", "answer": " good", "other": " bad"},
+    {"input": "This was a dreadful experience. Overall, the movie was", "label": "negative", "answer": " bad", "other": " good"},
+    {"input": "The music was beautiful. Overall, the movie was", "label": "positive", "answer": " good", "other": " bad"},
+    {"input": "The music was horrible. Overall, the movie was", "label": "negative", "answer": " bad", "other": " good"},
+    {"input": "I enjoyed every minute of it. Overall, the movie was", "label": "positive", "answer": " good", "other": " bad"},
+    {"input": "I regretted every minute of it. Overall, the movie was", "label": "negative", "answer": " bad", "other": " good"},
+    {"input": "An excellent, moving film. Overall, the movie was", "label": "positive", "answer": " good", "other": " bad"},
+    {"input": "A dull, lifeless film. Overall, the movie was", "label": "negative", "answer": " bad", "other": " good"},
+    {"input": "The cast was superb. Overall, the movie was", "label": "positive", "answer": " good", "other": " bad"},
+    {"input": "The cast was dreadful. Overall, the movie was", "label": "negative", "answer": " bad", "other": " good"},
+    {"input": "A charming and funny movie. Overall, the movie was", "label": "positive", "answer": " good", "other": " bad"},
+    {"input": "A tedious and stupid movie. Overall, the movie was", "label": "negative", "answer": " bad", "other": " good"}
+  ]}},
+  "sites": {"stream": {"component": "layer_output", "layers": 10}, "head": {"component": "logits"}},
+  "featurizers": {"probe": {"kind": "linear", "classes": "reviews.label"}},
+  "steps": {
+    "harvest": {"kind": "forward", "input": "reviews.input", "interventions": {"h": {"site": "stream", "pos": -1}}},
+    "fit": {
+      "kind": "fit",
+      "train": ["probe"],
+      "objective": {"ce": 1.0},
+      "epochs": 50,
+      "batch_size": 20,
+      "seed": 0,
+      "optimizer": {"name": "adam", "lr": 0.01},
+      "steps": {
+        "scores": {"kind": "op", "op": "encode", "featurizer": "fit.probe", "of": "harvest.h"},
+        "ce": {"kind": "op", "op": "cross_entropy", "of": "scores", "target": "reviews.label"},
+        "hit": {"kind": "op", "op": "match", "of": "scores", "expected": "reviews.label"},
+        "acc": {"kind": "op", "op": "mean", "of": "hit"}
+      }
+    },
+    "positive": {"kind": "op", "op": "select", "of": "fit.probe.W", "select": {"classes": 1}},
+    "positive_column": {"kind": "op", "op": "sum", "of": "positive", "over": ["classes"]},
+    "negative": {"kind": "op", "op": "select", "of": "fit.probe.W", "select": {"classes": 0}},
+    "negative_column": {"kind": "op", "op": "sum", "of": "negative", "over": ["classes"]},
+    "direction": {"kind": "op", "op": "sub", "of": "positive_column", "with": "negative_column"},
+    "zero": {"kind": "op", "op": "mul", "of": "direction", "with": 0},
+    "clean": {"kind": "forward", "input": "reviews.input", "interventions": {
+      "ld": {"site": "head", "pos": -1, "ops": [{"op": "logit_diff", "a": "reviews.answer", "b": "reviews.other"}]}}},
+    "projected": {"kind": "forward", "input": "reviews.input", "interventions": {
+      "out": {"site": "stream", "pos": {"index": ":"}, "ops": [{"op": "project_out", "direction": "direction"}]},
+      "ld": {"site": "head", "pos": -1, "ops": [{"op": "logit_diff", "a": "reviews.answer", "b": "reviews.other"}]}}},
+    "null": {"kind": "forward", "input": "reviews.input", "interventions": {
+      "out": {"site": "stream", "pos": {"index": ":"}, "ops": [{"op": "project_out", "direction": "zero"}]},
+      "ld": {"site": "head", "pos": -1, "ops": [{"op": "logit_diff", "a": "reviews.answer", "b": "reviews.other"}]}}},
+    "clean_margin": {"kind": "op", "op": "mean", "of": "clean.ld"},
+    "projected_margin": {"kind": "op", "op": "mean", "of": "projected.ld"},
+    "null_margin": {"kind": "op", "op": "mean", "of": "null.ld"}
+  },
+  "saves": ["fit.history.acc", "clean.ld", "projected.ld", "null.ld", "clean_margin", "projected_margin", "null_margin"]
+}

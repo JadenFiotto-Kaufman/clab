@@ -3,7 +3,7 @@ title: Probing
 one_liner: "Is a variable linearly decodable, and at which layer? A linear probe per layer, its untrained floor, many probes in one fit."
 tags: [patterns, probing, linear-probe, classes, decodability]
 related: [docs/usage/fit.md, docs/usage/featurizers.md, docs/usage/ops.md, docs/usage/sweeps.md, docs/usage/positions.md, docs/usage/bundles.md, docs/patterns/trained-subspaces.md]
-sources: [clab/featurizers/linear.py, clab/featurizers/__init__.py, clab/steps/fit.py]
+sources: [clab/featurizers/linear.py, clab/featurizers/__init__.py, clab/steps/fit.py, clab/ops/transforms.py, documents/probe_direction.json]
 ---
 
 # Probing
@@ -160,6 +160,30 @@ clab: featurizers.probe.file_path: documents/artifacts/fit.probe.safetensors: he
 ```
 
 Saved from the swept document, the file holds one probe per layer, which no featurizer loads; fit the layer you want unswept first.
+
+## Use a probe's direction
+
+A trained probe's tensors are values ([featurizers.md](../usage/featurizers.md#its-tensors-as-values)): `fit.probe.W`, `[hidden_size, classes]`, and `fit.probe.b`, `[classes]`, as the fit left them. A two-class probe's direction is `W[:, 1] - W[:, 0]`, the direction along which its second class's score grows against its first's. `documents/probe_direction.json` fits one on GPT-2 and projects that direction out of the stream it read, in one document:
+
+```json
+"positive": {"kind": "op", "op": "select", "of": "fit.probe.W", "select": {"classes": 1}},
+"positive_column": {"kind": "op", "op": "sum", "of": "positive", "over": ["classes"]},
+"negative": {"kind": "op", "op": "select", "of": "fit.probe.W", "select": {"classes": 0}},
+"negative_column": {"kind": "op", "op": "sum", "of": "negative", "over": ["classes"]},
+"direction": {"kind": "op", "op": "sub", "of": "positive_column", "with": "negative_column"},
+"zero": {"kind": "op", "op": "mul", "of": "direction", "with": 0},
+"projected": {"kind": "forward", "input": "reviews.input", "interventions": {
+  "out": {"site": "stream", "pos": {"index": ":"}, "ops": [{"op": "project_out", "direction": "direction"}]},
+  "ld": {"site": "head", "pos": -1, "ops": [{"op": "logit_diff", "a": "reviews.answer", "b": "reviews.other"}]}}}
+```
+
+- **`select` keeps `classes` at size 1, labelled with the class it kept**, so the two columns pair with no other index under Ops' one rule. The `sum` over `classes` drops that axis, exactly, and the `sub` of the two `[hidden_size]` vectors is the direction ([ops.md](../usage/ops.md#transforms)).
+- **The classes sort**, so `negative` is class 0 and `positive` class 1. Check the order in the bundle's header or the scores' table before naming a column.
+- **The null is the direction scaled to zero.** `project_out` leaves every vector as it is along a zero direction, so `null`'s numbers equal the clean run's ([running.md](../usage/running.md#when-two-runs-give-the-same-numbers)).
+
+On `openai-community/gpt2` at revision `607a30d783dfa663caf39e06633721c8d4cfcd7e`, float32 on the CPU, the probe reads the sentiment of twenty reviews off layer 10 at accuracy 0.85 after one epoch and 1.0 after fifty. `ld` is each row's logit for the word that matches its review less the other's, and its mean, `clean_margin`, is 1.340. With the probe's direction projected out of layer 10 at every position, `projected_margin` is 0.427; `null_margin` is the clean 1.340. The probe is trained and tested on the same rows, so this shows the mechanics and the size of one direction's share, not a held-out effect.
+
+A probe over more than two classes has a span of directions, not one. Take the class differences the question needs, a `select` pair and a `sub` each, or train a `subspace` of the rank you want instead ([trained subspaces](trained-subspaces.md)).
 
 ## Pitfalls
 

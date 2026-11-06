@@ -184,7 +184,7 @@ A declared featurizer with no `file_path` is drawn before the run's first step, 
 
 ## Its tensors as values
 
-A featurizer's tensors, those its bundle holds, are values by name: `<featurizer>.<tensor>` the declared one as drawn or loaded, `<fit>.<featurizer>.<tensor>` the one a fit trained ([fit.md](fit.md#members)). Name one where an op needs the featurizer's own numbers: a probe's direction to project out, a dictionary's decoder row to add, its decoder bias as a constant's `init`.
+A featurizer's tensors, those its bundle holds, are values by name: `<featurizer>.<tensor>` the declared one as drawn or loaded, `<fit>.<featurizer>.<tensor>` the one a fit trained ([fit.md](fit.md#members)). Name one where an op needs the featurizer's own numbers: a probe's direction to project out ([probing.md](../patterns/probing.md#use-a-probes-direction)), a dictionary's decoder row to add, its decoder bias as a constant's `init`.
 
 | kind | its tensors, laid out |
 |---|---|

@@ -28,6 +28,10 @@ from clab.format.data import PADDINGS
 # 1.8e-7 under `batch` (sae_train's dictionary); a value of a forward or a generation moves by 6e-8 at most
 # (mixed_lengths' logits). The worst |Δ| / (ATOL + RTOL·|x|) is 0.36 under `sorted` and 0.04 under `batch`.
 RTOL, ATOL = 1e-5, 1e-6
+# A document on a trained checkpoint, whose logits are far from zero: GPT-2's last-position logits are about -100
+# to -200, where a float32 ulp is 1.5e-5 to 3.1e-5, and probe_direction's logit differences move by 3.1e-5 at most
+# under `batch` and `sorted` (a few ulps of the logits they are a difference of), its means by 1.5e-6.
+ATOLS = {"probe_direction": 1e-4}
 MODES = ("batch", "sorted")
 
 
@@ -72,7 +76,8 @@ def test_every_value_is_close_to_the_exact_runs_its_missing_rows_and_positions_t
     assert got[0].keys() == exact[0].keys()
     for (path, x), (_, y) in zip(tensors(exact[0]), tensors(got[0]), strict=True):
         if isinstance(x, torch.Tensor):     # NaN where the exact run has NaN: a missing row, a position past a row's
-            torch.testing.assert_close(y, x, rtol=RTOL, atol=ATOL, equal_nan=True, msg=lambda m: f"{path}: {m}")
+            torch.testing.assert_close(y, x, rtol=RTOL, atol=ATOLS.get(name, ATOL), equal_nan=True,
+                                       msg=lambda m: f"{path}: {m}")
         else:
             assert y == x, path
     assert got[1] == exact[1]               # every entry's positions per row, alignment_missing rows among them

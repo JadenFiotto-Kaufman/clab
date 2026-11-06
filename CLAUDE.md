@@ -16,7 +16,7 @@
 | Generate text and score it | [usage/generate.md](docs/usage/generate.md), [patterns/generation-experiments.md](docs/patterns/generation-experiments.md) |
 | Score what a generation says after a marker, or how long its reasoning is (`after`, `until`, `count`) | [patterns/generation-experiments.md](docs/patterns/generation-experiments.md#score-what-follows-a-text-after) |
 | Train a featurizer, or load one | [usage/featurizers.md](docs/usage/featurizers.md), [usage/fit.md](docs/usage/fit.md), [usage/bundles.md](docs/usage/bundles.md) |
-| Use a featurizer's tensor as a value: a probe's direction, a dictionary's decoder row (`fit.probe.W`, `select`) | [usage/featurizers.md](docs/usage/featurizers.md#its-tensors-as-values) |
+| Use a featurizer's tensor as a value: a probe's direction, a dictionary's decoder row (`fit.probe.W`, `select`) | [usage/featurizers.md](docs/usage/featurizers.md#its-tensors-as-values), [patterns/probing.md](docs/patterns/probing.md#use-a-probes-direction) |
 | Harvest once and use it in another document (`load`) | [patterns/cached-harvest.md](docs/patterns/cached-harvest.md) |
 | Find a latent's max-activating examples (`top_k` over `["rows", "pos"]`) | [patterns/sae.md](docs/patterns/sae.md#find-a-latents-max-activating-examples) |
 | Run a technique (activation, path and attribution patching; zero, mean, resample and optimal ablation; expert ablation; attention; logit and tuned lenses; steering; DAS and DBM; head masking; SAEs; probes; LoRA) | [patterns/index.md](docs/patterns/index.md) |
