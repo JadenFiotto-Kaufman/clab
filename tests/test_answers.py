@@ -500,7 +500,7 @@ def test_contains_takes_a_literal_as_the_constant_column_of_its_text(engines):
 @pytest.mark.parametrize("token, message", [
     ("</think>", r"token: '</think>' is not <dataset>\.<column> over a dataset; datasets: days; text written as it "
                  r"is, the same on every row, is \{'text': '</think>'\}"),
-    ({"text": " Friday", "column": "days.end"}, r"token: Value error, unknown field 'text'; valid: column, strip, lower"),
+    ({"text": " Friday", "column": "days.end"}, r"token: unknown field 'text'; valid: column, strip, lower$"),
     ({"text": " Friday", "upper": True}, r"token: a literal takes no 'upper'"),
     ({"text": []}, r"token\.text: \[\] is not a literal's text"),
     ({"text": " Friday", "strip": "yes"}, r"token\.strip: 'yes' is not a boolean"),

@@ -36,8 +36,8 @@ def check_text_ref(cx: Compiling, value: object, path: str, dataset: str | None)
         try:
             Column(**value)
         except ValidationError as e:
-            fail(path, "; ".join(err["msg"] if not err["loc"] else f"{err['loc'][0]}: {err['msg']}"
-                                 for err in e.errors()))
+            said = [(err["loc"], err["msg"].removeprefix("Value error, ")) for err in e.errors()]
+            fail(path, "; ".join(f"{loc[0]}: {msg}" if loc else msg for loc, msg in said))
     ref = data.column_of(value)
     if ref is None:
         fail(path, f"{value!r} is not a column: '<dataset>.<column>' or {{'column': '<dataset>.<column>', "
