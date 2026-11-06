@@ -11,7 +11,7 @@ checkout, from the repo root:
     uv pip install --python /tmp/clab-gpu/bin/python --no-deps -e .
     CUDA_VISIBLE_DEVICES=0 HF_HUB_OFFLINE=1 PYTHONPATH=. /tmp/clab-gpu/bin/python -m pytest tests/test_real.py -q
 
-About two minutes on an idle RTX A6000. Each snapshot records the GPU and the torch and transformers it was made
+Each snapshot records the GPU and the torch and transformers it was made
 with (`made_with`), which need not be the lock's. The record is provenance, not a value: a re-pin that moves no
 value leaves the file as it is, the record with it.
 """

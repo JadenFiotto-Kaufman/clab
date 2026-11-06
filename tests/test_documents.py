@@ -117,8 +117,8 @@ def test_a_rows_numbers_do_not_depend_on_its_batch_companions(engines, kind):
 
 
 def test_the_suite_runs_at_the_thread_count_the_snapshots_were_made_with():
-    """conftest pins torch's intra-op threads, whatever OMP_NUM_THREADS or the host's cores say: at 4 threads or
-    fewer the BLAS splits a matmul's reduction otherwise, and the test above fails by about 1e-8."""
+    """conftest pins torch's intra-op threads, whatever OMP_NUM_THREADS or the host's cores say: at another count
+    the BLAS splits a matmul's reduction otherwise, and the test above fails."""
     assert torch.get_num_threads() == THREADS == 12
 
 
