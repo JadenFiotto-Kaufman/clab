@@ -75,6 +75,7 @@ def fit(engine: Engine, plan: Plan, name: str, step: Fit, state: ChainMap, batch
             opt.zero_grad()
             for f in trained.values():
                 f.project()
+            del body, loss          # a pass's values die before the next pass runs
         for f in trained.values():
             f.settle()
         scored = run_body(engine, name, step, state, trained, view, findings, None, cost, values_read, bindings)
@@ -82,6 +83,7 @@ def fit(engine: Engine, plan: Plan, name: str, step: Fit, state: ChainMap, batch
             value = lookup(scored, o, step.at)
             if isinstance(value, Tensor):
                 history[o].append(mean_over_axes(value))
+        del scored
         for f, sc in scalars:
             history[f"{f}.{sc}"].append(trained[f].scalar(sc))
         if step.early_stop is None:

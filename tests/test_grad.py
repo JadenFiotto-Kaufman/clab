@@ -196,7 +196,7 @@ def as_step(d):
 
 @pytest.mark.parametrize("name, change, message", [
     ("generated_answer", in_generate, r"steps\.answer\.interventions\.g\.ops\[0\]: grad is taken in a forward, not a "
-                                      r"generate"),
+                                      r"generate, .*: save the generation's detokenize step"),
     ("das", in_fit, r"steps\.fit\.steps\.patched\.interventions\.g\.ops\[0\]: grad inside a fit's body is not served"),
     (NAME, as_step, r"steps\.g: grad is no step: it is the first op of an entry of a forward"),
 ])

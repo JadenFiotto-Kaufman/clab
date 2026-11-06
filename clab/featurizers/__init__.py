@@ -213,7 +213,7 @@ class Kind:
 
     def scalar(self, name: str) -> Tensor:
         """The scalar `name` a fit's objective may name: one of `scalars`, as compile checks."""
-        raise ValueError(f"{article(self.kind)} {self.kind!r} featurizer has no scalar {name!r}")
+        raise RuntimeError(f"{article(self.kind)} {self.kind!r} featurizer has no scalar {name!r}")
 
     def size(self) -> int:
         """How many coordinates the instance's space has: the shape of its encode of one zero vector made where

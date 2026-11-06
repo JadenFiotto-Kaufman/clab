@@ -258,7 +258,7 @@ def out_dims(name: str, dims: list[str], args: dict, kind: str | None = None) ->
 # The ops, in the order the tables (`describe`, FORMAT.md) list them.
 from clab.ops import edits, metrics, reductions, transforms  # noqa: E402
 
-OPS.update((fn.__name__, fn) for fn in [
+ORDER = [
     edits.swap, edits.add, edits.sub, edits.scale, edits.renormalize, edits.normalize, edits.project_out, edits.decode,
     edits.apply, edits.noise, edits.clamp, transforms.readout, transforms.encode, transforms.grad, reductions.mean,
     reductions.sum, reductions.min, reductions.max, reductions.std, reductions.median, reductions.count,
@@ -266,7 +266,10 @@ OPS.update((fn.__name__, fn) for fn in [
     metrics.cross_entropy, metrics.contains, metrics.kl, metrics.js, transforms.top_k, transforms.argmax,
     transforms.detokenize, transforms.permute, transforms.abs, transforms.exp, transforms.log, transforms.sign, transforms.sqrt,
     transforms.square, transforms.neg, transforms.mul, transforms.div, transforms.pow, transforms.eq, transforms.ne,
-    transforms.gt, transforms.ge, transforms.lt, transforms.le, metrics.cosine])
-assert OPS.keys() == DECLARED.keys(), "every declared op is listed once"
+    transforms.gt, transforms.ge, transforms.lt, transforms.le, metrics.cosine]
+OPS.update((fn.__name__, fn) for fn in ORDER)
+if len(ORDER) != len(OPS) or OPS.keys() != DECLARED.keys():
+    raise RuntimeError("every declared op is listed once; not " + ", ".join(sorted(
+        OPS.keys() ^ DECLARED.keys() or {fn.__name__ for fn in ORDER if ORDER.count(fn) > 1})))
 ABOUT = ABOUT.replace("<the edits group>", listed("edits")).replace(
     "<no gradient>", ", ".join(f"`{name}`" for name in transforms.NO_GRADIENT))

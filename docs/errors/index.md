@@ -25,7 +25,9 @@ Each row quotes a message's first clause without its `<where>:`. `<x>` stands fo
 | `Input should be …` | a value of none of the field's forms; a field of several forms prints one line naming every form (`input: 5 should be a valid string, or a valid list`) | [FORMAT.md](../../FORMAT.md#root-keys) |
 | `unknown step kind '<k>'` | `kind` names no step kind | [FORMAT.md](../../FORMAT.md#step-kinds) |
 | `'<f>' is a derived field, which compile writes` | a field compile fills, set in a document: a step's `at` or `schedule`, `batch_size` on a forward or a generate, an entry's `positions`, `gathered`, `dims`, `width` or `space`, an op's `space` | [FORMAT.md](../../FORMAT.md#derived-fields) |
+| `a compiled plan holds no sweep` | a document that sets `compiled`, a field the plan derives, beside a sweep; leave `compiled` out | [FORMAT.md](../../FORMAT.md#derived-fields) |
 | `'reads': a step's reads and writes are one 'interventions' value` | entries go in one `interventions` dict; an entry with an edit writes | [interventions.md](../usage/interventions.md) |
+| `an entry named '<k>': a step's reads and writes are one 'interventions' value, …` | a bundle's entry named `reads` or `writes`; a bundle is one dict of entries, and an entry with an edit writes | [interventions.md](../usage/interventions.md#named-bundles) |
 | `a name has no dots` | a step named with a dot | [writing-a-document.md](../usage/writing-a-document.md) |
 | `'<n>' is also a dataset or a featurizer` | a step named like a dataset or a featurizer | [writing-a-document.md](../usage/writing-a-document.md) |
 | `unknown op '<op>'` | `op` names no op | [FORMAT.md](../../FORMAT.md#ops) |
@@ -116,6 +118,7 @@ Each row quotes a message's first clause without its `<where>:`. `<x>` stands fo
 | `'<x>' is not <dataset>.<column> or <dataset>.<column>[i]` | an `input` that names no column | [data.md](../usage/data.md#inputs) |
 | `a list input names at least one column, whose dataset its rows are` | a list `input` of texts alone, or an empty one | [data.md](../usage/data.md#list-inputs-teacher-forcing) |
 | `'<part>' is not text on row <r> of '<d>'; a list input joins text` | a list input's column that is not text on a row | [data.md](../usage/data.md#list-inputs-teacher-forcing) |
+| `'<x>' is a column of '<d>', and the value it goes with has a row per example of '<e>'` | a list input's column, or a scope's `column`, from another dataset than the step's input | [data.md](../usage/data.md#list-inputs-teacher-forcing) |
 | `'<x>' is not <dataset>.<column> over a dataset` | a column reference (an answer, a probe's `classes`) whose dataset is not declared; an answer the same on every row is `{"text": …}` | [data.md](../usage/data.md#answer-columns) |
 | `'<x>' is not a column reference, '<dataset>.<column>'` | a dataset named without its column, as an answer or a scope's `column` | [data.md](../usage/data.md#answer-columns) |
 | `<v> is not a column` | a column field holding a number or another type | [data.md](../usage/data.md#answer-columns) |
@@ -166,7 +169,7 @@ Each row quotes a message's first clause without its `<where>:`. `<x>` stands fo
 | `a write beyond the prefill lands as its call runs, before the token it would predict is chosen` | `before` on a write in decode calls | [generate.md](../usage/generate.md#writes-at-generated-text-found-online) |
 | `a write's positions beyond the prefill are decided call by call` | `until` on a write in decode calls | [positions.md](../usage/positions.md#up-to-a-text-until) |
 | `frame '<f>' holds the prompt, and until with before starts before the frame's first token` | `until` with `before` over a frame that holds the prompt | [positions.md](../usage/positions.md#up-to-a-text-until) |
-| `frame '<f>': a scoped write beyond the prefill is found call by call` | a scoped write whose frame holds the prompt or counts from the row's last call; give decode calls (`"1:"`) | [generate.md](../usage/generate.md#writes-at-generated-text-found-online) |
+| `frame '<f>': a scoped write beyond the prefill is found call by call in the generated inputs` | a scoped write whose frame holds the prompt or counts from the row's last call; give decode calls (`"1:"`) | [generate.md](../usage/generate.md#writes-at-generated-text-found-online) |
 | `index '<i>': a scoped write lands at the call fed its text's last token` | a scoped write in decode calls at an index other than -1 | [generate.md](../usage/generate.md#writes-at-generated-text-found-online) |
 | `occurrence <o> counts from the last occurrence, which is known only when the row ends` | a scoped write in decode calls at an occurrence counted from the end | [generate.md](../usage/generate.md#writes-at-generated-text-found-online) |
 | `frame '<f>' with index <i> counts back from the row's last position` | a write over the prompt and every decode call at an index counted from the end; write two entries | [generate.md](../usage/generate.md#writes-during-generation) |
@@ -209,6 +212,8 @@ Each row quotes a message's first clause without its `<where>:`. `<x>` stands fo
 | `grad's of '<x>' is read at <c> layer <l>, which the <engine> engine's forward reaches no later than this entry's` | `of` is made before, or at, the gradient's own site; name a later entry, such as one at the head | [interventions.md](../usage/interventions.md#a-gradient-at-a-site) |
 | `the nnterp engine takes no gradient under tp <n>` | `grad` under tensor parallelism; run it at tp 1 | [engines.md](../usage/engines.md#quantized-and-sharded-models) |
 | `the checkpoint's chat template calls strftime_now, which writes today's date into the prompt` | a chat template that reads the clock; pin the date in `data.<d>.template`, `{"date_string": …}` | [data.md](../usage/data.md#chat-inputs) |
+| `nnterp's support() does not name <name>, so nothing says whether it serves <component>` | a component added to `address.COMPONENTS` under a name nnterp's `support()` does not list; every document is refused | [extending.md](../developing/extending.md#adding-a-component) |
+
 
 ## Entries, ops and operands
 
@@ -273,6 +278,7 @@ Each row quotes a message's first clause without its `<where>:`. `<x>` stands fo
 | `'<x>' holds other rows' values (a permute's), so no one read's site says what it is` | a `pca` of a permuted value; take the read before it is permuted | [ablation.md](../patterns/ablation.md#resample-by-permuting-the-rows) |
 | `'permute' with seed null is the identity, which moves no row` | `derangement` with `seed: null` | [ablation.md](../patterns/ablation.md#resample-by-permuting-the-rows) |
 | `a derangement moves every row to another, and …` | a derangement over one row: a one-row dataset, or a fit's minibatch of one row | [ablation.md](../patterns/ablation.md#resample-by-permuting-the-rows) |
+| `seed <s> draws the identity over a minibatch of <n> row(s), which moves no row` | a `permute` without `derangement` in a fit's body whose seed draws the identity over a training minibatch's rows: seed 0 over two, any seed over one | [ablation.md](../patterns/ablation.md#resample-by-permuting-the-rows) |
 | `the value '<op>' scores keeps <n> of its vocab_size (select)` | a metric over a head narrowed on `vocab_size`; score the whole head, or rank within the selection with `argmax` or `top_k` | [ops.md](../usage/ops.md#metrics) |
 | `<column> row <r>: '<v>' is <k> tokens; the read has <n> position(s) on that row` | an answer of several tokens against a read of other positions. At `pos: -1`, teacher-force it: append it to the input and read `before` its scope with `"occurrence": -1` ([teacher forcing](../patterns/generation-experiments.md#a-fixed-answer-token-by-token-teacher-forcing)). At a generated word, the model said one id that the column retokenizes into more ([its own text](../patterns/generation-experiments.md#scoring-the-models-own-text)) | [answer-does-not-line-up.md](answer-does-not-line-up.md#-is-k-tokens-the-read-has-n-positions-on-that-row) |
 | `<column> row <r>: '<v>' is <k> tokens, a position each, and the value has no pos axis`; `an answer of several tokens scores a position each, and the value has no pos axis` | an answer of several tokens against a value reduced over `pos` | [answer-does-not-line-up.md](answer-does-not-line-up.md#-a-position-each-and-the-value-has-no-pos-axis) |
@@ -387,6 +393,7 @@ Each row quotes a message's first clause without its `<where>:`. `<x>` stands fo
 | `<v> is not a value generate takes` | a generate option of a type the generation config refuses | [generate.md](../usage/generate.md#options) |
 | `'<opt>' is a parameter of generate itself` | one of `generate`'s own parameters given as an option | [generate.md](../usage/generate.md#options) |
 | `generate rejected '<opt>'` | the model's `generate` refused an option the step passed | [generate.md](../usage/generate.md#options) |
+| `generate rejected its options {…}: <message>` | an option whose value is of a type the generation config takes at compile and `generate` does not (`min_length: "3"`); the message is `generate`'s | [generate.md](../usage/generate.md#options) |
 | `unknown engine '<e>'` | `--engine` names no engine | [engines.md](../usage/engines.md) |
 | `the <engine> engine takes no '<opt>'` | an `-o` option the engine does not take; the message lists its options | [engines.md](../usage/engines.md#engine-options--o-keyvalue) |
 | `remote: '<v>' is not one of True, 'local'` | an ndif `remote` option of another value | [engines.md](../usage/engines.md#running-on-ndif) |
@@ -407,7 +414,7 @@ Each row quotes a message's first clause without its `<where>:`. `<x>` stands fo
 | `tp <n>: vLLM shards the model over one GPU or more` | a vllm `tp` below 1 | [engines.md](../usage/engines.md#running-on-vllm) |
 | `memory <m>: the fraction of each GPU's memory vLLM reserves is above 0 and at most 1` | a vllm `memory` outside (0, 1] | [engines.md](../usage/engines.md#running-on-vllm) |
 | `max_len <n>: the longest sequence the engine serves is one token or more` | a vllm `max_len` below 1 | [engines.md](../usage/engines.md#running-on-vllm) |
-| `the <engine> engine does not write <c>` | on vllm, a write at the recomputed attention pattern or scores | [engines.md](../usage/engines.md#running-on-vllm) |
+| `the vllm engine does not write <c>` | on vllm, a write at the recomputed attention pattern or scores | [engines.md](../usage/engines.md#running-on-vllm) |
 | `the <engine> engine serves <c> at the prompt's last position alone` | on vllm, the head at a prefill position but the last | [engines.md](../usage/engines.md#running-on-vllm) |
 | `a fit trains through the model's gradient, which vLLM's kernels do not take`; `a grad entry takes the model's gradient, …` | a fit or a `grad` entry under `vllm` | [engines.md](../usage/engines.md#running-on-vllm) |
 | `generate rejected '<opt>': the vllm engine's generate maps … onto vLLM's sampling, and has nothing to map '<opt>' to` | an option vLLM's sampling has no name for | [engines.md](../usage/engines.md#running-on-vllm) |
@@ -418,6 +425,7 @@ Each row quotes a message's first clause without its `<where>:`. `<x>` stands fo
 | `the plan's model is not the one this engine loaded` | a loaded engine reused with another model block; the message names each field that differs | [python-api.md](../reference/python-api.md) |
 | `the loaded <e> engine runs on <d> with {…}; device and options are given when an engine loads` | `clab.run` with a loaded engine and another device or options | [python-api.md](../reference/python-api.md) |
 | `the plan has not run, so it has no results; execute it first` | the run record asked for before the run | [python-api.md](../reference/python-api.md) |
+| `describe '<what>': nothing is described under that name` | `clab.describe` given a name that is none of its tables; the message lists them. On the command line argparse refuses it (`invalid choice`) | [python-api.md](../reference/python-api.md#clabdescribe) |
 | `out of CUDA memory at batch size <n>` | a step ran out of CUDA memory; the run stops there and saves the steps that finished | [running.md](../usage/running.md#when-a-step-runs-out-of-memory) |
 | `row <r> of dataset '<d>' is not among the <n> rows this value holds` | in the run: a value made over some of its dataset's rows (a fit body's minibatch) read at a row it does not hold; no document reaches it, so reaching it is a defect in clab | [fit.md](../usage/fit.md#the-body) |
 | `the values this document loads hold <n> MiB of tensors (…), and a request carries at most 512 MiB inside its plan` | `load`s too large to send in a request, to an NDIF server or under `-o remote=local` | [cached-harvest.md](../patterns/cached-harvest.md#under-ndif) |
@@ -430,6 +438,8 @@ Each row quotes a message's first clause without its `<where>:`. `<x>` stands fo
 | `'<n>' is a top_k over rows, whose rows are its picks, and a top_k over rows tables alone` | a `top_k` over `rows` beside another name | [output.md](../usage/output.md#clab-table) |
 | `'<n>' is a trained featurizer's bundle, which has no rows to table` | a bundle in `clab table`; read it from `plan.results` | [output.md](../usage/output.md#clab-table) |
 | `'<n>' has no rows to table: it is …` | a value with no rows axis | [output.md](../usage/output.md#clab-table) |
+| `the plan holds none of its rows` | `preflight` or a step called from Python on a plan whose rows are not loaded; `clab.run` and an engine's `execute` load them first | [compile-and-run.md](../developing/compile-and-run.md#the-run) |
+
 
 ## Errors that are not clab's
 

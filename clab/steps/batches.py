@@ -43,7 +43,7 @@ def selection_in_batch(record: Intervention, picks: dict, row_positions: list, p
     masks the value meets are made on `device`, where the model is (`tensor_on_device`); `tok` stays on the host, where
     the ops that read it (`noise`) count with it."""
     row_positions = [row if isinstance(row, list) else [] for row in row_positions]
-    n = max(1, *map(len, row_positions))
+    n = max(map(len, row_positions))
     indices = [[i + pad for i in row] + [(row[-1] + pad) if row else 0] * (n - len(row))
              for row, pad in zip(row_positions, pads)]
     token_positions = [row + [-1] * (n - len(row)) for row in row_positions]
@@ -51,11 +51,12 @@ def selection_in_batch(record: Intervention, picks: dict, row_positions: list, p
     keep = torch.tensor([[j < len(row) for j in range(n)] for row in row_positions]) \
         if any(len(row) < n for row in row_positions) else None
     query_positions = [row + [row[-1] if row else 0] * (n - len(row)) for row in row_positions]
-    return {"positions": tensor_on_device(indices, device), "select": select_indices(record, picks, device),
+    return {"positions": tensor_on_device(torch.tensor(indices, dtype=torch.long), device),
+            "select": select_indices(record, picks, device),
             **key_index(record, pads, width, device, span, query_positions),
             **({"keep": tensor_on_device(keep, device), "kept": tensor_on_device(keep.nonzero().T, device)}
                if keep is not None else {}),
-            "tok": torch.tensor(token_positions)}
+            "tok": torch.tensor(token_positions, dtype=torch.long)}
 
 
 def key_index(record: Intervention, pads: list[int], width: int, device: str, span: int | None,
@@ -73,12 +74,11 @@ def key_index(record: Intervention, pads: list[int], width: int, device: str, sp
         return {}
     relative = record.kept.get("key")
     if isinstance(relative, dict):
-        valid = [[[0 <= p + k < width - pad for k in relative["offset"]] for p in row]
-                 for row, pad in zip(query_positions, pads)]
-        index = [[[p + k + pad if ok else 0 for k, ok in zip(relative["offset"], oks)] for p, oks in zip(row, okay)]
-                 for row, pad, okay in zip(query_positions, pads, valid)]
-        return {"keys": {"dim": layout.index("key"), "index": tensor_on_device(index, device),
-                         "own": tensor_on_device(valid, device)}}
+        keys = torch.tensor(query_positions, dtype=torch.long)[..., None] + torch.tensor(relative["offset"])
+        pad = torch.tensor(pads)[:, None, None]
+        own = (keys >= 0) & (keys < width - pad)
+        return {"keys": {"dim": layout.index("key"), "index": tensor_on_device(torch.where(own, keys + pad, 0), device),
+                         "own": tensor_on_device(own, device)}}
     span = width if span is None else span
     index = [[p + pad for p in positions.prompt_positions(width - pad)] + list(range(pad)) + [0] * (span - width)
              for pad in pads]
@@ -891,7 +891,7 @@ def live_operand(got: dict, operand: dict) -> Tensor:
     """A write's operand that names a read of its own forward: that read's value, which the engine made before
     it reached the write."""
     if operand["live"] not in got:
-        raise ValueError(f"operand {operand['live']!r} is a read of this forward the engine had not made when it "
+        raise RuntimeError(f"operand {operand['live']!r} is a read of this forward the engine had not made when it "
                          "reached the write; it reads it at a later site")
     return got[operand["live"]]
 

@@ -328,7 +328,7 @@ def test_each_engine_ranks_the_premix_before_the_attention_output(engines):
 
 def test_a_live_operand_the_engine_had_not_read_is_named():
     from clab.steps import batches
-    with pytest.raises(ValueError, match=r"operand 'premix@0' is a read of this forward the engine had not made"):
+    with pytest.raises(RuntimeError, match=r"operand 'premix@0' is a read of this forward the engine had not made"):
         batches.live_operand({}, {"live": "premix@0"})
 
 

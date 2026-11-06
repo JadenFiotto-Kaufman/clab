@@ -134,8 +134,8 @@ jobs:
                   snapshot_download(repo, revision=revision, allow_patterns=["*.json", "*.txt"])
               else:
                   snapshot_download(repo, revision=revision, ignore_patterns=["onnx/*", "*.onnx", "*.h5", "*.msgpack"])
-              # The cache's `main` is the pinned revision, as in the cache of the host that pins the suite: nnsight
-              # 0.8.2's meta load (the hooks engine's) reads the tokenizer at `main`, whatever revision it is given.
+              # The cache's `main` is the pinned revision, as in the cache of the host that pins the suite: the hooks
+              # engine's meta load reads the tokenizer at `main`, whatever revision it is given.
               kind = "datasets" if "a dataset" in what else "models"
               refs = os.path.join(constants.HF_HUB_CACHE, f"{kind}--{repo.replace('/', '--')}", "refs")
               os.makedirs(refs, exist_ok=True)
@@ -152,7 +152,7 @@ jobs:
           key: hf-${{ steps.list.outputs.hash }}
 
       # At the 12 threads tests/conftest.py pins: the thread count sets the bits, not the cores, and 12 threads on
-      # the runner's 4 CPUs give the snapshots' numbers (at 4 threads four tests fail; docs/developing/testing.md).
+      # the runner's 4 CPUs give the snapshots' numbers (docs/developing/testing.md).
       - name: The suite
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         env:

@@ -23,9 +23,8 @@ DOCUMENTS = os.path.join(ROOT, "documents")
 SNAPSHOTS = os.path.join(ROOT, "tests", "snapshots")
 UPDATE = os.environ.get("CLAB_UPDATE_SNAPSHOTS") == "1"
 BATCH_SIZE = 2      # results are reproducible to the bit only at a fixed batch size
-# The intra-op thread count the snapshots were made with (torch's default on the 12-core host that made them). The
-# BLAS splits a matmul's reduction by thread: 8, 12 and 24 threads give the snapshots' bits, 4 and fewer move a
-# row's numbers by about 1e-8 (2.9e-6 after a fit's ten epochs), past the snapshots and the tests that hold two
+# The intra-op thread count the snapshots were made with. The BLAS splits a matmul's reduction by thread, so the
+# thread count sets a row's last bits, and another count moves them past the snapshots and the tests that hold two
 # runs bit-equal. Pinned, OMP_NUM_THREADS and the host's core count stop mattering: the thread count sets the bits,
 # not the cores, so 12 threads on CI's 4 CPUs give them too.
 THREADS = 12
