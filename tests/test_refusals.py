@@ -702,6 +702,15 @@ def minibatch_of_one(d):
                              "m": {"kind": "op", "op": "mean", "of": "p", "over": ["rows", "pos", "hidden_size"]}}}
 
 
+def seeded_in_fit(seed: int, batch_size: int, epochs: int = 1) -> Callable:
+    """minibatch_of_one's fit at `batch_size` and `epochs`, its permute by `seed` without derangement."""
+    def change(d):
+        minibatch_of_one(d)
+        d["steps"]["fit"].update(batch_size=batch_size, epochs=epochs)
+        d["steps"]["fit"]["steps"]["p"] = {"kind": "op", "op": "permute", "of": "run.x", "seed": seed}
+    return change
+
+
 @pytest.mark.parametrize("change, message", [
     (lambda d: d["steps"]["ablated"]["interventions"]["ablate"]["ops"].insert(0, {"op": "permute", "seed": 0}),
      r"^steps\.ablated\.interventions\.ablate\.ops\[0\]: permute is no op of an entry, whose ops act on each row's "
@@ -719,12 +728,26 @@ def minibatch_of_one(d):
     (minibatch_of_one,
      r"^steps\.fit\.steps\.p: a derangement moves every row to another, and over 4 rows in minibatches of 3 the last "
      r"of each epoch holds one row"),
+    (seeded_in_fit(0, 2),
+     r"^steps\.fit\.steps\.p\.seed: seed 0 draws the identity over a minibatch of 2 rows, which moves no row; give "
+     r"derangement true, or a seed that moves them$"),
+    (seeded_in_fit(1, 3),
+     r"^steps\.fit\.steps\.p\.seed: seed 1 draws the identity over a minibatch of 1 row, which moves no row; give the "
+     r"fit a batch_size that leaves every minibatch two rows or more$"),
 ])
 def test_a_permute_is_refused_by_name_where_it_cannot_mean_anything(change, message):
     """As an entry's op, over a value that is no tensor of rows, before a pca, whose bundle records one read's site,
-    and as a derangement over a dataset or a fit's minibatch of one row."""
+    as a derangement over a dataset or a fit's minibatch of one row, and in a fit's body by a seed that draws the
+    identity over a minibatch's rows, which `permutation` decides as the run draws it."""
     with pytest.raises(PlanError, match=message):
         edited("mean_ablation", change).compile()
+
+
+@pytest.mark.parametrize("change", [seeded_in_fit(1, 2), seeded_in_fit(0, 2, epochs=0), seeded_in_fit(0, 16)])
+def test_a_seeded_permute_in_a_fit_compiles_where_no_minibatch_it_runs_draws_the_identity(change):
+    """Seed 1 swaps two rows; a fit of 0 epochs runs no minibatch; at batch_size 16 the one minibatch is the 4 rows,
+    which seed 0 moves."""
+    edited("mean_ablation", change).compile()
 
 
 def ranked_whole(steps: dict, ops: list | None = None):

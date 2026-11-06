@@ -803,6 +803,15 @@ def compile_fit(cx: Compiling, path: str, name: str, spec: Fit, plan: Plan, at: 
             fail(f"{path}.steps.{n}", f"a derangement moves every row to another, and over {total} rows in minibatches "
                  f"of {size} {'every minibatch' if size == 1 else 'the last of each epoch'} holds one row: give the "
                  "fit a batch_size that leaves every minibatch two rows or more")
+    for n, s in body.items():           # a seed drawing the identity over a minibatch trains on its rows unswapped
+        seed = arguments(s).get("seed") if isinstance(s, OpStep) and s.op == "permute" else None
+        if seed is None or arguments(s).get("derangement") is True or not spec.epochs:
+            continue
+        for rows in sorted({min(size, total), total % size} - {0}):
+            if ops.transforms.permutation(seed, rows).tolist() == list(range(rows)):
+                fail(f"{path}.steps.{n}.seed", f"seed {seed} draws the identity over a minibatch of {rows} "
+                     f"row{'s' * (rows != 1)}, which moves no row; " + ("give derangement true, or a seed that moves "
+                     "them" if rows > 1 else "give the fit a batch_size that leaves every minibatch two rows or more"))
     # A top_k over rows ranks the rows of each run of the body: a minibatch, the last of each epoch the fewest, and the
     # run that scores every training row.
     fewest = (total % size or size) if spec.epochs else total
