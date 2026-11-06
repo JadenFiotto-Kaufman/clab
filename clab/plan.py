@@ -14,6 +14,7 @@ import functools
 import json
 import math
 import os
+import re
 import types
 from collections.abc import Iterator
 from typing import Annotated, Any, Literal, NoReturn, TypeVar, Union, get_args, get_origin
@@ -47,6 +48,32 @@ class PlanError(ValueError):
 
 def fail(path: str, message: str) -> NoReturn:
     raise PlanError(f"{path}: {message}" if path else message)
+
+
+# The builtin types pydantic names a union's member by in an error's location; a model member goes by its class name.
+MEMBER_TYPES = ("str", "int", "float", "bool", "dict", "list", "none", "tuple", "set")
+
+
+def located(loc: tuple, given: Any, missing: bool) -> tuple[str, list[tuple[str, str]]]:
+    """A pydantic error's location as a document path (`steps.patched.input[1]`), and the union members it went
+    through, each as the path where the union stands and the member's tag. Pydantic names a union's member in the
+    location (`str`, `list[union[str,TextPart]]`, `TextPart`, and this module's `~` tags), which the document does not
+    hold. So a part that is no key of the document there and is spelled as a type is a member's tag. A `missing`
+    error's last part is the field the document leaves out."""
+    path, members, here = "", [], given
+    for i, part in enumerate(loc):
+        if isinstance(part, int):
+            path += f"[{part}]"
+            here = here[part] if isinstance(here, list) and 0 <= part < len(here) else None
+        elif isinstance(here, dict) and part in here or missing and i == len(loc) - 1:
+            path += f".{part}" if path else part
+            here = here.get(part) if isinstance(here, dict) else None
+        elif part.startswith("~") or "[" in part or part in MEMBER_TYPES or part[:1].isupper():
+            members.append((path, part))
+        else:
+            path += f".{part}" if path else part
+            here = None
+    return path, members
 
 
 def derived(default: Any, description: str, **more: Any) -> Any:
@@ -1194,20 +1221,31 @@ class Plan(Record):
         try:
             super().__init__(**fields)
         except ValidationError as e:
-            said = []
-            for error in e.errors():                # each as `<document path>: <what>`
-                path = ""
-                for part in error["loc"]:
-                    if isinstance(part, int):
-                        path += f"[{part}]"
-                    elif not part.startswith("~"):
-                        path += f".{part}" if path else part
+            found = []                              # each as `<document path>: <what>`
+            for error in e.errors():
+                path, members = located(error["loc"], fields, error["type"] == "missing")
                 text = error["msg"].removeprefix("Value error, ")
                 if error["type"] == "kind":
                     given = error["input"].get("kind") if isinstance(error["input"], dict) else error["input"]
                     text = f"unknown step kind {given!r}; valid: {', '.join(KINDS)}"
-                said.append(f"{path}: {text}" if path else text)
-            raise PlanError("\n".join(said)) from None
+                # ruled out: a union's member the value's shape does not fit, refused at the member itself
+                ruled_out = error["type"].endswith("_type") and bool(members) and members[-1][0] == path
+                found.append({"path": path, "text": text, "members": members, "ruled_out": ruled_out,
+                              "input": error.get("input")})
+            # At a union, a member the value's shape rules out says nothing where another member got further; where
+            # every member rules it out, one line says what the value should be.
+            for point in sorted({p for f in found for p, _ in f["members"]}, key=len):
+                at = [f for f in found if any(p == point for p, _ in f["members"])]
+                out = [f for f in at if f["ruled_out"] and f["members"][-1][0] == point]
+                if out and len(out) < len(at):
+                    found = [f for f in found if f not in out]
+                elif len(out) > 1:
+                    forms = [re.sub(r" or instance of \w+$", "", f["text"].removeprefix("Input should be "))
+                             for f in out]
+                    one = {**out[0], "text": f"{out[0]['input']!r} should be {', or '.join(forms)}", "members": []}
+                    found = [one if f is out[0] else f for f in found if f not in out[1:]]
+            raise PlanError("\n".join(f"{f['path']}: {f['text']}" if f["path"] else f["text"]
+                                      for f in found)) from None
 
     @model_validator(mode="before")
     @classmethod
