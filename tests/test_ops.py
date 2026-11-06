@@ -934,9 +934,9 @@ def test_a_reduction_or_an_elementwise_transform_of_ids_takes_their_hole_as_miss
 
 
 def test_argmax_and_top_k_rank_ids_with_their_hole_below_every_id():
-    """Ids (a top_k step's `ids`, an `argmax`'s) rank as the integers they are, exactly, their hole -1 missing as NaN is:
-    ranked below every id, a pick past the ids there -1, and a vector of holes -1; `top_k`'s `values` keep the ids'
-    dtype, the hole -1 in them."""
+    """Ids (a top_k step's `ids`, an `argmax`'s) below 2^53 rank as the integers they are, their hole -1 missing as
+    NaN is: ranked below every id, a pick past the ids there -1, and a vector of holes -1; `top_k`'s `values` keep
+    the ids' dtype, the hole -1 in them."""
     ids = torch.tensor([[[3, -1, 7, 5]], [[-1, -1, -1, -1]], [[2**40 + 1, 2**40, -1, 0]]])
     dims = ["rows", "pos", "k"]
     assert transforms.argmax(ids, dims, over="k").tolist() == [[2], [-1], [0]]

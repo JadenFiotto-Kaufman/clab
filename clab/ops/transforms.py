@@ -206,8 +206,9 @@ def past(x: Tensor, k: int) -> Tensor:
 
 def picked(x: Tensor, k: int) -> tuple[Tensor, Tensor]:
     """The ids of the `k` largest of the entries of `x`'s last axis that are there, a missing one (NaN; in ids, an
-    integer value, the hole -1, ranked as the float64 it is exactly) ranked below every other, and which of them pick
-    no entry that is there: past a vector's own along a ragged axis, or every one of a vector that is missing whole."""
+    integer value, the hole -1, ranked as float64, which holds an id exactly below 2^53) ranked below every other,
+    and which of them pick no entry that is there: past a vector's own along a ragged axis, or every one of a vector
+    that is missing whole."""
     x = x if x.is_floating_point() else x.double().masked_fill(x == -1, math.nan)
     ids = ranked(x.masked_fill(x.isnan(), -math.inf), k)
     return ids, x.gather(-1, ids).isnan()
@@ -243,8 +244,8 @@ def top_k(of: Tensor, k: int, dims: list[str], over: str | list[str] = RANKED
     it names a fit's, each a value laid out as the step's value is, with its labels: `<step>.ids` (an integer value,
     its hole -1), `<step>.probs` (float32) or `<step>.values` (the value's dtype), and over `vocab_size`
     `<step>.tokens`, which is text, as the op that takes a tensor refuses it; over a list of axes `<step>.ids` is one
-    tensor per axis, which an op takes by axis, `<step>.ids.rows`. Ids rank as the integers they are (an `argmax` of
-    `<step>.ids`), their hole below every id."""
+    tensor per axis, which an op takes by axis, `<step>.ids.rows`. Ids below 2^53 rank as the integers they are (an
+    `argmax` of `<step>.ids`), their hole below every id."""
     axes = over if isinstance(over, list) else [over]
     x = of.movedim([dims.index(a) for a in axes], list(range(of.dim() - len(axes), of.dim())))
     sizes = x.shape[of.dim() - len(axes):]
