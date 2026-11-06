@@ -515,14 +515,27 @@ SHARDING = "tensor parallelism is a run option: -o tp=N"
                                       ("repo_id", "the checkpoint is spelled `key`"),
                                       ("tp_plan", SHARDING), ("tp_size", SHARDING), ("distributed_config", SHARDING),
                                       ("device_mesh", SHARDING)])
-def test_a_model_key_no_engine_takes_is_refused_as_the_document_is_read(key, why):
+def test_a_model_key_no_engine_takes_is_refused_at_compile(key, why):
     """A loader key that respells one the model block owns (`key`, `revision`, `dtype` and a quantization in it), or
-    names a run option, is refused by name with the key or option to write as the document is read, so `clab
-    compile` refuses it before any engine. Each reached the engine before: `_commit_hash` (which transformers drops)
-    and `device_mesh` loaded and ran, `tp_size` was refused as a cache miss, and the other new ones by the loader as
-    an argument it did not expect or got twice."""
+    names a run option, is refused by name at compile with the key or option to write, so `clab compile` refuses it
+    before any engine; the document reads, as a run's plan read back does (test_cli.py pins that). Each reached the
+    engine before: `_commit_hash` (which transformers drops) and `device_mesh` loaded and ran, `tp_size` was refused
+    as a cache miss, and the other new ones by the loader as an argument it did not expect or got twice."""
+    plan = edited("patching", lambda d: d["model"].update({key: "cpu"}))
     with pytest.raises(PlanError, match=f"^model: '{key}': {why}$"):
-        edited("patching", lambda d: d["model"].update({key: "cpu"}))
+        plan.compile()
+
+
+@pytest.mark.parametrize("kind", ["nnterp", "hooks", "ndif"])
+def test_a_loader_refuses_a_model_key_it_cannot_honor(kind):
+    """An engine given a model block directly, which no compile judged, refuses each key of `OWNED` by name as it
+    loads, before its loader sees it."""
+    from clab.engines import ENGINES
+    from clab.plan import OWNED
+    for key, why in OWNED.items():
+        model = edited("patching", lambda d: d["model"].update({key: "cpu"})).model
+        with pytest.raises(ValueError, match=f"^model.{key}: the {kind} engine cannot honor it: {re.escape(why)}$"):
+            ENGINES[kind](model)
 
 
 def test_a_revision_the_cache_lacks_compiles_and_is_refused_as_the_engine_loads():

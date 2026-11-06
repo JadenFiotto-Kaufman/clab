@@ -26,7 +26,6 @@ Each row quotes a message's first clause without its `<where>:`. `<x>` stands fo
 | `unknown step kind '<k>'` | `kind` names no step kind | [FORMAT.md](../../FORMAT.md#step-kinds) |
 | `'<f>' is a derived field, which compile writes` | a field compile fills, set in a document: a step's `at` or `schedule`, `batch_size` on a forward or a generate, an entry's `positions`, `gathered`, `dims`, `width` or `space`, an op's `space` | [FORMAT.md](../../FORMAT.md#derived-fields) |
 | `a compiled plan holds no sweep` | a document that sets `compiled`, a field the plan derives, beside a sweep; leave `compiled` out | [FORMAT.md](../../FORMAT.md#derived-fields) |
-| ``'<key>': the dtype is spelled `dtype` ``, `'<key>': where the model runs is a run option: --device`, `'<key>': tensor parallelism is a run option: -o tp=N`, … | a model-block key that respells `key`, `revision` or `dtype`, or names a run option (`clab/plan.py` `OWNED` lists each with its fix) | [engines.md](../usage/engines.md#where-the-model-goes---device) |
 | `'reads': a step's reads and writes are one 'interventions' value` | entries go in one `interventions` dict; an entry with an edit writes | [interventions.md](../usage/interventions.md) |
 | `an entry named '<k>': a step's reads and writes are one 'interventions' value, …` | a bundle's entry named `reads` or `writes`; a bundle is one dict of entries, and an entry with an edit writes | [interventions.md](../usage/interventions.md#named-bundles) |
 | `a name has no dots` | a step named with a dot | [writing-a-document.md](../usage/writing-a-document.md) |
@@ -90,6 +89,7 @@ Each row quotes a message's first clause without its `<where>:`. `<x>` stands fo
 
 | Message | Cause | Page |
 |---|---|---|
+| ``'<key>': the dtype is spelled `dtype` ``, `'<key>': where the model runs is a run option: --device`, `'<key>': tensor parallelism is a run option: -o tp=N`, … | a model-block key that respells `key`, `revision` or `dtype`, or names a run option (`clab/plan.py` `OWNED` lists each with its fix), refused at compile | [engines.md](../usage/engines.md#where-the-model-goes---device) |
 | `a dataset's rows come from one of 'path', inline 'rows' and a hub dataset 'hf'` | a dataset with none of the three, or several | [data.md](../usage/data.md#where-rows-come-from) |
 | `hf '<x>': a hub dataset is named '<owner>/<name>'` | an `hf` that is not `<owner>/<name>` | [data.md](../usage/data.md#where-rows-come-from) |
 | `'hf' needs 'revision'` | a hub dataset without the commit to load | [data.md](../usage/data.md#where-rows-come-from) |
@@ -390,6 +390,7 @@ Each row quotes a message's first clause without its `<where>:`. `<x>` stands fo
 | `device '<d>': no CUDA device is visible` | a GPU device where none is visible, under nnterp or hooks | [engines.md](../usage/engines.md#where-the-model-goes---device) |
 | `device '<d>': <n> CUDA devices visible, cuda:0 to cuda:<m>` | a GPU index past the visible ones | [engines.md](../usage/engines.md#where-the-model-goes---device) |
 | `model.key '<k>' at revision '<r>': the <engine> engine cannot load it` | the loader could not load the checkpoint; offline, the `revision` is not in the cache | [engines.md](../usage/engines.md) |
+| `model.<key>: the <engine> engine cannot honor it` | a key of `OWNED` in a model block given an engine directly, which no compile judged | [engines.md](../usage/engines.md#where-the-model-goes---device) |
 | `model.<key>: the <engine> engine's loader rejects it` | a model-block value the loader refuses (a bad `attn_implementation`) | [engines.md](../usage/engines.md) |
 | `<v> is not a value generate takes` | a generate option of a type the generation config refuses | [generate.md](../usage/generate.md#options) |
 | `'<opt>' is a parameter of generate itself` | one of `generate`'s own parameters given as an option | [generate.md](../usage/generate.md#options) |

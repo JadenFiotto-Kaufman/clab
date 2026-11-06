@@ -54,7 +54,7 @@ data.pairs.take: take 400, and the dataset has 4 rows; take keeps at most as man
 
 - The hooks engine loads the checkpoint the model block pins.
 - The nnterp engine (at `tp` 1), `ndif` and `vllm` build a shell with no weights. Each engine that runs the model here loads the weights before the first step of a run that calls the model ([engines.md](../usage/engines.md#where-the-model-goes---device)). A model block key the loader rejects is refused there.
-- The engine refuses what it cannot honor by name, before any weight loads: an option, a device, a checkpoint or revision the offline cache lacks, a `dtype` ([engines.md](../usage/engines.md#engine-options--o-keyvalue)). A model block key no engine takes (`device`, `torch_dtype`) was refused as the document was read.
+- The engine refuses what it cannot honor by name, before any weight loads: an option, a device, a checkpoint or revision the offline cache lacks, a `dtype` ([engines.md](../usage/engines.md#engine-options--o-keyvalue)). A model block key no engine takes (`device`, `torch_dtype`) was refused at compile; an engine given such a block directly refuses it here.
 
 ```text
 the hooks engine takes no 'remote'; its options: none (where the model runs is `device`, given as --device)

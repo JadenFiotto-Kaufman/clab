@@ -9,7 +9,7 @@ import sys
 import pytest
 from conftest import BATCH_SIZE, ROOT, document, edited, plan_of
 
-from clab import cli
+from clab import Plan, cli
 from clab.cli import compact, main, shaped
 
 
@@ -94,6 +94,32 @@ def test_compile_prints_what_would_run_and_exits_0(capsys):
         ["patched", "forward", "pairs.input", "pos=-1"], ["patched", "forward", "pairs.input", "pos=-2"],
         ["patched", "forward", "pairs.input", "pos=-3"]]
     assert [line.split()[:2] for line in shown[6:]] == [["iia", "op"]] * 3 + [["logit_diff", "op"]] * 3
+
+
+def test_a_run_whose_model_block_holds_a_key_compile_now_refuses_reads_back(engines, tmp_path, capsys):
+    """A run written before compile refused `tp_size`, `_commit_hash` and `device_mesh` in the model block (each
+    loaded and ran) is a record: `Plan.load`, `clab show` and `clab table` read it as they read any run. The document
+    is refused at compile, and by `clab compile`, naming the key."""
+    plan = plan_of("patching")
+    engines("hooks", plan.model).execute(plan, batch_size=BATCH_SIZE).dump(str(tmp_path))
+    with open(tmp_path / "manifest.json") as f:
+        held = json.load(f)
+    held["model"].update(tp_size=1, _commit_hash=held["model"]["revision"], device_mesh=None)
+    with open(tmp_path / "manifest.json", "w") as f:
+        json.dump(held, f)
+    assert (Plan.load(str(tmp_path)).model.model_extra or {})["tp_size"] == 1
+    assert len(Plan.load(str(tmp_path)).table("iia", "logit_diff")) == 4
+    assert main(["show", str(tmp_path)]) == 0 and main(["table", str(tmp_path), "iia"]) == 0
+    capsys.readouterr()
+    with open(document("patching")) as f:
+        doc = json.load(f)
+    doc["model"]["tp_size"] = 1
+    path = tmp_path / "documents" / "sharded.json"
+    path.parent.mkdir()
+    (tmp_path / "data").symlink_to(os.path.join(ROOT, "data"))
+    path.write_text(json.dumps(doc))
+    assert main(["compile", str(path)]) == 1
+    assert capsys.readouterr() == ("", "clab: model: 'tp_size': tensor parallelism is a run option: -o tp=N\n")
 
 
 def test_compile_refuses_as_run_does_in_one_line(tmp_path, capsys):

@@ -9,7 +9,7 @@ import logging
 from typing import TYPE_CHECKING, Any, Callable, cast
 
 from clab.format.address import COMPONENTS
-from clab.plan import QUANTIZED
+from clab.plan import OWNED, QUANTIZED
 
 if TYPE_CHECKING:
     from nnsight.intervention.envoy import Envoy
@@ -232,12 +232,15 @@ def build(model: Model, engine: str, call: Callable[[dict[str, Any]], Any]) -> A
     """`call` with the model block's keys other than `key`, `revision` and `dtype` (which `loading` reads), as they
     are, once the `pad_token_id` warning (`PADDED`) is filtered off the transformers logger that emits it, the filter
     (`unpadded`) added once and passing every other message of that logger. A key the block may not hold
-    (`plan.OWNED`) never gets here, since `Model` refuses it as the document is read; one the loader rejects is
-    reported as that key. A checkpoint the loader cannot get (its `OSError`) is refused as
+    (`plan.OWNED`, which compile refuses in a document) is refused by name, and one the loader rejects is reported
+    as that key. A checkpoint the loader cannot get (its `OSError`) is refused as
     `model.key`, saying whether the run is offline and the cache lacks it."""
     from huggingface_hub.constants import HF_HUB_OFFLINE
 
     extra = dict(model.model_extra or {})
+    for key in extra:
+        if key in OWNED:
+            raise ValueError(f"model.{key}: the {engine} engine cannot honor it: {OWNED[key]}")
     logger = logging.getLogger("transformers.configuration_utils")
     if unpadded not in logger.filters:
         logger.addFilter(unpadded)
